@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CodeGen Compare</title>
+<style>
+:root {
+  --bg: #1e1f22; --panel: #26272b; --border: #3a3b40; --fg: #d4d4d4; --dim: #8a8a8a;
+  --real-del-bg: #3d2326; --real-add-bg: #21391f; --real-word-del: #7a3a3a; --real-word-add: #2f6b2f;
+  --ign-bg: #3a3520; --ign-border: #b89a2e;
+  --sel: #2d4a6d;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+       font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; }
+
+/* ---------- header ---------- */
+#hdr { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+       background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+#hdr h1 { font-size: 15px; margin: 0 8px 0 0; white-space: nowrap; }
+.roots { color: var(--dim); font-size: 11px; line-height: 1.5; }
+.roots b { color: var(--fg); font-weight: 600; }
+#summary { display: flex; gap: 6px; margin-left: auto; align-items: center; flex-wrap: wrap; }
+.badge { padding: 2px 9px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
+.b-real { background: #6e2b2b; color: #ffb3b3; } .b-ign { background: #5c522a; color: #ffe28a; }
+.b-id { background: #333; color: #aaa; } .b-add { background: #2b5232; color: #a8e6b0; }
+.b-del { background: #4a2b52; color: #d9a8e6; }
+button, .btn { background: #35363c; color: var(--fg); border: 1px solid var(--border);
+       border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; text-decoration: none; }
+button:hover, .btn:hover { background: #414248; }
+button.on { background: #59502a; border-color: var(--ign-border); color: #ffe28a; }
+
+/* ---------- layout ---------- */
+#main { flex: 1; display: flex; min-height: 0; }
+#side { width: 26%; min-width: 220px; max-width: 480px; background: var(--panel);
+        border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+#sidebar-tools { padding: 8px; border-bottom: 1px solid var(--border); display: flex;
+                 gap: 8px; align-items: center; }
+#filter { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--fg);
+          border-radius: 5px; padding: 4px 8px; font-size: 12px; min-width: 60px; }
+#sidebar-tools label { font-size: 11px; color: var(--dim); white-space: nowrap; user-select: none; }
+#tree { flex: 1; overflow: auto; padding: 6px 0; }
+.dir > .drow, .frow { display: flex; align-items: center; gap: 6px; padding: 2px 10px;
+        cursor: pointer; white-space: nowrap; }
+.frow:hover, .dir > .drow:hover { background: #303136; }
+.frow.sel { background: var(--sel); }
+.dir > .kids { margin-left: 14px; }
+.dir.closed > .kids { display: none; }
+.caret { width: 10px; color: var(--dim); font-size: 10px; }
+.dir.closed > .drow .caret::before { content: "▶"; }
+.dir > .drow .caret::before { content: "▼"; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.s-real .dot { background: #e05555; }
+.s-ign .dot { background: #d8b93a; }
+.s-id .dot { background: #555; }
+.s-add .dot { background: #4fbe63; }
+.s-del .dot { background: #b060c8; }
+.s-del .fname { text-decoration: line-through; color: var(--dim); }
+.fname { overflow: hidden; text-overflow: ellipsis; }
+body.hide-identical .frow.s-id { display: none; }
+
+/* ---------- diff pane ---------- */
+#pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#filehdr { padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--panel);
+           display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 34px; }
+#filehdr .path { font-family: Consolas, monospace; font-size: 13px; }
+.chip { background: #4a4425; color: #ffe28a; border: 1px solid var(--ign-border);
+        padding: 1px 8px; border-radius: 9px; font-size: 11px; font-family: Consolas, monospace; }
+#diffwrap { flex: 1; overflow: auto; }
+table#diff { border-collapse: collapse; width: 100%; table-layout: fixed;
+             font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+#diff td { padding: 0 6px; vertical-align: top; white-space: pre-wrap; word-break: break-all;
+           border-right: 1px solid #2c2d31; }
+td.ln { width: 46px; text-align: right; color: #62636a; user-select: none; background: #232428; }
+tr.real td.o.filled { background: var(--real-del-bg); }
+tr.real td.n.filled { background: var(--real-add-bg); }
+tr.real td.o.filled mark { background: var(--real-word-del); color: inherit; }
+tr.real td.n.filled mark { background: var(--real-word-add); color: inherit; }
+mark { padding: 0; }
+tr.ign td.o.filled, tr.ign td.n.filled { background: var(--ign-bg); }
+tr.ign td.o { border-left: 3px solid var(--ign-border); }
+tr.kindlbl td { background: #2b2c30; color: var(--dim); font-size: 10px; padding: 1px 8px;
+                border-top: 1px solid var(--border); user-select: none; }
+tr.kindlbl .k { color: #d8b93a; font-weight: 600; }
+tr.kindlbl.kreal .k { color: #e05555; }
+body.hide-ign tr.ign td.o.filled, body.hide-ign tr.ign td.n.filled { background: transparent; }
+body.hide-ign tr.ign td.o { border-left: 3px solid transparent; }
+body.hide-ign tr.kindlbl.kign { display: none; }
+tr.addf td.n.filled { background: var(--real-add-bg); }
+tr.delf td.o.filled { background: var(--real-del-bg); }
+#placeholder { padding: 40px; color: var(--dim); text-align: center; }
+#placeholder .keys { margin-top: 12px; font-size: 11px; }
+kbd { background: #35363c; border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; }
+</style>
+</head>
+<body>
+<div id="hdr">
+  <h1>CodeGen Compare</h1>
+  <div class="roots"><div>OLD: <b id="oldroot"></b></div><div>NEW: <b id="newroot"></b></div></div>
+  <div id="summary"></div>
+  <button id="toggleIgn" title="Show/hide highlights of ignored diffs (comments, renames, UUIDs, timestamps, whitespace)"></button>
+  <a class="btn" href="/api/report" target="_blank" title="Self-contained HTML report of real changes">Export report</a>
+</div>
+<div id="main">
+  <div id="side">
+    <div id="sidebar-tools">
+      <input id="filter" type="text" placeholder="filter files...">
+      <label><input type="checkbox" id="showIdent"> identical</label>
+    </div>
+    <div id="tree"></div>
+  </div>
+  <div id="pane">
+    <div id="filehdr"><span class="path" id="fpath">Select a file</span><span id="chips"></span></div>
+    <div id="diffwrap">
+      <div id="placeholder">
+        Select a file from the tree to view its diff.
+        <div class="keys"><kbd>n</kbd> next real hunk &nbsp; <kbd>p</kbd> previous real hunk</div>
+      </div>
+      <table id="diff" style="display:none">
+        <colgroup><col style="width:46px"><col><col style="width:46px"><col></colgroup>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const STATUS_CLS = { "real-change": "s-real", "ignorable-only": "s-ign", "identical": "s-id",
+                     "added": "s-add", "deleted": "s-del" };
+const STATUS_RANK = { "s-real": 0, "s-add": 1, "s-del": 2, "s-ign": 3, "s-id": 4 };
+let treeData = null, currentPath = null;
+
+/* ---------- toggle states ---------- */
+function setIgnToggle(on) {
+  document.body.classList.toggle("hide-ign", !on);
+  $("toggleIgn").textContent = "Ignored: " + (on ? "SHOWN" : "HIDDEN");
+  $("toggleIgn").classList.toggle("on", on);
+  localStorage.setItem("showIgn", on ? "1" : "0");
+}
+$("toggleIgn").onclick = () => setIgnToggle(document.body.classList.contains("hide-ign"));
+setIgnToggle(localStorage.getItem("showIgn") !== "0");
+
+$("showIdent").onchange = e => document.body.classList.toggle("hide-identical", !e.target.checked);
+document.body.classList.add("hide-identical");
+
+/* ---------- tree ---------- */
+async function loadTree() {
+  const r = await fetch("/api/tree");
+  treeData = await r.json();
+  $("oldroot").textContent = treeData.old_root;
+  $("newroot").textContent = treeData.new_root;
+  const s = treeData.summary;
+  $("summary").innerHTML =
+    `<span class="badge b-real">${s["real-change"]} real</span>` +
+    `<span class="badge b-ign">${s["ignorable-only"]} ignorable</span>` +
+    `<span class="badge b-add">${s["added"]} added</span>` +
+    `<span class="badge b-del">${s["deleted"]} deleted</span>` +
+    `<span class="badge b-id">${s["identical"]} identical</span>`;
+  buildTree(treeData.files);
+}
+
+function buildTree(files) {
+  // nested {dirs: {name: node}, files: [{name, path, status}]}
+  const root = { dirs: {}, files: [] };
+  for (const f of files) {
+    const parts = f.path.split("/");
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      node = node.dirs[parts[i]] || (node.dirs[parts[i]] = { dirs: {}, files: [] });
+    }
+    node.files.push({ name: parts[parts.length - 1], path: f.path, status: f.status });
+  }
+  $("tree").innerHTML = "";
+  $("tree").appendChild(renderDir(root, ""));
+  applyFilter();
+}
+
+function worstStatus(node) {
+  let best = 5;
+  for (const d of Object.values(node.dirs)) best = Math.min(best, worstStatus(d));
+  for (const f of node.files) best = Math.min(best, STATUS_RANK[STATUS_CLS[f.status]]);
+  return best;
+}
+
+function renderDir(node, name) {
+  const frag = name ? document.createElement("div") : document.createDocumentFragment();
+  if (name) {
+    frag.className = "dir";
+    const rank = worstStatus(node);
+    const cls = Object.keys(STATUS_RANK).find(k => STATUS_RANK[k] === rank) || "s-id";
+    frag.innerHTML = `<div class="drow ${cls}"><span class="caret"></span><span class="dot"></span><span class="fname">${esc(name)}</span></div><div class="kids"></div>`;
+    frag.querySelector(".drow").onclick = () => frag.classList.toggle("closed");
+  }
+  const holder = name ? frag.querySelector(".kids") : frag;
+  for (const dname of Object.keys(node.dirs).sort()) {
+    holder.appendChild(renderDir(node.dirs[dname], dname));
+  }
+  for (const f of node.files.sort((a, b) => a.name < b.name ? -1 : 1)) {
+    const row = document.createElement("div");
+    row.className = "frow " + STATUS_CLS[f.status];
+    row.dataset.path = f.path;
+    row.innerHTML = `<span class="caret"></span><span class="dot"></span><span class="fname" title="${esc(f.path)}">${esc(f.name)}</span>`;
+    row.onclick = () => openFile(f.path);
+    holder.appendChild(row);
+  }
+  return frag;
+}
+
+$("filter").oninput = applyFilter;
+function applyFilter() {
+  const q = $("filter").value.toLowerCase();
+  document.querySelectorAll("#tree .frow").forEach(r => {
+    r.style.display = r.dataset.path.toLowerCase().includes(q) ? "" : "none";
+  });
+}
+
+/* ---------- diff rendering ---------- */
+async function openFile(path) {
+  currentPath = path;
+  document.querySelectorAll("#tree .frow.sel").forEach(r => r.classList.remove("sel"));
+  const row = document.querySelector(`#tree .frow[data-path="${CSS.escape(path)}"]`);
+  if (row) row.classList.add("sel");
+  const r = await fetch("/api/diff?path=" + encodeURIComponent(path));
+  const d = await r.json();
+  $("fpath").textContent = path + "  [" + d.status + (d.notes.length ? ": " + d.notes.join(",") : "") + "]";
+  $("chips").innerHTML = Object.entries(d.renames)
+    .map(([a, b]) => `<span class="chip">${esc(a)} → ${esc(b)}</span>`).join(" ");
+  renderDiff(d);
+}
+
+// char-level emphasis: common prefix/suffix, mark the differing middle
+function charDiff(a, b) {
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  const mk = (t) => esc(t.slice(0, p)) +
+    (t.length - p - s > 0 ? "<mark>" + esc(t.slice(p, t.length - s)) + "</mark>" : "") +
+    esc(t.slice(t.length - s));
+  return [mk(a), mk(b)];
+}
+
+function renderDiff(d) {
+  $("placeholder").style.display = "none";
+  const tbl = $("diff");
+  tbl.style.display = "";
+  const tb = $("rows");
+  tb.innerHTML = "";
+  const O = d.old_lines, N = d.new_lines;
+  const html = [];
+
+  function eqRows(oi, ni, count) {
+    for (let k = 0; k < count; k++) {
+      html.push(`<tr class="eq"><td class="ln">${oi + k + 1}</td><td class="o filled">${esc(O[oi + k])}</td>` +
+                `<td class="ln">${ni + k + 1}</td><td class="n filled">${esc(N[ni + k])}</td></tr>`);
+    }
+  }
+
+  if (d.binary) {
+    html.push(`<tr><td class="ln"></td><td class="o" colspan="3">Binary file differs — no text diff.</td></tr>`);
+  } else if (d.status === "added") {
+    for (let k = 0; k < N.length; k++) {
+      html.push(`<tr class="addf"><td class="ln"></td><td class="o"></td><td class="ln">${k + 1}</td><td class="n filled">${esc(N[k])}</td></tr>`);
+    }
+  } else if (d.status === "deleted") {
+    for (let k = 0; k < O.length; k++) {
+      html.push(`<tr class="delf"><td class="ln">${k + 1}</td><td class="o filled">${esc(O[k])}</td><td class="ln"></td><td class="n"></td></tr>`);
+    }
+  } else {
+    let oi = 0, ni = 0, hunkNo = 0;
+    for (const h of d.hunks) {
+      const [i1, i2] = h.old_range, [j1, j2] = h.new_range;
+      eqRows(oi, ni, i1 - oi);
+      const isReal = h.kind === "real";
+      const cls = isReal ? "real" : "ign";
+      html.push(`<tr class="kindlbl ${isReal ? "kreal" : "kign"}" id="hunk${hunkNo}" data-real="${isReal ? 1 : 0}">` +
+                `<td colspan="4"><span class="k">${isReal ? "REAL CHANGE" : "ignored: " + esc(h.kind)}</span></td></tr>`);
+      const span = Math.max(i2 - i1, j2 - j1);
+      const balanced = (i2 - i1) === (j2 - j1);
+      for (let k = 0; k < span; k++) {
+        const hasO = i1 + k < i2, hasN = j1 + k < j2;
+        let oTxt = hasO ? esc(O[i1 + k]) : "";
+        let nTxt = hasN ? esc(N[j1 + k]) : "";
+        if (isReal && balanced && hasO && hasN) {
+          [oTxt, nTxt] = charDiff(O[i1 + k], N[j1 + k]);
+        }
+        html.push(`<tr class="${cls}"><td class="ln">${hasO ? i1 + k + 1 : ""}</td><td class="o${hasO ? " filled" : ""}">${oTxt}</td>` +
+                  `<td class="ln">${hasN ? j1 + k + 1 : ""}</td><td class="n${hasN ? " filled" : ""}">${nTxt}</td></tr>`);
+      }
+      oi = i2; ni = j2; hunkNo++;
+    }
+    eqRows(oi, ni, O.length - oi);
+  }
+  tb.innerHTML = html.join("");
+}
+
+/* ---------- keyboard: n/p jump between real hunks ---------- */
+let hunkCursor = -1;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || (e.key !== "n" && e.key !== "p")) return;
+  const marks = [...document.querySelectorAll('tr.kindlbl[data-real="1"]')];
+  if (!marks.length) return;
+  hunkCursor = e.key === "n"
+    ? (hunkCursor + 1) % marks.length
+    : (hunkCursor - 1 + marks.length) % marks.length;
+  marks[hunkCursor].scrollIntoView({ block: "center", behavior: "smooth" });
+});
+
+loadTree();
+</script>
+</body>
+</html>
