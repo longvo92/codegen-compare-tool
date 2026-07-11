@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+  <ADMIN-DATA>
+    <SDGS>
+      <SDG GID="Generator">
+        <SD GID="Version">9.8</SD>
+        <SD GID="Date">2026-01-05T10:12:33</SD>
+      </SDG>
+    </SDGS>
+  </ADMIN-DATA>
+  <AR-PACKAGES>
+    <AR-PACKAGE UUID="11111111-aaaa-4bbb-8ccc-000000000001">
+      <SHORT-NAME>Interfaces</SHORT-NAME>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>
