@@ -111,6 +111,62 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r2['status'], 'real-change')
 
 
+class TestMovedBlocks(unittest.TestCase):
+    OLD = ("void Alpha(void)\n{\n  alpha_state = 1;\n  alpha_out = 2;\n}\n"
+           "void Beta(void)\n{\n  beta_state = 3;\n}\n")
+    NEW = ("void Beta(void)\n{\n  beta_state = 3;\n}\n"
+           "void Alpha(void)\n{\n  alpha_state = 1;\n  alpha_out = 2;\n}\n")
+
+    def test_reordered_functions_marked_moved(self):
+        r = compare_pair(self.OLD, self.NEW, 'f.c')
+        # fail-safe: moved-only file still counts as a real change
+        self.assertEqual(r['status'], 'real-change')
+        self.assertEqual(set(kinds(r)), {'moved'})
+
+    def test_moved_hunks_cross_reference_lines(self):
+        r = compare_pair(self.OLD, self.NEW, 'f.c')
+        tos = [h['moved_to'] for h in r['hunks'] if 'moved_to' in h]
+        froms = [h['moved_from'] for h in r['hunks'] if 'moved_from' in h]
+        self.assertEqual(len(tos), 1)
+        self.assertEqual(len(froms), 1)
+        # Beta block: inserted at top of NEW, originally after Alpha in OLD
+        self.assertEqual(tos[0], 1)
+        self.assertEqual(froms[0], 6)
+
+    def test_single_line_move_stays_real(self):
+        old = "a = 1;\nb = 2;\nc = 3;\n"
+        new = "b = 2;\nc = 3;\na = 1;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        self.assertNotIn('moved', kinds(r))
+
+    def test_ambiguous_duplicate_block_stays_real(self):
+        old = "keep1();\nmov_a();\nmov_b();\nkeep2();\nkeep3();\n"
+        new = ("keep1();\nkeep2();\nmov_a();\nmov_b();\nkeep3();\n"
+               "mov_a();\nmov_b();\n")
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        self.assertNotIn('moved', kinds(r))
+
+    def test_move_plus_real_change_keeps_real_hunk(self):
+        # unchanged separator line between the moved block and the real
+        # change: adjacent ones merge into a replace hunk and stay real
+        old = self.OLD + "int keep = 0;\nint lim = 5;\n"
+        new = self.NEW + "int keep = 0;\nint lim = 10;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        ks = kinds(r)
+        self.assertIn('moved', ks)
+        self.assertIn('real', ks)
+
+    def test_moved_block_with_comment_change_still_moved(self):
+        # comments differ between the two copies; shadow content is equal
+        old = "u();\nstep_a(); /* v1 */\nstep_b();\nv();\nw();\n"
+        new = "u();\nv();\nw();\nstep_a(); /* v2 */\nstep_b();\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(set(kinds(r)), {'moved'})
+
+
 class TestFixtureTree(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
