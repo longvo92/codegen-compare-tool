@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import _group_hunks, _group_label, _group_table, build_report
+from compare_tool.report import (_group_hunks, _group_label, _group_table,
+                                 _groups_html, build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -87,6 +88,46 @@ class TestRealPlusMinor(unittest.TestCase):
         page = build_report(results, FIX / 'old', FIX / 'new')
         self.assertNotIn('not shown', page)
         self.assertIn('delm', page)  # fixture real_change.c has comment hunks
+
+
+class TestUnimportantToggle(unittest.TestCase):
+    """Unimportant badge must also hide minor changes inside Modified files."""
+
+    MIXED_OLD = "/* gen Mon */\nint lim = 5;\nint keep = 0;\n"
+    MIXED_NEW = "/* gen Tue */\nint lim = 10;\nint keep = 0;\n"
+
+    def test_minor_rows_tagged_for_toggle(self):
+        r = compare_pair(self.MIXED_OLD, self.MIXED_NEW, 'f.c')
+        table = _group_table(self.MIXED_OLD.split('\n'), self.MIXED_NEW.split('\n'),
+                             _group_hunks(r['hunks'])[0])
+        self.assertIn('<tr class="minor">', table)      # comment row hideable
+        self.assertIn('<tr><td class="ln">', table)     # real/ctx rows untagged
+
+    def test_placeholder_row_per_minor_hunk(self):
+        r = compare_pair(self.MIXED_OLD, self.MIXED_NEW, 'f.c')
+        table = _group_table(self.MIXED_OLD.split('\n'), self.MIXED_NEW.split('\n'),
+                             _group_hunks(r['hunks'])[0])
+        self.assertIn('minorph', table)
+        self.assertIn('1 minor (comment) line hidden', table)
+
+    def test_minor_only_group_wrapped_grp_min(self):
+        r = compare_pair(OLD_ARXML, NEW_ARXML, 'f.arxml')
+        out = _groups_html(OLD_ARXML.split('\n'), NEW_ARXML.split('\n'), r['hunks'])
+        self.assertIn('<div class="grp grp-min">', out)
+
+    def test_mixed_group_not_wrapped_grp_min(self):
+        r = compare_pair(self.MIXED_OLD, self.MIXED_NEW, 'f.c')
+        out = _groups_html(self.MIXED_OLD.split('\n'), self.MIXED_NEW.split('\n'),
+                           r['hunks'])
+        self.assertIn('<div class="grp">', out)
+        self.assertNotIn('grp-min', out)
+
+    def test_css_hides_minor_on_toggle(self):
+        results = scan(FIX / 'old', FIX / 'new')
+        page = build_report(results, FIX / 'old', FIX / 'new')
+        self.assertIn('body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }',
+                      page)
+        self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
 
 
 if __name__ == '__main__':

@@ -62,6 +62,10 @@ td.delm .chg-seg, td.addm .chg-seg { background: #8a6d1f; color: #ffe9a8; font-w
       margin: 0 4px 0 2px; vertical-align: -1px; }
 .sw-del { background: #7a2f2f; } .sw-add { background: #2f6e3d; } .sw-min { background: #8a6d1f; }
 tr.gap td { text-align: center; color: #666; background: #26272b; font-size: 11px; }
+body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }
+tr.minorph { display: none; }
+body.hide-ign tr.minorph { display: table-row; }
+tr.minorph td { color: #a8935a; }
 .filenote { color: #8a8a8a; font-size: 12px; margin: 2px 0 10px; }
 .renames { font-size: 12px; color: #c8b458; margin: 2px 0 8px; }
 code { background: #2b2c30; padding: 1px 5px; border-radius: 4px; }
@@ -130,6 +134,10 @@ def _group_table(old_lines, new_lines, group):
             o_no, o_txt = (hi1 + k + 1, old_lines[hi1 + k]) if hi1 + k < hi2 else ('', None)
             n_no, n_txt = (hj1 + k + 1, new_lines[hj1 + k]) if hj1 + k < hj2 else ('', None)
             rows.append(_row(o_no, o_txt, n_no, n_txt, mode))
+        if mode == 'minor':
+            rows.append('<tr class="gap minorph"><td colspan="4">⋯ {} minor ({}) '
+                        'line{} hidden</td></tr>'
+                        .format(span, _esc(h['kind']), '' if span == 1 else 's'))
         if idx + 1 < len(group):
             # equal lines between this hunk and the next of the group
             gap = group[idx + 1]['old_range'][0] - hi2
@@ -141,6 +149,21 @@ def _group_table(old_lines, new_lines, group):
     for k in range(tail):
         rows.append(_row(i2 + k + 1, old_lines[i2 + k], j2 + k + 1, new_lines[j2 + k], 'ctx'))
     return '<table class="diff">' + ''.join(rows) + '</table>'
+
+
+def _groups_html(old_lines, new_lines, hunks):
+    """All hunk groups of one file. A group with no real hunk is wrapped in
+    .grp-min so the Unimportant badge hides it (label + context included);
+    minor rows inside mixed groups hide individually via tr.minor."""
+    out = []
+    for g in _group_hunks(hunks):
+        minor_only = all(h['kind'] != 'real' for h in g)
+        out.append('<div class="grp{}">'.format(' grp-min' if minor_only else ''))
+        if any(h['kind'] != 'real' for h in g):
+            out.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
+        out.append(_group_table(old_lines, new_lines, g))
+        out.append('</div>')
+    return ''.join(out)
 
 
 def _char_diff(old_txt, new_txt):
@@ -175,8 +198,10 @@ def _row(o_no, o_txt, n_no, n_txt, mode):
         else:
             l = _esc(o_txt) if o_txt is not None else ''
             r = _esc(n_txt) if n_txt is not None else ''
-    return ('<tr><td class="ln">{}</td><td class="{}">{}</td>'
-            '<td class="ln">{}</td><td class="{}">{}</td></tr>').format(o_no, lcls, l, n_no, rcls, r)
+    trcls = ' class="minor"' if mode == 'minor' else ''
+    return ('<tr{}><td class="ln">{}</td><td class="{}">{}</td>'
+            '<td class="ln">{}</td><td class="{}">{}</td></tr>').format(
+                trcls, o_no, lcls, l, n_no, rcls, r)
 
 
 # status -> (tree marker, marker css class, section css class for badge toggling)
@@ -292,7 +317,8 @@ def build_report(results, old_root, new_root):
                  '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} Deleted</span>'
                  '<span class="badge b-id off" onclick="tg(this,\'id\')">{identical} Identical</span>'
                  '</div>'.format(**counts))
-    parts.append('<div class="hint">Click a badge to show/hide that category.</div>')
+    parts.append('<div class="hint">Click a badge to show/hide that category. '
+                 'Unimportant also hides minor (yellow) rows inside Modified files.</div>')
 
     real_files = [p for p, r in sorted(results.items()) if r['status'] == 'real-change']
     ign_files = [p for p, r in sorted(results.items()) if r['status'] == 'ignorable-only']
@@ -346,10 +372,7 @@ def build_report(results, old_root, new_root):
             pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
                               for a, b in sorted(r['renames'].items()))
             parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-        for g in _group_hunks(hunks):
-            if any(h['kind'] != 'real' for h in g):
-                parts.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
-            parts.append(_group_table(old_lines, new_lines, g))
+        parts.append(_groups_html(old_lines, new_lines, hunks))
         parts.append('</div></details>')
 
     for rel in ign_files:
@@ -366,9 +389,7 @@ def build_report(results, old_root, new_root):
             pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
                               for a, b in sorted(r['renames'].items()))
             parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-        for g in _group_hunks(r['hunks']):
-            parts.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
-            parts.append(_group_table(old_lines, new_lines, g))
+        parts.append(_groups_html(old_lines, new_lines, r['hunks']))
         parts.append('</div></details>')
 
     for rel in added:
