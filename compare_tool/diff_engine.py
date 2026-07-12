@@ -6,12 +6,23 @@ A raw hunk that does not intersect any real hunk is ignorable; it is labeled
 by testing single normalization rules one at a time.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
-kind in {real, comment, rename, uuid, timestamp, whitespace, mixed}
+kind in {real, moved, comment, rename, uuid, timestamp, whitespace, mixed}
+
+Moved blocks: a pure-delete hunk whose non-blank shadow content reappears
+verbatim as exactly one pure-insert hunk (and vice versa) is labeled 'moved'
+instead of 'real'. Moved hunks carry 'moved_to' / 'moved_from' (1-based line
+in the other file). Fail-safe: ambiguous or partial matches stay 'real', and
+a moved-only file still counts as real-change (statement reordering can be a
+semantic change).
 """
 
 from difflib import SequenceMatcher
 
 from . import arxml_rules, c_rules
+
+# a block must have at least this many non-blank shadow lines to qualify as
+# moved; single lines (`break;`, `}`) reappear by coincidence far too often
+MIN_MOVED_LINES = 2
 
 # extension -> ruleset name
 RULES = {
@@ -58,6 +69,57 @@ def _overlaps(h, real_hunks):
     return False
 
 
+def _overlaps_side(a1, a2, b1, b2):
+    """Range intersection on ONE side (old or new), empty ranges included."""
+    return (a1 < b2 and b1 < a2) or (a1 == a2 and b1 <= a1 <= b2) or (b1 == b2 and a1 <= b1 <= a2)
+
+
+def _slide_down(lines, a, b):
+    """Bottom-most equivalent position of hunk [a, b). A diff places a
+    deleted/inserted block ambiguously when its boundary lines repeat (a
+    trailing '}' can be taken from the block above or below, rotating the
+    hunk content); sliding to the canonical position fixes the rotation so
+    content keys compare reliably."""
+    while b < len(lines) and lines[a] == lines[b]:
+        a += 1
+        b += 1
+    return a, b
+
+
+def _detect_moves(candidates, old_sh_lines, new_sh_lines):
+    """Pair pure-delete hunks with pure-insert hunks whose non-blank shadow
+    content is identical (MATLAB codegen reordering functions/declarations).
+
+    Fail-safe filters: exact shadow content match only, at least
+    MIN_MOVED_LINES non-blank lines, and the content must appear in exactly
+    one delete and one insert hunk (duplicates would be ambiguous).
+
+    Returns ({del_hunk: new_line_1based}, {ins_hunk: old_line_1based});
+    keys are the ORIGINAL hunk tuples, partner lines use slid positions.
+    """
+    dels, inss = {}, {}
+    for h in candidates:
+        i1, i2, j1, j2 = h
+        if j1 == j2 and i2 > i1:
+            a, b = _slide_down(old_sh_lines, i1, i2)
+            key = tuple(_nonblank(old_sh_lines[a:b]))
+            if len(key) >= MIN_MOVED_LINES:
+                dels.setdefault(key, []).append((h, a))
+        elif i1 == i2 and j2 > j1:
+            a, b = _slide_down(new_sh_lines, j1, j2)
+            key = tuple(_nonblank(new_sh_lines[a:b]))
+            if len(key) >= MIN_MOVED_LINES:
+                inss.setdefault(key, []).append((h, a))
+    moved_del, moved_ins = {}, {}
+    for key, dh in dels.items():
+        ih = inss.get(key, [])
+        if len(dh) == 1 and len(ih) == 1:
+            (dhunk, dstart), (ihunk, istart) = dh[0], ih[0]
+            moved_del[dhunk] = istart + 1  # insert position in NEW file
+            moved_ins[ihunk] = dstart + 1  # original position in OLD file
+    return moved_del, moved_ins
+
+
 def _split_balanced(h):
     """Split an N-line-vs-N-line replace hunk into per-line hunks so each
     line pair can be classified independently."""
@@ -73,6 +135,8 @@ def _merge_adjacent(hunks):
     for h in hunks:
         if (merged
                 and merged[-1]['kind'] == h['kind']
+                and merged[-1].get('moved_to') == h.get('moved_to')
+                and merged[-1].get('moved_from') == h.get('moved_from')
                 and merged[-1]['old_range'][1] == h['old_range'][0]
                 and merged[-1]['new_range'][1] == h['new_range'][0]):
             merged[-1]['old_range'][1] = h['old_range'][1]
@@ -162,6 +226,7 @@ def compare_pair(old_text, new_text, path):
     # applying it to the old shadow and re-diffing — any line the map does
     # not fully explain stays a real hunk.
     rename_map = None
+    final_old_shadow_lines = old_shadow_lines
     if ruleset == 'c' and candidates:
         rename_map = c_rules.detect_renames(old_shadow, new_shadow)
         if rename_map:
@@ -172,9 +237,13 @@ def compare_pair(old_text, new_text, path):
                 rename_map = None  # map explained nothing
             else:
                 candidates = remaining
+                final_old_shadow_lines = old_shadow2_lines
                 result['renames'] = dict(rename_map)
 
     real_hunks = candidates
+    moved_del, moved_ins = _detect_moves(candidates, final_old_shadow_lines,
+                                         new_shadow_lines)
+    plain_real = [h for h in candidates if h not in moved_del and h not in moved_ins]
 
     # --- pass 1: raw diff, then classify each hunk ---
     # Balanced replace hunks are split per line so a comment-line change
@@ -187,16 +256,33 @@ def compare_pair(old_text, new_text, path):
 
     hunks = []
     for h in raw_hunks:
-        if _overlaps(h, real_hunks):
+        i1, i2, j1, j2 = h
+        extra = {}
+        if _overlaps(h, plain_real):
             kind = 'real'
         else:
+            kind = None
+            # moved deletes are matched on the OLD side only (their new range
+            # is an empty insertion point) and moved inserts on the NEW side,
+            # so unrelated hunks touching that point are not mislabeled
+            for mh, line in moved_del.items():
+                if _overlaps_side(i1, i2, mh[0], mh[1]):
+                    kind, extra = 'moved', {'moved_to': line}
+                    break
+            if kind is None:
+                for mh, line in moved_ins.items():
+                    if _overlaps_side(j1, j2, mh[2], mh[3]):
+                        kind, extra = 'moved', {'moved_from': line}
+                        break
+        if kind is None:
             kind = 'mixed'  # ignorable but caused by >1 rule combined
             for name, ov, nv in variants:
                 if _slices_equal(h, ov, nv):
                     kind = name
                     break
-        i1, i2, j1, j2 = h
-        hunks.append({'kind': kind, 'old_range': [i1, i2], 'new_range': [j1, j2]})
+        hunk = {'kind': kind, 'old_range': [i1, i2], 'new_range': [j1, j2]}
+        hunk.update(extra)
+        hunks.append(hunk)
 
     result['hunks'] = _merge_adjacent(hunks)
     result['status'] = 'real-change' if real_hunks else 'ignorable-only'

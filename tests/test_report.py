@@ -130,5 +130,32 @@ class TestUnimportantToggle(unittest.TestCase):
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
 
 
+class TestMovedRendering(unittest.TestCase):
+    OLD = ("void Alpha(void)\n{\n  alpha_state = 1;\n  alpha_out = 2;\n}\n"
+           "void Beta(void)\n{\n  beta_state = 3;\n}\n")
+    NEW = ("void Beta(void)\n{\n  beta_state = 3;\n}\n"
+           "void Alpha(void)\n{\n  alpha_state = 1;\n  alpha_out = 2;\n}\n")
+
+    def setUp(self):
+        self.r = compare_pair(self.OLD, self.NEW, 'f.c')
+        self.out = _groups_html(self.OLD.split('\n'), self.NEW.split('\n'),
+                                self.r['hunks'])
+
+    def test_moved_rows_render_blue(self):
+        self.assertIn('class="mvd"', self.out)
+        self.assertIn('class="mva"', self.out)
+        self.assertNotIn('class="del"', self.out)
+        self.assertNotIn('class="add"', self.out)
+
+    def test_moved_note_rows_cross_reference(self):
+        self.assertIn('block moved to NEW line 1', self.out)
+        self.assertIn('block moved from OLD line 6', self.out)
+
+    def test_moved_group_not_hidden_by_unimportant_toggle(self):
+        # moved is a real change shown in blue; grp-min would hide it
+        self.assertNotIn('grp-min', self.out)
+        self.assertNotIn('<tr class="minor">', self.out)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -53,6 +53,7 @@ table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
 td.ln { width: 44px; color: #6a6a6a; text-align: right; user-select: none; }
 td.del { background: #3a2222; } td.add { background: #1f3a24; }
 td.delm, td.addm { background: #3c3418; }
+td.mvd, td.mva { background: #1d2f3e; }
 td.ctx { color: #9a9a9a; }
 td.del .chg-seg { background: #7a2f2f; color: #ffc2c2; font-weight: 700; border-radius: 2px; }
 td.add .chg-seg { background: #2f6e3d; color: #c9f7d1; font-weight: 700; border-radius: 2px; }
@@ -61,7 +62,9 @@ td.delm .chg-seg, td.addm .chg-seg { background: #8a6d1f; color: #ffe9a8; font-w
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
       margin: 0 4px 0 2px; vertical-align: -1px; }
 .sw-del { background: #7a2f2f; } .sw-add { background: #2f6e3d; } .sw-min { background: #8a6d1f; }
+.sw-mv { background: #2f5a7a; }
 tr.gap td { text-align: center; color: #666; background: #26272b; font-size: 11px; }
+tr.mvnote td { text-align: center; color: #7fb3d9; background: #26272b; font-size: 11px; }
 body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }
 tr.minorph { display: none; }
 body.hide-ign tr.minorph { display: table-row; }
@@ -127,7 +130,12 @@ def _group_table(old_lines, new_lines, group):
     for idx, h in enumerate(group):
         hi1, hi2 = h['old_range']
         hj1, hj2 = h['new_range']
-        mode = 'real' if h['kind'] == 'real' else 'minor'
+        if h['kind'] == 'real':
+            mode = 'real'
+        elif h['kind'] == 'moved':
+            mode = 'moved'
+        else:
+            mode = 'minor'
         # changed block, pad shorter side
         span = max(hi2 - hi1, hj2 - hj1)
         for k in range(span):
@@ -138,6 +146,12 @@ def _group_table(old_lines, new_lines, group):
             rows.append('<tr class="gap minorph"><td colspan="4">⋯ {} minor ({}) '
                         'line{} hidden</td></tr>'
                         .format(span, _esc(h['kind']), '' if span == 1 else 's'))
+        elif mode == 'moved':
+            if 'moved_to' in h:
+                note = '⇄ block moved to NEW line {}'.format(h['moved_to'])
+            else:
+                note = '⇄ block moved from OLD line {}'.format(h.get('moved_from', '?'))
+            rows.append('<tr class="mvnote"><td colspan="4">{}</td></tr>'.format(note))
         if idx + 1 < len(group):
             # equal lines between this hunk and the next of the group
             gap = group[idx + 1]['old_range'][0] - hi2
@@ -152,12 +166,13 @@ def _group_table(old_lines, new_lines, group):
 
 
 def _groups_html(old_lines, new_lines, hunks):
-    """All hunk groups of one file. A group with no real hunk is wrapped in
-    .grp-min so the Unimportant badge hides it (label + context included);
-    minor rows inside mixed groups hide individually via tr.minor."""
+    """All hunk groups of one file. A group with no real/moved hunk is
+    wrapped in .grp-min so the Unimportant badge hides it (label + context
+    included); minor rows inside mixed groups hide individually via tr.minor.
+    Moved blocks never hide: they are real changes, just shown in blue."""
     out = []
     for g in _group_hunks(hunks):
-        minor_only = all(h['kind'] != 'real' for h in g)
+        minor_only = all(h['kind'] not in ('real', 'moved') for h in g)
         out.append('<div class="grp{}">'.format(' grp-min' if minor_only else ''))
         if any(h['kind'] != 'real' for h in g):
             out.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
@@ -184,13 +199,16 @@ def _char_diff(old_txt, new_txt):
     return ''.join(old_out), ''.join(new_out)
 
 
+_MODE_CLS = {'real': ('del', 'add'), 'minor': ('delm', 'addm'), 'moved': ('mvd', 'mva')}
+
+
 def _row(o_no, o_txt, n_no, n_txt, mode):
     if mode == 'ctx':
         lcls = rcls = 'ctx'
         l = _esc(o_txt) if o_txt is not None else ''
         r = _esc(n_txt) if n_txt is not None else ''
     else:
-        dcls, acls = ('del', 'add') if mode == 'real' else ('delm', 'addm')
+        dcls, acls = _MODE_CLS[mode]
         lcls = dcls if o_txt is not None else ''
         rcls = acls if n_txt is not None else ''
         if o_txt is not None and n_txt is not None:
@@ -347,6 +365,7 @@ def build_report(results, old_root, new_root):
         parts.append('<h2>Detailed changes</h2>')
         parts.append('<div class="legend">Line colors:'
                      '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>real change&emsp;'
+                     '<span class="sw sw-mv"></span>moved (identical block relocated)&emsp;'
                      '<span class="sw sw-min"></span>minor '
                      '(comment / rename / UUID / timestamp / whitespace)</div>')
         parts.append('<div class="toolbar">'
@@ -358,9 +377,11 @@ def build_report(results, old_root, new_root):
         r = results[rel]
         hunks = r['hunks'] if not r['binary'] else []
         n_real = sum(1 for h in hunks if h['kind'] == 'real')
-        n_min = len(hunks) - n_real
-        extra = '({} hunk{}{})'.format(n_real, '' if n_real == 1 else 's',
-                                       ' + {} minor'.format(n_min) if n_min else '')
+        n_moved = sum(1 for h in hunks if h['kind'] == 'moved')
+        n_min = len(hunks) - n_real - n_moved
+        extra = '({} hunk{}{}{})'.format(n_real, '' if n_real == 1 else 's',
+                                         ' + {} moved'.format(n_moved) if n_moved else '',
+                                         ' + {} minor'.format(n_min) if n_min else '')
         parts.append(_file_open(anchors[rel], rel, 'real-change', extra))
         if r['binary']:
             parts.append('<div class="filenote">Binary file differs.</div>')
