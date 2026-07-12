@@ -31,10 +31,12 @@ Nguyên tắc fail-safe: không chứng minh được là noise → đánh REAL.
 
 ## Report HTML
 
-- **Badge summary** đầu trang: click badge để ẩn/hiện loại đó (real change / ignorable-only / added / deleted / identical). `identical` ẩn mặc định.
-- **Folder tree** kiểu Beyond Compare: ký hiệu theo file — `≠` thay đổi thật, `≈` minor (chỉ comment/noise), `+` file mới, `−` file xóa, `=` giống hệt. Folder xổ/thu, trạng thái folder = trạng thái nặng nhất bên trong. Click file `≠` nhảy thẳng tới diff.
-- Mỗi file thay đổi thật là mục **click để xổ/thu diff** (split 2 cột, đỏ/xanh). Nút Expand all / Collapse all.
-- File ignorable-only liệt kê kèm nhãn loại noise (comment/rename/uuid/timestamp/whitespace).
+- **Badge summary** đầu trang, thuật ngữ theo convention chung của tool compare: **Modified / Unimportant / Added / Deleted / Identical**. Click badge để ẩn/hiện loại đó; `Identical` ẩn mặc định.
+- **Folder tree** kiểu Beyond Compare: ký hiệu theo file — `≠` Modified, `≈` Unimportant (chỉ comment/noise), `+` Added, `−` Deleted, `=` Identical. Folder xổ/thu, trạng thái folder = trạng thái nặng nhất bên trong. Click file nhảy thẳng tới mục chi tiết.
+- **Detailed changes**: mọi file khác Identical đều có mục **click để xổ/thu**, gắn tag màu theo loại. Nút Expand all / Collapse all.
+  - Modified: diff split 2 cột (đỏ/xanh), chỉ hunk thật; hunk noise ghi chú số lượng.
+  - Unimportant: diff từng hunk kèm nhãn loại noise (comment/rename/uuid/timestamp/whitespace).
+  - Added/Deleted: hiện nội dung file (tối đa 400 dòng, binary chỉ ghi size).
 
 ## Test
 
