@@ -4,9 +4,10 @@ import datetime
 import html
 from pathlib import Path
 
-from .scanner import read_text, summarize
+from .scanner import looks_binary, read_text, summarize
 
 CONTEXT = 3
+MAX_CONTENT = 400  # max lines shown for added/deleted file content
 
 _CSS = """
 body { font-family: Segoe UI, Arial, sans-serif; background: #1e1f22; color: #d4d4d4;
@@ -64,6 +65,11 @@ details.file[open] > summary::before { transform: rotate(90deg); }
 details.file > summary:hover { background: #2a2b2f; }
 details.file > .body { padding: 0 14px 12px; }
 summary .hcount { color: #8a8a8a; font-size: 12px; font-weight: normal; }
+summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 11px; }
+.tag-real { background: #6e2b2b; color: #ffb3b3; } .tag-ign { background: #5c522a; color: #ffe28a; }
+.tag-add { background: #2b5232; color: #a8e6b0; } .tag-del { background: #4a2b52; color: #d9a8e6; }
+.hunklabel { color: #c8b458; font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
+             letter-spacing: .5px; }
 .toolbar { margin: 4px 0 16px; }
 .toolbar button { background: #2b2c30; color: #d4d4d4; border: 1px solid #444; border-radius: 4px;
     padding: 4px 10px; font-size: 12px; cursor: pointer; margin-right: 6px; }
@@ -118,6 +124,14 @@ _TREE = {
     'deleted':        ('−', 't-del',  'sec-del'),    # −
     'identical':      ('=',      't-id',   'sec-id'),
 }
+# status -> (display label, tag css class); terms follow common compare-tool
+# convention (git: Modified/Added/Deleted, Beyond Compare: Unimportant, Identical)
+_LABEL = {
+    'real-change':    ('Modified',    'tag-real'),
+    'ignorable-only': ('Unimportant', 'tag-ign'),
+    'added':          ('Added',       'tag-add'),
+    'deleted':        ('Deleted',     'tag-del'),
+}
 _PRIO = {'real-change': 4, 'ignorable-only': 3, 'added': 2, 'deleted': 2, 'identical': 1}
 
 
@@ -165,6 +179,38 @@ def _tree_html(results, anchors):
     return ''.join(out)
 
 
+def _content_table(lines, cls):
+    """One-sided table for added/deleted file content, capped at MAX_CONTENT."""
+    rows = []
+    for no, txt in enumerate(lines[:MAX_CONTENT], 1):
+        rows.append('<tr><td class="ln">{}</td><td class="{}">{}</td></tr>'
+                    .format(no, cls, _esc(txt)))
+    out = '<table class="diff">' + ''.join(rows) + '</table>'
+    if len(lines) > MAX_CONTENT:
+        out += ('<div class="filenote">… {} more line(s) not shown.</div>'
+                .format(len(lines) - MAX_CONTENT))
+    return out
+
+
+def _kinds_of(r):
+    """Short ignorable-kind summary for a file, e.g. 'comment, rename ×3'."""
+    kinds = {h['kind'] for h in r['hunks'] if h['kind'] != 'real'} | set(r['notes'])
+    if r['renames']:
+        kinds.discard('rename')
+        kinds.add('rename ×{}'.format(len(r['renames'])))
+    return ', '.join(sorted(kinds))
+
+
+def _file_open(anchor, rel, status, extra=''):
+    label, tag = _LABEL[status]
+    sec = _TREE[status][2]
+    if extra:
+        extra = ' <span class="hcount">{}</span>'.format(extra)
+    return ('<details class="file {}" id="{}"><summary>{}'
+            ' <span class="tag {}">{}</span>{}</summary><div class="body">'
+            .format(sec, anchor, _esc(rel), tag, label, extra))
+
+
 def build_report(results, old_root, new_root):
     counts = summarize(results)
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -177,11 +223,11 @@ def build_report(results, old_root, new_root):
     parts.append('<div class="meta">NEW: <code>{}</code></div>'.format(_esc(str(new_root))))
     parts.append('<div class="meta">Generated: {}</div>'.format(now))
     parts.append('<div class="summary">'
-                 '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} real change</span>'
-                 '<span class="badge b-ign" onclick="tg(this,\'ign\')">{ignorable-only} ignorable-only</span>'
-                 '<span class="badge b-add" onclick="tg(this,\'add\')">{added} added</span>'
-                 '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} deleted</span>'
-                 '<span class="badge b-id off" onclick="tg(this,\'id\')">{identical} identical</span>'
+                 '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} Modified</span>'
+                 '<span class="badge b-ign" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
+                 '<span class="badge b-add" onclick="tg(this,\'add\')">{added} Added</span>'
+                 '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} Deleted</span>'
+                 '<span class="badge b-id off" onclick="tg(this,\'id\')">{identical} Identical</span>'
                  '</div>'.format(**counts))
     parts.append('<div class="hint">Click a badge to show/hide that category.</div>')
 
@@ -190,16 +236,17 @@ def build_report(results, old_root, new_root):
     added = [p for p, r in sorted(results.items()) if r['status'] == 'added']
     deleted = [p for p, r in sorted(results.items()) if r['status'] == 'deleted']
     identical = [p for p, r in sorted(results.items()) if r['status'] == 'identical']
-    anchors = {rel: 'f{}'.format(i) for i, rel in enumerate(real_files)}
+    detail_files = real_files + ign_files + added + deleted
+    anchors = {rel: 'f{}'.format(i) for i, rel in enumerate(detail_files)}
 
     if results:
         parts.append('<h2>Folder tree</h2>')
         parts.append('<div class="legend">'
-                     '<span class="t-real">≠</span> real change&emsp;'
-                     '<span class="t-ign">≈</span> minor (comment/noise only)&emsp;'
-                     '<span class="t-add">+</span> added&emsp;'
-                     '<span class="t-del">−</span> deleted&emsp;'
-                     '<span class="t-id">=</span> identical'
+                     '<span class="t-real">≠</span> Modified&emsp;'
+                     '<span class="t-ign">≈</span> Unimportant (comment/noise only)&emsp;'
+                     '<span class="t-add">+</span> Added&emsp;'
+                     '<span class="t-del">−</span> Deleted&emsp;'
+                     '<span class="t-id">=</span> Identical'
                      '</div>')
         parts.append('<div class="tree">{}</div>'.format(_tree_html(results, anchors)))
 
@@ -207,7 +254,8 @@ def build_report(results, old_root, new_root):
         parts.append('<p>No real changes. All differences are ignorable '
                      '(comments / renames / UUIDs / timestamps / whitespace).</p>')
 
-    if real_files:
+    if detail_files:
+        parts.append('<h2>Detailed changes</h2>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=false)">Collapse all</button>'
@@ -217,10 +265,9 @@ def build_report(results, old_root, new_root):
         r = results[rel]
         real_hunks = [h for h in r['hunks'] if h['kind'] == 'real'] if not r['binary'] else []
         ign = len(r['hunks']) - len(real_hunks) if not r['binary'] else 0
-        parts.append('<details class="file sec-real" id="{}"><summary>{}'
-                     ' <span class="hcount">({} hunk{})</span></summary><div class="body">'
-                     .format(anchors[rel], _esc(rel),
-                             len(real_hunks), '' if len(real_hunks) == 1 else 's'))
+        parts.append(_file_open(anchors[rel], rel, 'real-change',
+                                '({} hunk{})'.format(len(real_hunks),
+                                                     '' if len(real_hunks) == 1 else 's')))
         if r['binary']:
             parts.append('<div class="filenote">Binary file differs.</div>')
             parts.append('</div></details>')
@@ -238,27 +285,53 @@ def build_report(results, old_root, new_root):
                          '(comment/rename/uuid/timestamp/whitespace).</div>'.format(ign))
         parts.append('</div></details>')
 
-    if ign_files:
-        parts.append('<div class="sec-ign"><h2>Ignorable-only files</h2><ul class="files">')
-        for p in ign_files:
-            r = results[p]
-            kinds = {h['kind'] for h in r['hunks']} | set(r['notes'])
-            if r['renames']:
-                kinds.discard('rename')
-                kinds.add('rename ×{}'.format(len(r['renames'])))
-            kinds = sorted(kinds)
-            parts.append('<li><code>{}</code> <span class="kinds">{}</span></li>'
-                         .format(_esc(p), _esc(', '.join(kinds))))
-        parts.append('</ul></div>')
+    for rel in ign_files:
+        r = results[rel]
+        parts.append(_file_open(anchors[rel], rel, 'ignorable-only', _esc(_kinds_of(r))))
+        if not r['hunks']:
+            parts.append('<div class="filenote">Line endings / BOM only; '
+                         'no content difference.</div>')
+            parts.append('</div></details>')
+            continue
+        old_lines = read_text(Path(old_root) / rel).split('\n')
+        new_lines = read_text(Path(new_root) / rel).split('\n')
+        if r['renames']:
+            pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
+                              for a, b in sorted(r['renames'].items()))
+            parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
+        for h in r['hunks']:
+            parts.append('<div class="hunklabel">{}</div>'.format(_esc(h['kind'])))
+            parts.append(_hunk_table(old_lines, new_lines, h))
+        parts.append('</div></details>')
 
-    if added:
-        parts.append('<div class="sec-add"><h2>Added files</h2><ul class="files">')
-        parts.extend('<li><code>{}</code></li>'.format(_esc(p)) for p in added)
-        parts.append('</ul></div>')
-    if deleted:
-        parts.append('<div class="sec-del"><h2>Deleted files</h2><ul class="files">')
-        parts.extend('<li><code>{}</code></li>'.format(_esc(p)) for p in deleted)
-        parts.append('</ul></div>')
+    for rel in added:
+        path = Path(new_root) / rel
+        if looks_binary(path):
+            parts.append(_file_open(anchors[rel], rel, 'added',
+                                    '({} bytes, binary)'.format(path.stat().st_size)))
+            parts.append('<div class="filenote">Binary file added.</div>')
+        else:
+            lines = read_text(path).split('\n')
+            parts.append(_file_open(anchors[rel], rel, 'added',
+                                    '({} line{})'.format(len(lines),
+                                                         '' if len(lines) == 1 else 's')))
+            parts.append(_content_table(lines, 'add'))
+        parts.append('</div></details>')
+
+    for rel in deleted:
+        path = Path(old_root) / rel
+        if looks_binary(path):
+            parts.append(_file_open(anchors[rel], rel, 'deleted',
+                                    '({} bytes, binary)'.format(path.stat().st_size)))
+            parts.append('<div class="filenote">Binary file deleted.</div>')
+        else:
+            lines = read_text(path).split('\n')
+            parts.append(_file_open(anchors[rel], rel, 'deleted',
+                                    '({} line{})'.format(len(lines),
+                                                         '' if len(lines) == 1 else 's')))
+            parts.append(_content_table(lines, 'del'))
+        parts.append('</div></details>')
+
     if identical:
         parts.append('<div class="sec-id"><h2>Identical files</h2><ul class="files">')
         parts.extend('<li><code>{}</code></li>'.format(_esc(p)) for p in identical)

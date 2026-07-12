@@ -38,12 +38,12 @@ def main(argv=None):
 
     results = scan(old_root, new_root, progress=progress)
     counts = summarize(results)
-    print('Summary: {real-change} real change, {ignorable-only} ignorable-only, '
+    print('Summary: {real-change} modified, {ignorable-only} unimportant, '
           '{added} added, {deleted} deleted, {identical} identical'.format(**counts))
     for rel, r in sorted(results.items()):
         if r['status'] == 'real-change':
             n_real = sum(1 for h in r['hunks'] if h['kind'] == 'real') or ('binary' in r['notes'] and 1)
-            print('  REAL  {} ({} hunk(s))'.format(rel, n_real))
+            print('  MODIFIED  {} ({} hunk(s))'.format(rel, n_real))
 
     out = Path(args.report)
     out.write_text(build_report(results, old_root, new_root), encoding='utf-8')
