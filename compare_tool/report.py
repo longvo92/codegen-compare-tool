@@ -52,9 +52,15 @@ table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: #6a6a6a; text-align: right; user-select: none; }
 td.del { background: #3a2222; } td.add { background: #1f3a24; }
+td.delm, td.addm { background: #3c3418; }
 td.ctx { color: #9a9a9a; }
 td.del .chg-seg { background: #7a2f2f; color: #ffc2c2; font-weight: 700; border-radius: 2px; }
 td.add .chg-seg { background: #2f6e3d; color: #c9f7d1; font-weight: 700; border-radius: 2px; }
+td.delm .chg-seg, td.addm .chg-seg { background: #8a6d1f; color: #ffe9a8; font-weight: 700;
+                                     border-radius: 2px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      margin: 0 4px 0 2px; vertical-align: -1px; }
+.sw-del { background: #7a2f2f; } .sw-add { background: #2f6e3d; } .sw-min { background: #8a6d1f; }
 tr.gap td { text-align: center; color: #666; background: #26272b; font-size: 11px; }
 .filenote { color: #8a8a8a; font-size: 12px; margin: 2px 0 10px; }
 .renames { font-size: 12px; color: #c8b458; margin: 2px 0 8px; }
@@ -84,26 +90,56 @@ def _esc(s):
     return html.escape(s, quote=False)
 
 
-def _hunk_table(old_lines, new_lines, hunk):
-    i1, i2 = hunk['old_range']
-    j1, j2 = hunk['new_range']
+def _group_hunks(hunks):
+    """Group hunks whose CONTEXT windows would overlap or touch, so nearby
+    hunks render as ONE continuous table instead of repeating shared lines."""
+    groups = []
+    for h in hunks:
+        if groups and h['old_range'][0] - groups[-1][-1]['old_range'][1] <= 2 * CONTEXT:
+            groups[-1].append(h)
+        else:
+            groups.append([h])
+    return groups
+
+
+def _group_label(group):
+    kinds = []
+    for h in group:
+        if h['kind'] not in kinds:
+            kinds.append(h['kind'])
+    return ' + '.join(kinds)
+
+
+def _group_table(old_lines, new_lines, group):
+    """One continuous side-by-side table for a run of nearby hunks: leading /
+    trailing CONTEXT lines, the equal lines between hunks shown once, real
+    hunks in red/green, minor hunks in yellow."""
     rows = []
-    # leading context
-    c1 = max(0, i1 - CONTEXT)
-    d1 = max(0, j1 - CONTEXT)
-    for k in range(i1 - c1):
-        rows.append(_row(c1 + k + 1, old_lines[c1 + k], d1 + k + 1, new_lines[d1 + k], 'ctx'))
-    # changed block, pad shorter side
-    span = max(i2 - i1, j2 - j1)
-    for k in range(span):
-        o_no, o_txt = (i1 + k + 1, old_lines[i1 + k]) if i1 + k < i2 else ('', None)
-        n_no, n_txt = (j1 + k + 1, new_lines[j1 + k]) if j1 + k < j2 else ('', None)
-        rows.append(_row(o_no, o_txt, n_no, n_txt, 'chg'))
-    # trailing context
-    c2 = min(len(old_lines), i2 + CONTEXT)
-    for k in range(c2 - i2):
-        if j2 + k < len(new_lines):
-            rows.append(_row(i2 + k + 1, old_lines[i2 + k], j2 + k + 1, new_lines[j2 + k], 'ctx'))
+    i1, j1 = group[0]['old_range'][0], group[0]['new_range'][0]
+    lead = min(CONTEXT, i1, j1)
+    for k in range(lead):
+        o, n = i1 - lead + k, j1 - lead + k
+        rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx'))
+    for idx, h in enumerate(group):
+        hi1, hi2 = h['old_range']
+        hj1, hj2 = h['new_range']
+        mode = 'real' if h['kind'] == 'real' else 'minor'
+        # changed block, pad shorter side
+        span = max(hi2 - hi1, hj2 - hj1)
+        for k in range(span):
+            o_no, o_txt = (hi1 + k + 1, old_lines[hi1 + k]) if hi1 + k < hi2 else ('', None)
+            n_no, n_txt = (hj1 + k + 1, new_lines[hj1 + k]) if hj1 + k < hj2 else ('', None)
+            rows.append(_row(o_no, o_txt, n_no, n_txt, mode))
+        if idx + 1 < len(group):
+            # equal lines between this hunk and the next of the group
+            gap = group[idx + 1]['old_range'][0] - hi2
+            for k in range(gap):
+                rows.append(_row(hi2 + k + 1, old_lines[hi2 + k],
+                                 hj2 + k + 1, new_lines[hj2 + k], 'ctx'))
+    i2, j2 = group[-1]['old_range'][1], group[-1]['new_range'][1]
+    tail = min(CONTEXT, len(old_lines) - i2, len(new_lines) - j2)
+    for k in range(tail):
+        rows.append(_row(i2 + k + 1, old_lines[i2 + k], j2 + k + 1, new_lines[j2 + k], 'ctx'))
     return '<table class="diff">' + ''.join(rows) + '</table>'
 
 
@@ -131,8 +167,9 @@ def _row(o_no, o_txt, n_no, n_txt, mode):
         l = _esc(o_txt) if o_txt is not None else ''
         r = _esc(n_txt) if n_txt is not None else ''
     else:
-        lcls = 'del' if o_txt is not None else ''
-        rcls = 'add' if n_txt is not None else ''
+        dcls, acls = ('del', 'add') if mode == 'real' else ('delm', 'addm')
+        lcls = dcls if o_txt is not None else ''
+        rcls = acls if n_txt is not None else ''
         if o_txt is not None and n_txt is not None:
             l, r = _char_diff(o_txt, n_txt)
         else:
@@ -282,6 +319,10 @@ def build_report(results, old_root, new_root):
 
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
+        parts.append('<div class="legend">Line colors:'
+                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>real change&emsp;'
+                     '<span class="sw sw-min"></span>minor '
+                     '(comment / rename / UUID / timestamp / whitespace)</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=false)">Collapse all</button>'
@@ -289,11 +330,12 @@ def build_report(results, old_root, new_root):
 
     for rel in real_files:
         r = results[rel]
-        real_hunks = [h for h in r['hunks'] if h['kind'] == 'real'] if not r['binary'] else []
-        ign = len(r['hunks']) - len(real_hunks) if not r['binary'] else 0
-        parts.append(_file_open(anchors[rel], rel, 'real-change',
-                                '({} hunk{})'.format(len(real_hunks),
-                                                     '' if len(real_hunks) == 1 else 's')))
+        hunks = r['hunks'] if not r['binary'] else []
+        n_real = sum(1 for h in hunks if h['kind'] == 'real')
+        n_min = len(hunks) - n_real
+        extra = '({} hunk{}{})'.format(n_real, '' if n_real == 1 else 's',
+                                       ' + {} minor'.format(n_min) if n_min else '')
+        parts.append(_file_open(anchors[rel], rel, 'real-change', extra))
         if r['binary']:
             parts.append('<div class="filenote">Binary file differs.</div>')
             parts.append('</div></details>')
@@ -304,11 +346,10 @@ def build_report(results, old_root, new_root):
             pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
                               for a, b in sorted(r['renames'].items()))
             parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-        for h in real_hunks:
-            parts.append(_hunk_table(old_lines, new_lines, h))
-        if ign:
-            parts.append('<div class="filenote">+ {} ignorable hunk(s) not shown '
-                         '(comment/rename/uuid/timestamp/whitespace).</div>'.format(ign))
+        for g in _group_hunks(hunks):
+            if any(h['kind'] != 'real' for h in g):
+                parts.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
+            parts.append(_group_table(old_lines, new_lines, g))
         parts.append('</div></details>')
 
     for rel in ign_files:
@@ -325,9 +366,9 @@ def build_report(results, old_root, new_root):
             pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
                               for a, b in sorted(r['renames'].items()))
             parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-        for h in r['hunks']:
-            parts.append('<div class="hunklabel">{}</div>'.format(_esc(h['kind'])))
-            parts.append(_hunk_table(old_lines, new_lines, h))
+        for g in _group_hunks(r['hunks']):
+            parts.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
+            parts.append(_group_table(old_lines, new_lines, g))
         parts.append('</div></details>')
 
     for rel in added:
