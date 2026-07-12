@@ -1,6 +1,7 @@
 """Self-contained HTML report. Summary badges toggle each change category."""
 
 import datetime
+import difflib
 import html
 from pathlib import Path
 
@@ -52,6 +53,8 @@ table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
 td.ln { width: 44px; color: #6a6a6a; text-align: right; user-select: none; }
 td.del { background: #3a2222; } td.add { background: #1f3a24; }
 td.ctx { color: #9a9a9a; }
+td.del .chg-seg { background: #7a2f2f; color: #ffc2c2; font-weight: 700; border-radius: 2px; }
+td.add .chg-seg { background: #2f6e3d; color: #c9f7d1; font-weight: 700; border-radius: 2px; }
 tr.gap td { text-align: center; color: #666; background: #26272b; font-size: 11px; }
 .filenote { color: #8a8a8a; font-size: 12px; margin: 2px 0 10px; }
 .renames { font-size: 12px; color: #c8b458; margin: 2px 0 8px; }
@@ -104,14 +107,37 @@ def _hunk_table(old_lines, new_lines, hunk):
     return '<table class="diff">' + ''.join(rows) + '</table>'
 
 
+def _char_diff(old_txt, new_txt):
+    """Char-level diff between one old/new line pair; unchanged spans stay
+    plain, changed spans get wrapped for a darker/bolder highlight."""
+    sm = difflib.SequenceMatcher(None, old_txt, new_txt, autojunk=False)
+    old_out, new_out = [], []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        o_seg, n_seg = _esc(old_txt[i1:i2]), _esc(new_txt[j1:j2])
+        if tag == 'equal':
+            old_out.append(o_seg)
+            new_out.append(n_seg)
+        else:
+            if o_seg:
+                old_out.append('<span class="chg-seg">{}</span>'.format(o_seg))
+            if n_seg:
+                new_out.append('<span class="chg-seg">{}</span>'.format(n_seg))
+    return ''.join(old_out), ''.join(new_out)
+
+
 def _row(o_no, o_txt, n_no, n_txt, mode):
     if mode == 'ctx':
         lcls = rcls = 'ctx'
+        l = _esc(o_txt) if o_txt is not None else ''
+        r = _esc(n_txt) if n_txt is not None else ''
     else:
         lcls = 'del' if o_txt is not None else ''
         rcls = 'add' if n_txt is not None else ''
-    l = _esc(o_txt) if o_txt is not None else ''
-    r = _esc(n_txt) if n_txt is not None else ''
+        if o_txt is not None and n_txt is not None:
+            l, r = _char_diff(o_txt, n_txt)
+        else:
+            l = _esc(o_txt) if o_txt is not None else ''
+            r = _esc(n_txt) if n_txt is not None else ''
     return ('<tr><td class="ln">{}</td><td class="{}">{}</td>'
             '<td class="ln">{}</td><td class="{}">{}</td></tr>').format(o_no, lcls, l, n_no, rcls, r)
 
