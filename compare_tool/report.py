@@ -1,7 +1,6 @@
 """Self-contained HTML report. Summary badges toggle each change category."""
 
 import datetime
-import difflib
 import html
 from pathlib import Path
 
@@ -190,21 +189,27 @@ def _groups_html(old_lines, new_lines, hunks):
 
 
 def _char_diff(old_txt, new_txt):
-    """Char-level diff between one old/new line pair; unchanged spans stay
-    plain, changed spans get wrapped for a darker/bolder highlight."""
-    sm = difflib.SequenceMatcher(None, old_txt, new_txt, autojunk=False)
-    old_out, new_out = [], []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        o_seg, n_seg = _esc(old_txt[i1:i2]), _esc(new_txt[j1:j2])
-        if tag == 'equal':
-            old_out.append(o_seg)
-            new_out.append(n_seg)
-        else:
-            if o_seg:
-                old_out.append('<span class="chg-seg">{}</span>'.format(o_seg))
-            if n_seg:
-                new_out.append('<span class="chg-seg">{}</span>'.format(n_seg))
-    return ''.join(old_out), ''.join(new_out)
+    """Char-level highlight for one old/new line pair: the common prefix and
+    suffix stay plain, everything between the FIRST and LAST differing char
+    is one contiguous highlighted span per side. A per-opcode diff would
+    fragment into many tiny segments (equal chars like '_' or 'e' between
+    renamed identifiers), which is hard on the eyes."""
+    pre = 0
+    limit = min(len(old_txt), len(new_txt))
+    while pre < limit and old_txt[pre] == new_txt[pre]:
+        pre += 1
+    suf = 0
+    while suf < limit - pre and old_txt[len(old_txt) - 1 - suf] == new_txt[len(new_txt) - 1 - suf]:
+        suf += 1
+
+    def mark(txt):
+        mid = txt[pre:len(txt) - suf]
+        if not mid:
+            return _esc(txt)
+        return (_esc(txt[:pre]) + '<span class="chg-seg">' + _esc(mid) +
+                '</span>' + _esc(txt[len(txt) - suf:]))
+
+    return mark(old_txt), mark(new_txt)
 
 
 _MODE_CLS = {'real': ('del', 'add'), 'minor': ('delm', 'addm'), 'moved': ('mvd', 'mva')}
