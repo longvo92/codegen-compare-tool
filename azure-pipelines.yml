@@ -1,0 +1,110 @@
+# Azure DevOps pipeline: diff codegen MỚI (đã commit, đè lên bản cũ) với codegen CŨ
+# (bản git trước), report HTML đi cùng codegen.
+#
+# Cách hoạt động
+#   - OLD: PR build -> merge-base với target branch; CI build -> commit trước (HEAD~1).
+#     Lấy ra bằng `git worktree add`, không cần lưu artifact hay snapshot gì thêm.
+#   - NEW: working tree hiện tại (codegen mới đã commit đè).
+#   - Tool chạy với --exit-zero: codegen đổi là bình thường, pipeline không fail,
+#     report để reviewer xem (summary + ARXML interface added/removed).
+#   - Report:
+#       1. publish làm build artifact `codegen` cùng thư mục codegen;
+#       2. CI build (không phải PR) commit report ngược vào repo với [skip ci].
+#
+# Setup một lần
+#   - Sửa 2 chỗ đánh dấu <<SỬA>> bên dưới (tên repo tool, đường dẫn codegen).
+#   - Nếu compare_tool nằm ngay TRONG repo codegen: xóa block resources +
+#     2 step checkout thay bằng `- checkout: self` (giữ fetchDepth/persistCredentials),
+#     và bỏ biến TOOL_DIR (PYTHONPATH trỏ về $(Build.SourcesDirectory)).
+#   - Cho bước commit report: Project Settings > Repositories > <repo codegen> >
+#     Security > "<Project> Build Service" -> Contribute = Allow.
+
+parameters:
+  - name: codegenPath          # <<SỬA>> thư mục codegen trong repo (đường dẫn tương đối)
+    type: string
+    default: 'codegen'
+
+trigger:
+  branches:
+    include: [main]
+
+pr:
+  branches:
+    include: ['*']
+
+pool:
+  vmImage: ubuntu-latest       # windows-latest cũng chạy được (script dùng bash task)
+
+variables:
+  CODE_DIR: $(Pipeline.Workspace)/s/code
+  TOOL_DIR: $(Pipeline.Workspace)/s/tool
+  OLD_DIR: $(Agent.TempDirectory)/old_code
+
+resources:
+  repositories:
+    - repository: compare_tool_repo
+      type: git
+      name: MyProject/code-review        # <<SỬA>> project/repo chứa compare_tool
+      ref: refs/heads/main
+
+steps:
+  - checkout: self
+    fetchDepth: 0              # cần history để lấy bản cũ
+    persistCredentials: true   # cần cho bước commit report
+    path: s/code
+
+  - checkout: compare_tool_repo
+    path: s/tool
+
+  # OLD = bản git trước
+  - bash: |
+      set -e
+      cd "$(CODE_DIR)"
+      if [ "$BUILD_REASON" = "PullRequest" ]; then
+        TARGET="${SYSTEM_PULLREQUEST_TARGETBRANCH#refs/heads/}"
+        git fetch origin "$TARGET"
+        BASE=$(git merge-base HEAD "origin/$TARGET")
+      else
+        BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+      fi
+      echo "OLD = $BASE ($(git log -1 --format='%s' $BASE))"
+      git worktree add "$(OLD_DIR)" "$BASE"
+      # lần đầu chưa có thư mục codegen ở bản cũ -> tạo rỗng, mọi file tính Added
+      mkdir -p "$(OLD_DIR)/${{ parameters.codegenPath }}"
+    displayName: 'Checkout code cu tu git'
+
+  # Diff + sinh report ngay trong thư mục codegen
+  - bash: |
+      set -e
+      python3 -m compare_tool \
+        "$(OLD_DIR)/${{ parameters.codegenPath }}" \
+        "$(CODE_DIR)/${{ parameters.codegenPath }}" \
+        --report "$(CODE_DIR)/${{ parameters.codegenPath }}/compare_report.html" \
+        --exclude compare_report.html \
+        --exit-zero
+    displayName: 'Diff codegen cu vs moi'
+    env:
+      PYTHONPATH: $(TOOL_DIR)
+
+  # Report + codegen publish chung một artifact
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(CODE_DIR)/${{ parameters.codegenPath }}'
+      ArtifactName: 'codegen'
+    displayName: 'Publish codegen + report'
+
+  # CI build: commit report vào repo, [skip ci] để không tự kích hoạt lại
+  - bash: |
+      set -e
+      cd "$(CODE_DIR)"
+      git config user.name "Azure Pipeline"
+      git config user.email "pipeline@dev.azure.com"
+      git add "${{ parameters.codegenPath }}/compare_report.html"
+      if git diff --cached --quiet; then
+        echo "Report khong doi, bo qua commit."
+      else
+        git commit -m "Update codegen compare report [skip ci]"
+        git push origin "HEAD:${BUILD_SOURCEBRANCH#refs/heads/}"
+      fi
+    displayName: 'Commit report vao repo'
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))

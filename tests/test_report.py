@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import (_group_hunks, _group_label, _group_table,
-                                 _groups_html, build_report)
+from compare_tool.report import (_char_diff, _group_hunks, _group_label,
+                                 _group_table, _groups_html, build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -128,6 +128,91 @@ class TestUnimportantToggle(unittest.TestCase):
         self.assertIn('body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }',
                       page)
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
+
+
+class TestCharDiff(unittest.TestCase):
+    """One contiguous highlight span per side: first to last differing char,
+    common prefix/suffix plain. No fragmented multi-segment highlights."""
+
+    def test_single_span_covers_equal_chars_between_diffs(self):
+        # diffs at '1'vs'2' and 'a'vs'x'; the '_' between them is equal but
+        # must be swallowed into ONE span
+        old, new = _char_diff('rtb_Sum1_abc', 'rtb_Sum2_xbc')
+        self.assertEqual(old, 'rtb_Sum<span class="chg-seg">1_a</span>bc')
+        self.assertEqual(new, 'rtb_Sum<span class="chg-seg">2_x</span>bc')
+
+    def test_never_more_than_one_span_per_side(self):
+        old, new = _char_diff('aXbYcZd', 'aQbWcRd')
+        self.assertEqual(old.count('chg-seg'), 1)
+        self.assertEqual(new.count('chg-seg'), 1)
+
+    def test_pure_insertion_highlights_only_new_side(self):
+        old, new = _char_diff('ab', 'axxb')
+        self.assertEqual(old, 'ab')
+        self.assertEqual(new, 'a<span class="chg-seg">xx</span>b')
+
+    def test_prefix_and_suffix_change(self):
+        old, new = _char_diff('Xmid', 'Ymid')
+        self.assertEqual(old, '<span class="chg-seg">X</span>mid')
+        old, new = _char_diff('midX', 'midY')
+        self.assertEqual(old, 'mid<span class="chg-seg">X</span>')
+
+    def test_html_escaped(self):
+        old, new = _char_diff('<a>&1', '<a>&2')
+        self.assertEqual(old, '&lt;a&gt;&amp;<span class="chg-seg">1</span>')
+
+
+class TestCleanDefaults(unittest.TestCase):
+    """Report opens focused on real changes: noise hidden, Modified expanded."""
+
+    @classmethod
+    def setUpClass(cls):
+        results = scan(FIX / 'old', FIX / 'new')
+        cls.page = build_report(results, FIX / 'old', FIX / 'new')
+
+    def test_unimportant_and_identical_hidden_by_default(self):
+        self.assertIn('<body class="hide-id hide-ign">', self.page)
+        self.assertIn('class="badge b-ign off"', self.page)
+        self.assertIn('class="badge b-id off"', self.page)
+
+    def test_modified_files_expanded_by_default(self):
+        self.assertIn('<details class="file sec-real" id="f0" open>', self.page)
+
+    def test_other_files_collapsed_by_default(self):
+        # unimportant/added/deleted details carry no open attribute
+        self.assertIn('<details class="file sec-ign"', self.page)
+        self.assertNotIn('<details class="file sec-ign" id="f4" open>', self.page)
+        self.assertNotRegex(self.page, r'<details class="file sec-(ign|add|del)"[^>]* open>')
+
+    def test_tree_rows_never_hidden_by_badges(self):
+        # tree rows use tc-* (color only); sec-* would hide them with badges
+        self.assertIn('<div class="tf tc-id">', self.page)   # identical stays
+        self.assertIn('<div class="tf tc-ign">', self.page)  # unimportant stays
+        self.assertNotRegex(self.page, r'<div class="tf sec-')
+
+
+class TestIfaceSection(unittest.TestCase):
+    """ARXML interface summary must appear at the top of the report."""
+
+    @classmethod
+    def setUpClass(cls):
+        results = scan(FIX / 'old', FIX / 'new')
+        cls.page = build_report(results, FIX / 'old', FIX / 'new')
+
+    def test_section_lists_added_and_removed(self):
+        self.assertIn('ARXML interface changes', self.page)
+        self.assertIn('+ /Interfaces/If_Torque', self.page)
+        self.assertIn('− /Interfaces/If_Diag', self.page)
+        self.assertIn('SENDER-RECEIVER', self.page)
+        self.assertIn('CLIENT-SERVER', self.page)
+
+    def test_per_file_note_rendered(self):
+        self.assertIn('Interfaces: +/Interfaces/If_Torque', self.page)
+
+    def test_no_section_without_arxml_iface_info(self):
+        results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*'])
+        page = build_report(results, FIX / 'old', FIX / 'new')
+        self.assertNotIn('ARXML interface changes', page)
 
 
 class TestMovedRendering(unittest.TestCase):

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compare-tool"
+description = "AUTOSAR MATLAB codegen diff with noise filtering"
+requires-python = ">=3.8"
+dynamic = ["version"]
+
+[project.scripts]
+compare-tool = "compare_tool.main:main"
+
+[tool.setuptools]
+packages = ["compare_tool"]
+
+[tool.setuptools.dynamic]
+version = { attr = "compare_tool.__version__" }

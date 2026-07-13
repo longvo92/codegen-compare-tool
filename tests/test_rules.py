@@ -109,5 +109,64 @@ class TestArxml(unittest.TestCase):
         self.assertNotEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
 
 
+def _arxml(elements, pkg='Pkg'):
+    return ('<AUTOSAR xmlns="http://autosar.org/schema/r4.0"><AR-PACKAGES>'
+            '<AR-PACKAGE><SHORT-NAME>{}</SHORT-NAME><ELEMENTS>{}</ELEMENTS>'
+            '</AR-PACKAGE></AR-PACKAGES></AUTOSAR>'.format(pkg, elements))
+
+
+class TestInterfaceExtraction(unittest.TestCase):
+    def test_basic_kinds(self):
+        src = _arxml(
+            '<SENDER-RECEIVER-INTERFACE><SHORT-NAME>If_A</SHORT-NAME>'
+            '</SENDER-RECEIVER-INTERFACE>'
+            '<CLIENT-SERVER-INTERFACE><SHORT-NAME>If_B</SHORT-NAME>'
+            '</CLIENT-SERVER-INTERFACE>')
+        self.assertEqual(arxml_rules.extract_interfaces(src), {
+            '/Pkg/If_A': 'SENDER-RECEIVER-INTERFACE',
+            '/Pkg/If_B': 'CLIENT-SERVER-INTERFACE',
+        })
+
+    def test_nested_packages_qualify_path(self):
+        src = ('<AUTOSAR><AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Top</SHORT-NAME>'
+               '<AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Sub</SHORT-NAME><ELEMENTS>'
+               '<NV-DATA-INTERFACE><SHORT-NAME>If_Nv</SHORT-NAME></NV-DATA-INTERFACE>'
+               '</ELEMENTS></AR-PACKAGE></AR-PACKAGES></AR-PACKAGE>'
+               '</AR-PACKAGES></AUTOSAR>')
+        self.assertEqual(arxml_rules.extract_interfaces(src),
+                         {'/Top/Sub/If_Nv': 'NV-DATA-INTERFACE'})
+
+    def test_non_interface_elements_ignored(self):
+        src = _arxml('<IMPLEMENTATION-DATA-TYPE><SHORT-NAME>Speed_T</SHORT-NAME>'
+                     '</IMPLEMENTATION-DATA-TYPE>')
+        self.assertEqual(arxml_rules.extract_interfaces(src), {})
+
+    def test_malformed_xml_returns_none(self):
+        self.assertIsNone(arxml_rules.extract_interfaces('<AUTOSAR><oops'))
+
+    def test_diff_added_removed(self):
+        old = _arxml('<SENDER-RECEIVER-INTERFACE><SHORT-NAME>If_Old</SHORT-NAME>'
+                     '</SENDER-RECEIVER-INTERFACE>')
+        new = _arxml('<CLIENT-SERVER-INTERFACE><SHORT-NAME>If_New</SHORT-NAME>'
+                     '</CLIENT-SERVER-INTERFACE>')
+        self.assertEqual(arxml_rules.interface_diff(old, new), {
+            'added': [('/Pkg/If_New', 'CLIENT-SERVER-INTERFACE')],
+            'removed': [('/Pkg/If_Old', 'SENDER-RECEIVER-INTERFACE')],
+        })
+
+    def test_diff_one_side_missing_file(self):
+        text = _arxml('<TRIGGER-INTERFACE><SHORT-NAME>If_T</SHORT-NAME>'
+                      '</TRIGGER-INTERFACE>')
+        self.assertEqual(arxml_rules.interface_diff(None, text), {
+            'added': [('/Pkg/If_T', 'TRIGGER-INTERFACE')], 'removed': []})
+        self.assertEqual(arxml_rules.interface_diff(text, None), {
+            'added': [], 'removed': [('/Pkg/If_T', 'TRIGGER-INTERFACE')]})
+
+    def test_diff_parse_error_returns_none(self):
+        good = _arxml('')
+        self.assertIsNone(arxml_rules.interface_diff(good, '<broken'))
+        self.assertIsNone(arxml_rules.interface_diff('<broken', good))
+
+
 if __name__ == '__main__':
     unittest.main()

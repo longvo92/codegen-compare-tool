@@ -1,8 +1,10 @@
 """Walk two folder trees, pair files by relative path, compare each pair."""
 
+import fnmatch
 from pathlib import Path
 
-from .diff_engine import compare_pair
+from . import arxml_rules
+from .diff_engine import compare_pair, ruleset_for
 
 SKIP_DIRS = {'.git', '__pycache__', '.svn'}
 
@@ -48,23 +50,56 @@ def compare_file(old_root, new_root, rel):
                 'notes': ['line-endings'], 'binary': False}
     result = compare_pair(old_text, new_text, rel)
     result['binary'] = False
+    # port-interface summary: only real changes can add/remove interfaces
+    # (ignorable-only means the shadows are equal, hence same interfaces)
+    if ruleset_for(rel) == 'arxml' and result['status'] == 'real-change':
+        d = arxml_rules.interface_diff(old_text, new_text)
+        if d is not None:
+            result['ifaces'] = d
     return result
 
 
-def scan(old_root, new_root, progress=None):
+def _iface_single(root, rel, is_added):
+    """Interface diff for an arxml file present on one side only, or None."""
+    path = Path(root) / rel
+    if ruleset_for(rel) != 'arxml' or looks_binary(path):
+        return None
+    text = read_text(path)
+    return (arxml_rules.interface_diff(None, text) if is_added
+            else arxml_rules.interface_diff(text, None))
+
+
+def _excluded(rel, patterns):
+    """Glob match against the relative path or the bare file name."""
+    name = rel.rsplit('/', 1)[-1]
+    return any(fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(name, pat)
+               for pat in patterns)
+
+
+def scan(old_root, new_root, progress=None, exclude=()):
     """Compare two trees. Returns {rel_path: result} sorted by path.
-    result: {status, hunks, renames, notes, binary}."""
+    result: {status, hunks, renames, notes, binary[, ifaces]}.
+    exclude: glob patterns (relative path or file name) to skip entirely."""
     old_files = list_files(old_root)
     new_files = list_files(new_root)
-    all_paths = sorted(old_files | new_files)
+    all_paths = sorted(p for p in old_files | new_files
+                       if not _excluded(p, exclude))
     results = {}
     for idx, rel in enumerate(all_paths):
         if rel in old_files and rel in new_files:
             results[rel] = compare_file(old_root, new_root, rel)
         elif rel in new_files:
-            results[rel] = {'status': 'added', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
+            r = {'status': 'added', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
+            d = _iface_single(new_root, rel, is_added=True)
+            if d is not None:
+                r['ifaces'] = d
+            results[rel] = r
         else:
-            results[rel] = {'status': 'deleted', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
+            r = {'status': 'deleted', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
+            d = _iface_single(old_root, rel, is_added=False)
+            if d is not None:
+                r['ifaces'] = d
+            results[rel] = r
         if progress:
             progress(idx + 1, len(all_paths), rel)
     return results
@@ -75,3 +110,16 @@ def summarize(results):
     for r in results.values():
         counts[r['status']] += 1
     return counts
+
+
+def summarize_ifaces(results):
+    """Flatten per-file interface diffs into two lists of
+    (rel_path, interface_path, tag), sorted by file then interface."""
+    added, removed = [], []
+    for rel, r in sorted(results.items()):
+        d = r.get('ifaces')
+        if not d:
+            continue
+        added.extend((rel, p, t) for p, t in d['added'])
+        removed.extend((rel, p, t) for p, t in d['removed'])
+    return added, removed

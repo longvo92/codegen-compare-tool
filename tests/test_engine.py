@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.scanner import scan
+from compare_tool.scanner import scan, summarize_ifaces
 
 FIX = Path(__file__).parent / 'fixtures'
 
@@ -188,6 +188,28 @@ class TestFixtureTree(unittest.TestCase):
         self.expect('arxml/uuid_only.arxml', 'ignorable-only')
         self.expect('arxml/admindata.arxml', 'ignorable-only')
         self.expect('arxml/real_change.arxml', 'real-change')
+        self.expect('arxml/iface.arxml', 'real-change')
+
+    def test_iface_diff_recorded(self):
+        r = self.results['arxml/iface.arxml']
+        self.assertEqual(r['ifaces'], {
+            'added': [('/Interfaces/If_Torque', 'SENDER-RECEIVER-INTERFACE')],
+            'removed': [('/Interfaces/If_Diag', 'CLIENT-SERVER-INTERFACE')],
+        })
+
+    def test_iface_summary_flattened(self):
+        added, removed = summarize_ifaces(self.results)
+        self.assertIn(('arxml/iface.arxml', '/Interfaces/If_Torque',
+                       'SENDER-RECEIVER-INTERFACE'), added)
+        self.assertIn(('arxml/iface.arxml', '/Interfaces/If_Diag',
+                       'CLIENT-SERVER-INTERFACE'), removed)
+
+    def test_exclude_patterns(self):
+        results = scan(FIX / 'old', FIX / 'new',
+                       exclude=['same.h', 'arxml/*'])
+        self.assertNotIn('src/same.h', results)
+        self.assertNotIn('arxml/iface.arxml', results)
+        self.assertIn('src/real_change.c', results)
 
     def test_rename_map_recorded(self):
         r = self.results['src/rename_only.c']
