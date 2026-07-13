@@ -247,6 +247,9 @@ _LABEL = {
     'deleted':        ('Deleted',     'tag-del'),
 }
 _PRIO = {'real-change': 4, 'ignorable-only': 3, 'added': 2, 'deleted': 2, 'identical': 1}
+# tree-marker tooltips (folder tree has no legend line; hover explains)
+_STATUS_TITLE = {'real-change': 'Modified', 'ignorable-only': 'Unimportant (noise only)',
+                 'added': 'Added', 'deleted': 'Deleted', 'identical': 'Identical'}
 
 
 def _agg_status(node, results):
@@ -275,8 +278,10 @@ def _tree_html(results, anchors):
         for d in dirs:
             st = _agg_status(node[d], results)
             mark, mcls, _sec = _TREE[st]
-            out.append('<details class="dir" open><summary><span class="tmark {}">{}</span>{}/'
-                       '</summary>'.format(mcls, mark, _esc(d.rstrip('/'))))
+            out.append('<details class="dir" open><summary>'
+                       '<span class="tmark {}" title="{}">{}</span>{}/'
+                       '</summary>'.format(mcls, _STATUS_TITLE[st], mark,
+                                           _esc(d.rstrip('/'))))
             walk(node[d])
             out.append('</details>')
         for f in files:
@@ -286,8 +291,8 @@ def _tree_html(results, anchors):
             name = _esc(f)
             if rel in anchors:
                 name = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], name)
-            out.append('<div class="tf {}"><span class="tmark {}">{}</span>{}</div>'
-                       .format(sec, mcls, mark, name))
+            out.append('<div class="tf {}"><span class="tmark {}" title="{}">{}</span>{}</div>'
+                       .format(sec, mcls, _STATUS_TITLE[st], mark, name))
 
     walk(root)
     return ''.join(out)
@@ -354,14 +359,15 @@ def _iface_note(r):
     return '<div class="ifnote">Interfaces: {}</div>'.format(_esc('; '.join(bits)))
 
 
-def _file_open(anchor, rel, status, extra=''):
+def _file_open(anchor, rel, status, extra='', expanded=False):
     label, tag = _LABEL[status]
     sec = _TREE[status][2]
     if extra:
         extra = ' <span class="hcount">{}</span>'.format(extra)
-    return ('<details class="file {}" id="{}"><summary>{}'
+    return ('<details class="file {}" id="{}"{}><summary>{}'
             ' <span class="tag {}">{}</span>{}</summary><div class="body">'
-            .format(sec, anchor, _esc(rel), tag, label, extra))
+            .format(sec, anchor, ' open' if expanded else '',
+                    _esc(rel), tag, label, extra))
 
 
 def build_report(results, old_root, new_root):
@@ -370,20 +376,21 @@ def build_report(results, old_root, new_root):
     parts = []
     parts.append('<!DOCTYPE html><html><head><meta charset="utf-8">'
                  '<title>CodeGen Compare Report</title><style>{}</style></head>'
-                 '<body class="hide-id">'.format(_CSS))
+                 '<body class="hide-id hide-ign">'.format(_CSS))
     parts.append('<h1>CodeGen Compare Report</h1>')
-    parts.append('<div class="meta">OLD: <code>{}</code></div>'.format(_esc(str(old_root))))
-    parts.append('<div class="meta">NEW: <code>{}</code></div>'.format(_esc(str(new_root))))
-    parts.append('<div class="meta">Generated: {}</div>'.format(now))
+    parts.append('<div class="meta">OLD <code>{}</code> &rarr; NEW <code>{}</code>'
+                 ' &middot; {}</div>'.format(
+                     _esc(str(old_root)), _esc(str(new_root)), now))
     parts.append('<div class="summary">'
                  '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} Modified</span>'
-                 '<span class="badge b-ign" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
+                 '<span class="badge b-ign off" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
                  '<span class="badge b-add" onclick="tg(this,\'add\')">{added} Added</span>'
                  '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} Deleted</span>'
                  '<span class="badge b-id off" onclick="tg(this,\'id\')">{identical} Identical</span>'
                  '</div>'.format(**counts))
-    parts.append('<div class="hint">Click a badge to show/hide that category. '
-                 'Unimportant also hides minor (yellow) rows inside Modified files.</div>')
+    parts.append('<div class="hint">Click a badge to show/hide a category. '
+                 'Unimportant and Identical start hidden &mdash; only real '
+                 'changes are shown.</div>')
 
     real_files = [p for p, r in sorted(results.items()) if r['status'] == 'real-change']
     ign_files = [p for p, r in sorted(results.items()) if r['status'] == 'ignorable-only']
@@ -397,13 +404,6 @@ def build_report(results, old_root, new_root):
 
     if results:
         parts.append('<h2>Folder tree</h2>')
-        parts.append('<div class="legend">'
-                     '<span class="t-real">≠</span> Modified&emsp;'
-                     '<span class="t-ign">≈</span> Unimportant (comment/noise only)&emsp;'
-                     '<span class="t-add">+</span> Added&emsp;'
-                     '<span class="t-del">−</span> Deleted&emsp;'
-                     '<span class="t-id">=</span> Identical'
-                     '</div>')
         parts.append('<div class="tree">{}</div>'.format(_tree_html(results, anchors)))
 
     if not real_files and not added and not deleted:
@@ -412,11 +412,10 @@ def build_report(results, old_root, new_root):
 
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
-        parts.append('<div class="legend">Line colors:'
+        parts.append('<div class="legend">'
                      '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>real change&emsp;'
-                     '<span class="sw sw-mv"></span>moved (identical block relocated)&emsp;'
-                     '<span class="sw sw-min"></span>minor '
-                     '(comment / rename / UUID / timestamp / whitespace)</div>')
+                     '<span class="sw sw-mv"></span>moved block&emsp;'
+                     '<span class="sw sw-min"></span>minor noise</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=false)">Collapse all</button>'
@@ -431,7 +430,7 @@ def build_report(results, old_root, new_root):
         extra = '({} hunk{}{}{})'.format(n_real, '' if n_real == 1 else 's',
                                          ' + {} moved'.format(n_moved) if n_moved else '',
                                          ' + {} minor'.format(n_min) if n_min else '')
-        parts.append(_file_open(anchors[rel], rel, 'real-change', extra))
+        parts.append(_file_open(anchors[rel], rel, 'real-change', extra, expanded=True))
         parts.append(_iface_note(r))
         if r['binary']:
             parts.append('<div class="filenote">Binary file differs.</div>')

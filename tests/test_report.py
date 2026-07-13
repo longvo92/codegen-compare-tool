@@ -130,6 +130,29 @@ class TestUnimportantToggle(unittest.TestCase):
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
 
 
+class TestCleanDefaults(unittest.TestCase):
+    """Report opens focused on real changes: noise hidden, Modified expanded."""
+
+    @classmethod
+    def setUpClass(cls):
+        results = scan(FIX / 'old', FIX / 'new')
+        cls.page = build_report(results, FIX / 'old', FIX / 'new')
+
+    def test_unimportant_and_identical_hidden_by_default(self):
+        self.assertIn('<body class="hide-id hide-ign">', self.page)
+        self.assertIn('class="badge b-ign off"', self.page)
+        self.assertIn('class="badge b-id off"', self.page)
+
+    def test_modified_files_expanded_by_default(self):
+        self.assertIn('<details class="file sec-real" id="f0" open>', self.page)
+
+    def test_other_files_collapsed_by_default(self):
+        # unimportant/added/deleted details carry no open attribute
+        self.assertIn('<details class="file sec-ign"', self.page)
+        self.assertNotIn('<details class="file sec-ign" id="f4" open>', self.page)
+        self.assertNotRegex(self.page, r'<details class="file sec-(ign|add|del)"[^>]* open>')
+
+
 class TestIfaceSection(unittest.TestCase):
     """ARXML interface summary must appear at the top of the report."""
 
