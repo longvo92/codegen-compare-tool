@@ -43,8 +43,8 @@ ul.files li { margin: 2px 0; }
 .tmark { display: inline-block; width: 14px; font-weight: bold; }
 .t-real { color: #ff7b7b; } .t-ign { color: #e6c85c; } .t-add { color: #7bd88a; }
 .t-del { color: #c88ad8; } .t-id { color: #777; }
-.tf.sec-real { color: #ffb3b3; } .tf.sec-ign { color: #ffe28a; } .tf.sec-add { color: #a8e6b0; }
-.tf.sec-del { color: #d9a8e6; text-decoration: line-through; } .tf.sec-id { color: #8a8a8a; }
+.tf.tc-real { color: #ffb3b3; } .tf.tc-ign { color: #ffe28a; } .tf.tc-add { color: #a8e6b0; }
+.tf.tc-del { color: #d9a8e6; text-decoration: line-through; } .tf.tc-id { color: #8a8a8a; }
 .legend { color: #8a8a8a; font-size: 12px; margin: 2px 0 8px; }
 table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
              font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
@@ -291,8 +291,11 @@ def _tree_html(results, anchors):
             name = _esc(f)
             if rel in anchors:
                 name = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], name)
+            # tc-* colors only: tree rows never hide, so the full tree stays
+            # visible even while badges hide detail categories (sec-*)
             out.append('<div class="tf {}"><span class="tmark {}" title="{}">{}</span>{}</div>'
-                       .format(sec, mcls, _STATUS_TITLE[st], mark, name))
+                       .format(sec.replace('sec-', 'tc-'), mcls,
+                               _STATUS_TITLE[st], mark, name))
 
     walk(root)
     return ''.join(out)

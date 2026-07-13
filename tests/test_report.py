@@ -152,6 +152,12 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertNotIn('<details class="file sec-ign" id="f4" open>', self.page)
         self.assertNotRegex(self.page, r'<details class="file sec-(ign|add|del)"[^>]* open>')
 
+    def test_tree_rows_never_hidden_by_badges(self):
+        # tree rows use tc-* (color only); sec-* would hide them with badges
+        self.assertIn('<div class="tf tc-id">', self.page)   # identical stays
+        self.assertIn('<div class="tf tc-ign">', self.page)  # unimportant stays
+        self.assertNotRegex(self.page, r'<div class="tf sec-')
+
 
 class TestIfaceSection(unittest.TestCase):
     """ARXML interface summary must appear at the top of the report."""

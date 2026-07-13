@@ -68,7 +68,7 @@ Setup một lần (ghi trong comment của yml): sửa tên repo tool + đườn
 
 - **Mặc định chỉ hiện thay đổi thật**: badge `Unimportant` và `Identical` tắt sẵn — file noise-only ẩn, dòng minor (vàng) trong file Modified thay bằng placeholder `⋯ N minor lines hidden`. Bật badge khi cần soi noise.
 - **Badge summary** đầu trang, thuật ngữ theo convention chung của tool compare: **Modified / Unimportant / Added / Deleted / Identical**. Click badge để ẩn/hiện loại đó.
-- **Folder tree** kiểu Beyond Compare: ký hiệu theo file — `≠` Modified, `≈` Unimportant (chỉ comment/noise), `+` Added, `−` Deleted, `=` Identical (hover ký hiệu có tooltip). Folder xổ/thu, trạng thái folder = trạng thái nặng nhất bên trong. Click file nhảy thẳng tới mục chi tiết.
+- **Folder tree** kiểu Beyond Compare: ký hiệu theo file — `≠` Modified, `≈` Unimportant (chỉ comment/noise), `+` Added, `−` Deleted, `=` Identical (hover ký hiệu có tooltip). Folder xổ/thu, trạng thái folder = trạng thái nặng nhất bên trong. Click file nhảy thẳng tới mục chi tiết. Tree **luôn hiển thị đầy đủ mọi file** — badge chỉ ẩn mục detailed changes, không ẩn dòng trong tree.
 - **Detailed changes**: file **Modified mở sẵn** (đỡ click từng file), các loại khác click để xổ/thu, gắn tag màu theo loại. Nút Expand all / Collapse all.
   - Modified: diff split 2 cột (đỏ/xanh), chỉ hunk thật; hunk noise ghi chú số lượng; khối moved tô xanh dương kèm dòng đối chiếu moved to/from.
   - Unimportant: diff từng hunk kèm nhãn loại noise (comment/rename/uuid/timestamp/whitespace).
