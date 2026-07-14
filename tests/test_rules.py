@@ -168,5 +168,95 @@ class TestInterfaceExtraction(unittest.TestCase):
         self.assertIsNone(arxml_rules.interface_diff('<broken', good))
 
 
+_SWC = (
+    '<APPLICATION-SW-COMPONENT-TYPE><SHORT-NAME>Ctrl</SHORT-NAME>'
+    '<PORTS>'
+    '<R-PORT-PROTOTYPE><SHORT-NAME>In1</SHORT-NAME>'
+    '<REQUIRED-INTERFACE-TREF>/If/If_Speed</REQUIRED-INTERFACE-TREF>'
+    '</R-PORT-PROTOTYPE>'
+    '<P-PORT-PROTOTYPE><SHORT-NAME>Out1</SHORT-NAME>'
+    '<PROVIDED-INTERFACE-TREF>/If/If_Cmd</PROVIDED-INTERFACE-TREF>'
+    '</P-PORT-PROTOTYPE>'
+    '</PORTS>'
+    '<INTERNAL-BEHAVIORS><SWC-INTERNAL-BEHAVIOR><SHORT-NAME>IB</SHORT-NAME>'
+    '<EVENTS><TIMING-EVENT><SHORT-NAME>TE</SHORT-NAME>'
+    '<START-ON-EVENT-REF>/Pkg/Ctrl/IB/Run_Step</START-ON-EVENT-REF>'
+    '<PERIOD>0.01</PERIOD></TIMING-EVENT></EVENTS>'
+    '<RUNNABLES><RUNNABLE-ENTITY><SHORT-NAME>Run_Step</SHORT-NAME>'
+    '<SYMBOL>Ctrl_Step</SYMBOL></RUNNABLE-ENTITY></RUNNABLES>'
+    '</SWC-INTERNAL-BEHAVIOR></INTERNAL-BEHAVIORS>'
+    '</APPLICATION-SW-COMPONENT-TYPE>')
+
+
+class TestSwcExtraction(unittest.TestCase):
+    def test_ports_runnables_events(self):
+        swcs = arxml_rules.extract_swcs(_arxml(_SWC))
+        self.assertEqual(list(swcs), ['/Pkg/Ctrl'])
+        body = swcs['/Pkg/Ctrl']
+        self.assertEqual(body['ports'],
+                         {'In1': 'R-PORT If_Speed', 'Out1': 'P-PORT If_Cmd'})
+        self.assertEqual(body['runnables'], {'Run_Step': 'Ctrl_Step'})
+        self.assertEqual(body['events'], {'TE': 'TIMING 0.01s on Run_Step'})
+
+    def test_malformed_returns_none(self):
+        self.assertIsNone(arxml_rules.extract_swcs('<AUTOSAR><oops'))
+
+    def test_diff_added_port_and_changed_period(self):
+        new = _SWC.replace('0.01', '0.02').replace(
+            '</PORTS>',
+            '<P-PORT-PROTOTYPE><SHORT-NAME>Out2</SHORT-NAME>'
+            '<PROVIDED-INTERFACE-TREF>/If/If_Diag</PROVIDED-INTERFACE-TREF>'
+            '</P-PORT-PROTOTYPE></PORTS>')
+        d = arxml_rules.swc_diff(_arxml(_SWC), _arxml(new))
+        self.assertEqual(d['ports']['added'],
+                         [('/Pkg/Ctrl', 'Out2', 'P-PORT If_Diag')])
+        self.assertEqual(d['events']['changed'],
+                         [('/Pkg/Ctrl', 'TE', 'TIMING 0.01s on Run_Step',
+                           'TIMING 0.02s on Run_Step')])
+        self.assertFalse(arxml_rules.swc_diff_empty(d))
+
+    def test_diff_one_side_missing_file(self):
+        d = arxml_rules.swc_diff(None, _arxml(_SWC))
+        self.assertEqual(d['swcs']['added'], ['/Pkg/Ctrl'])
+        self.assertEqual([r[:2] for r in d['ports']['added']],
+                         [('/Pkg/Ctrl', 'In1'), ('/Pkg/Ctrl', 'Out1')])
+        d = arxml_rules.swc_diff(_arxml(_SWC), None)
+        self.assertEqual(d['swcs']['removed'], ['/Pkg/Ctrl'])
+
+    def test_diff_parse_error_returns_none(self):
+        self.assertIsNone(arxml_rules.swc_diff(_arxml(_SWC), '<broken'))
+
+    def test_diff_equal_is_empty(self):
+        d = arxml_rules.swc_diff(_arxml(_SWC), _arxml(_SWC))
+        self.assertTrue(arxml_rules.swc_diff_empty(d))
+
+
+class TestRteCalls(unittest.TestCase):
+    def test_extract_unique_sorted(self):
+        src = ('x = Rte_Read_In1_Speed(&u);\n'
+               'Rte_Write_Out1_Cmd(u);\n'
+               'Rte_Write_Out1_Cmd(v);\n'
+               'y = Rte_IrvRead_Step_State();\n')
+        self.assertEqual(c_rules.extract_rte_calls(src),
+                         ['Rte_IrvRead_Step_State', 'Rte_Read_In1_Speed',
+                          'Rte_Write_Out1_Cmd'])
+
+    def test_commented_call_not_counted(self):
+        src = '/* Rte_Write_Old_Cmd(u); */\nRte_Read_In1_Speed(&u);\n'
+        self.assertEqual(c_rules.extract_rte_calls(src), ['Rte_Read_In1_Speed'])
+
+    def test_non_api_identifier_ignored(self):
+        # Rte_Foo_x has no standard API verb -> not summarized (fail-safe)
+        self.assertEqual(c_rules.extract_rte_calls('Rte_Foo_x();'), [])
+
+    def test_diff(self):
+        d = c_rules.rte_diff('Rte_Read_A_a(&x);', 'Rte_Read_A_a(&x); Rte_Call_B_Op();')
+        self.assertEqual(d, {'added': ['Rte_Call_B_Op'], 'removed': []})
+
+    def test_diff_one_side_missing_file(self):
+        d = c_rules.rte_diff(None, 'Rte_Write_P_d(x);')
+        self.assertEqual(d, {'added': ['Rte_Write_P_d'], 'removed': []})
+
+
 if __name__ == '__main__':
     unittest.main()

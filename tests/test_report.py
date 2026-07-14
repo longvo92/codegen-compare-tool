@@ -5,7 +5,8 @@ from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
 from compare_tool.report import (_char_diff, _group_hunks, _group_label,
-                                 _group_table, _groups_html, build_report)
+                                 _group_table, _groups_html, _model_groups,
+                                 build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -176,7 +177,7 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertIn('class="badge b-id off"', self.page)
 
     def test_modified_files_expanded_by_default(self):
-        self.assertIn('<details class="file sec-real" id="f0" open>', self.page)
+        self.assertRegex(self.page, r'<details class="file sec-real" id="f0"[^>]* open>')
 
     def test_other_files_collapsed_by_default(self):
         # unimportant/added/deleted details carry no open attribute
@@ -186,13 +187,13 @@ class TestCleanDefaults(unittest.TestCase):
 
     def test_tree_rows_never_hidden_by_badges(self):
         # tree rows use tc-* (color only); sec-* would hide them with badges
-        self.assertIn('<div class="tf tc-id">', self.page)   # identical stays
-        self.assertIn('<div class="tf tc-ign">', self.page)  # unimportant stays
+        self.assertIn('<div class="tf tc-id"', self.page)   # identical stays
+        self.assertIn('<div class="tf tc-ign"', self.page)  # unimportant stays
         self.assertNotRegex(self.page, r'<div class="tf sec-')
 
 
 class TestIfaceSection(unittest.TestCase):
-    """ARXML interface summary must appear at the top of the report."""
+    """AUTOSAR change summary must appear at the top of the report."""
 
     @classmethod
     def setUpClass(cls):
@@ -200,7 +201,8 @@ class TestIfaceSection(unittest.TestCase):
         cls.page = build_report(results, FIX / 'old', FIX / 'new')
 
     def test_section_lists_added_and_removed(self):
-        self.assertIn('ARXML interface changes', self.page)
+        self.assertIn('AUTOSAR changes', self.page)
+        self.assertIn('Port interfaces', self.page)
         self.assertIn('+ /Interfaces/If_Torque', self.page)
         self.assertIn('− /Interfaces/If_Diag', self.page)
         self.assertIn('SENDER-RECEIVER', self.page)
@@ -212,7 +214,92 @@ class TestIfaceSection(unittest.TestCase):
     def test_no_section_without_arxml_iface_info(self):
         results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*'])
         page = build_report(results, FIX / 'old', FIX / 'new')
-        self.assertNotIn('ARXML interface changes', page)
+        self.assertNotIn('AUTOSAR changes', page)
+
+
+class TestModelGrouping(unittest.TestCase):
+    """File grouping by Embedded Coder model naming (X.c, X_*.h, Rte_X.h)."""
+
+    @staticmethod
+    def _results(paths):
+        return {p: {'status': 'identical'} for p in paths}
+
+    def test_basic_group_and_shared(self):
+        g = _model_groups(self._results(
+            ['Ctrl.c', 'Ctrl.h', 'Ctrl_types.h', 'Rte_Ctrl.h', 'rtwtypes.h']))
+        self.assertEqual(list(g), ['Ctrl', 'Shared / other'])
+        self.assertEqual(g['Ctrl'], ['Ctrl.c', 'Ctrl.h', 'Ctrl_types.h', 'Rte_Ctrl.h'])
+        self.assertEqual(g['Shared / other'], ['rtwtypes.h'])
+
+    def test_utility_pair_stays_shared(self):
+        # rt_nonfinite.c/.h: <3 files, no arxml -> no model detected at all
+        self.assertIsNone(_model_groups(self._results(
+            ['rt_nonfinite.c', 'rt_nonfinite.h'])))
+
+    def test_modular_arxml_export_names_model(self):
+        g = _model_groups(self._results(
+            ['Ctrl_component.arxml', 'Ctrl_interface.arxml', 'other.txt']))
+        self.assertEqual(g['Ctrl'], ['Ctrl_component.arxml', 'Ctrl_interface.arxml'])
+
+    def test_longest_model_name_wins(self):
+        paths = ['Ctrl.c', 'Ctrl.h', 'Ctrl_types.h',
+                 'Ctrl_sub.c', 'Ctrl_sub.h', 'Ctrl_sub_types.h']
+        g = _model_groups(self._results(paths))
+        self.assertEqual(g['Ctrl_sub'], ['Ctrl_sub.c', 'Ctrl_sub.h', 'Ctrl_sub_types.h'])
+        self.assertEqual(g['Ctrl'], ['Ctrl.c', 'Ctrl.h', 'Ctrl_types.h'])
+
+    def test_no_models_returns_none(self):
+        self.assertIsNone(_model_groups(self._results(['readme.txt', 'a.h'])))
+
+
+class TestModelReport(unittest.TestCase):
+    """Full report over the model fixtures: overview table, grouped details,
+    AUTOSAR semantic sections, filter plumbing."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.results = scan(FIX / 'model_old', FIX / 'model_new')
+        cls.page = build_report(cls.results, FIX / 'model_old', FIX / 'model_new')
+
+    def test_overview_table_lists_model(self):
+        self.assertIn('Model overview', self.page)
+        self.assertIn('<table class="ov">', self.page)
+        self.assertIn('>Ctrl</a>', self.page)
+        self.assertIn('Shared / other', self.page)
+
+    def test_overview_chips_summarize_autosar_changes(self):
+        self.assertIn('port', self.page)
+        self.assertIn('<span class="a-chg">~1</span> event', self.page)
+        self.assertIn('<span class="a-add">+1</span> RTE', self.page)
+
+    def test_details_grouped_per_model_and_open_on_real_change(self):
+        self.assertRegex(self.page,
+                         r'<details class="model" id="m0" data-m="Ctrl" open>')
+
+    def test_shared_group_without_details_not_rendered(self):
+        # rtwtypes.h is identical -> shared group has no detail section
+        self.assertNotIn('data-m="Shared / other"', self.page)
+
+    def test_autosar_section_rows(self):
+        self.assertIn('+ Ctrl.Out2', self.page)                 # new P-PORT
+        self.assertIn('P-PORT If_Diag', self.page)
+        self.assertIn('~ Ctrl.TE_Step', self.page)              # period change
+        self.assertIn('TIMING 0.01s on Ctrl_Step → TIMING 0.02s on Ctrl_Step',
+                      self.page)
+        self.assertIn('+ Rte_Write_Out2_Diag', self.page)       # new RTE call
+
+    def test_per_file_notes(self):
+        self.assertIn('Behavior: +port Ctrl.Out2', self.page)
+        self.assertIn('RTE: +Rte_Write_Out2_Diag', self.page)
+
+    def test_filter_plumbing_present(self):
+        self.assertIn('id="flt"', self.page)
+        self.assertIn('function flt(', self.page)
+        self.assertIn('data-p="Ctrl.c"', self.page)
+
+    def test_scanner_attached_semantics(self):
+        self.assertIn('swc', self.results['Ctrl_component.arxml'])
+        self.assertIn('rte', self.results['Ctrl.c'])
 
 
 class TestMovedRendering(unittest.TestCase):

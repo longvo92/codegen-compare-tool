@@ -3,7 +3,7 @@
 import fnmatch
 from pathlib import Path
 
-from . import arxml_rules
+from . import arxml_rules, c_rules
 from .diff_engine import compare_pair, ruleset_for
 
 SKIP_DIRS = {'.git', '__pycache__', '.svn'}
@@ -50,23 +50,45 @@ def compare_file(old_root, new_root, rel):
                 'notes': ['line-endings'], 'binary': False}
     result = compare_pair(old_text, new_text, rel)
     result['binary'] = False
-    # port-interface summary: only real changes can add/remove interfaces
-    # (ignorable-only means the shadows are equal, hence same interfaces)
-    if ruleset_for(rel) == 'arxml' and result['status'] == 'real-change':
-        d = arxml_rules.interface_diff(old_text, new_text)
-        if d is not None:
-            result['ifaces'] = d
+    # semantic summaries: only real changes can move the AUTOSAR surface
+    # (ignorable-only means the shadows are equal, hence same content)
+    if result['status'] == 'real-change':
+        if ruleset_for(rel) == 'arxml':
+            d = arxml_rules.interface_diff(old_text, new_text)
+            if d is not None:
+                result['ifaces'] = d
+            s = arxml_rules.swc_diff(old_text, new_text)
+            if s is not None and not arxml_rules.swc_diff_empty(s):
+                result['swc'] = s
+        elif rel.endswith('.c'):
+            d = c_rules.rte_diff(old_text, new_text)
+            if d['added'] or d['removed']:
+                result['rte'] = d
     return result
 
 
-def _iface_single(root, rel, is_added):
-    """Interface diff for an arxml file present on one side only, or None."""
+def _single_info(root, rel, is_added):
+    """Semantic extras for a file present on one side only:
+    {'ifaces': ..., 'swc': ..., 'rte': ...} (only keys with content)."""
     path = Path(root) / rel
-    if ruleset_for(rel) != 'arxml' or looks_binary(path):
-        return None
-    text = read_text(path)
-    return (arxml_rules.interface_diff(None, text) if is_added
-            else arxml_rules.interface_diff(text, None))
+    out = {}
+    if looks_binary(path):
+        return out
+    if ruleset_for(rel) == 'arxml':
+        text = read_text(path)
+        old_t, new_t = (None, text) if is_added else (text, None)
+        d = arxml_rules.interface_diff(old_t, new_t)
+        if d is not None:
+            out['ifaces'] = d
+        s = arxml_rules.swc_diff(old_t, new_t)
+        if s is not None and not arxml_rules.swc_diff_empty(s):
+            out['swc'] = s
+    elif rel.endswith('.c'):
+        text = read_text(path)
+        d = c_rules.rte_diff(None, text) if is_added else c_rules.rte_diff(text, None)
+        if d['added'] or d['removed']:
+            out['rte'] = d
+    return out
 
 
 def _excluded(rel, patterns):
@@ -90,15 +112,11 @@ def scan(old_root, new_root, progress=None, exclude=()):
             results[rel] = compare_file(old_root, new_root, rel)
         elif rel in new_files:
             r = {'status': 'added', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
-            d = _iface_single(new_root, rel, is_added=True)
-            if d is not None:
-                r['ifaces'] = d
+            r.update(_single_info(new_root, rel, is_added=True))
             results[rel] = r
         else:
             r = {'status': 'deleted', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
-            d = _iface_single(old_root, rel, is_added=False)
-            if d is not None:
-                r['ifaces'] = d
+            r.update(_single_info(old_root, rel, is_added=False))
             results[rel] = r
         if progress:
             progress(idx + 1, len(all_paths), rel)
@@ -122,4 +140,39 @@ def summarize_ifaces(results):
             continue
         added.extend((rel, p, t) for p, t in d['added'])
         removed.extend((rel, p, t) for p, t in d['removed'])
+    return added, removed
+
+
+def summarize_swcs(results):
+    """Flatten per-file swc diffs. Returns
+
+        {'swcs': {'added': [(rel, swc)], 'removed': [...]},
+         'ports'|'runnables'|'events': {
+             'added': [(rel, swc, name, desc)], 'removed': [...],
+             'changed': [(rel, swc, name, old_desc, new_desc)]}}
+    """
+    out = {'swcs': {'added': [], 'removed': []}}
+    for cat in arxml_rules.SWC_CATEGORIES:
+        out[cat] = {'added': [], 'removed': [], 'changed': []}
+    for rel, r in sorted(results.items()):
+        d = r.get('swc')
+        if not d:
+            continue
+        for k in ('added', 'removed'):
+            out['swcs'][k].extend((rel, s) for s in d['swcs'][k])
+        for cat in arxml_rules.SWC_CATEGORIES:
+            for k in ('added', 'removed', 'changed'):
+                out[cat][k].extend((rel,) + row for row in d[cat][k])
+    return out
+
+
+def summarize_rte(results):
+    """Flatten per-file RTE diffs into two lists of (rel_path, api_name)."""
+    added, removed = [], []
+    for rel, r in sorted(results.items()):
+        d = r.get('rte')
+        if not d:
+            continue
+        added.extend((rel, n) for n in d['added'])
+        removed.extend((rel, n) for n in d['removed'])
     return added, removed

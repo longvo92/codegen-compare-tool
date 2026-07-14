@@ -196,3 +196,30 @@ def apply_rename_map(text, mapping):
     if not mapping:
         return text
     return re.sub(r'[A-Za-z_]\w*', lambda m: mapping.get(m.group(0), m.group(0)), text)
+
+
+# --- RTE access-point summary (AUTOSAR blockset codegen) ---
+
+# Standard RTE API verbs (AUTOSAR_SWS_RTE). Unknown verbs are simply not
+# summarized — the text diff still shows them (fail-safe).
+RTE_API_RE = re.compile(
+    r'\bRte_(?:Read|DRead|Write|Send|Receive|Invalidate|Feedback|IFeedback'
+    r'|Call|Result|Pim|CData|Prm|IStatus|IsUpdated'
+    r'|IrvRead|IrvWrite|IrvIRead|IrvIWrite'
+    r'|IRead|IWrite|IWriteRef|IInvalidate'
+    r'|Mode|Switch|SwitchAck|Trigger|IrTrigger|Enter|Exit)_\w+')
+
+
+def extract_rte_calls(text):
+    """Sorted unique Rte_* access points referenced in C text (comments
+    stripped so a commented-out call does not count)."""
+    return sorted(set(RTE_API_RE.findall(strip_c_comments(text))))
+
+
+def rte_diff(old_text, new_text):
+    """RTE access points added/removed between two C texts. A None side
+    means the file does not exist there. Returns {'added': [...],
+    'removed': [...]} sorted."""
+    old = set(extract_rte_calls(old_text)) if old_text is not None else set()
+    new = set(extract_rte_calls(new_text)) if new_text is not None else set()
+    return {'added': sorted(new - old), 'removed': sorted(old - new)}

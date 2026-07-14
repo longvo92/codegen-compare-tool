@@ -43,15 +43,32 @@ Khối code bị xóa chỗ này và xuất hiện nguyên vẹn chỗ khác (MA
 
 File chỉ có moved block **vẫn tính Modified** (đổi thứ tự statement có thể đổi hành vi) — moved là hỗ trợ hiển thị để reviewer khỏi so tay 2 khối đỏ/xanh lớn, không phải noise được bỏ qua. Badge Unimportant không ẩn moved.
 
-## ARXML interface summary
+## AUTOSAR semantic summary
 
-Với file `.arxml`/`.xml`, tool trích mọi **port-interface** AUTOSAR (SENDER-RECEIVER, CLIENT-SERVER, MODE-SWITCH, NV-DATA, PARAMETER, TRIGGER) từ 2 phía và báo interface nào **được thêm / bị xóa** (theo đường dẫn package đầy đủ, vd `/Interfaces/If_Speed`):
+Tool trích thông tin AUTOSAR từ 2 phía và báo thay đổi ở mức **ngữ nghĩa**, không chỉ mức text:
 
-- **CLI**: block `ARXML interfaces: X added, Y removed` kèm danh sách `+`/`-` từng interface và file chứa nó.
-- **Report HTML**: mục **ARXML interface changes** ngay đầu trang, click tên file nhảy tới diff chi tiết; mỗi file arxml trong Detailed changes cũng có dòng ghi chú interface riêng.
-- File arxml được thêm/xóa nguyên file: toàn bộ interface trong đó tính là added/removed.
+| Nguồn | Trích gì | Báo gì |
+|---|---|---|
+| `.arxml`/`.xml` | **Port-interface** (SENDER-RECEIVER, CLIENT-SERVER, MODE-SWITCH, NV-DATA, PARAMETER, TRIGGER) theo đường dẫn package đầy đủ | added / removed |
+| `.arxml`/`.xml` | **SWC** (APPLICATION, SENSOR-ACTUATOR, SERVICE, CDD, ECU-ABSTRACTION, NV-BLOCK) | added / removed |
+| `.arxml`/`.xml` | **Port** của SWC (P/R/PR + interface tham chiếu), **runnable** (+ SYMBOL), **event** (loại, PERIOD, runnable kích hoạt) | added / removed / **changed** (vd đổi period TIMING-EVENT `0.01s → 0.02s`, port trỏ interface khác) |
+| `.c` | **RTE access point** — mọi call `Rte_Read/Write/Call/IrvRead/IrvWrite/Mode/Switch/...` (strip comment trước khi đếm) | added / removed |
 
-Fail-safe: file không parse được XML → không đoán, bỏ qua phần summary của file đó (diff text vẫn hiển thị đầy đủ). Chỉ báo thêm/xóa — thay đổi *bên trong* interface (đổi data element, operation...) hiện trong diff thường.
+Hiển thị:
+
+- **CLI**: block `ARXML interfaces`, `AUTOSAR behavior`, `RTE access points` kèm danh sách `+`/`-`/`~` và file chứa nó.
+- **Report HTML**: mục **AUTOSAR changes** ngay đầu trang, gom theo loại (Port interfaces / Software components / Ports / Runnables / Events / RTE access points), click tên file nhảy tới diff chi tiết; mỗi file trong Detailed changes cũng có dòng ghi chú `Interfaces:` / `Behavior:` / `RTE:` riêng.
+- File được thêm/xóa nguyên file: toàn bộ interface/SWC/RTE call trong đó tính là added/removed.
+
+Fail-safe: file không parse được XML → không đoán, bỏ qua summary của file đó (diff text vẫn hiển thị đầy đủ). Verb `Rte_` lạ không nằm trong danh sách API chuẩn → không đếm nhưng vẫn hiện trong diff.
+
+## Group theo model / SWC
+
+File được gom theo **model Simulink** dựa trên naming convention của Embedded Coder AUTOSAR blockset: `X.c`, `X.h`, `X_types.h`, `X_private.h`, `X_data.c`, `Rte_X.h`, `X.arxml` và bộ arxml modular (`X_component.arxml`, `X_interface.arxml`, ...) thuộc model `X`.
+
+- **Model overview** đầu report: bảng mỗi model 1 dòng — số file Modified/Added/Deleted/Unimportant (màu theo loại) + rollup AUTOSAR (`+1 port · ~1 event · +2 RTE`). Click tên model nhảy tới nhóm chi tiết. Dành cho reviewer/lead cần nhìn tổng quan trước khi soi diff.
+- **Detailed changes** gom theo model: mỗi model 1 khối xổ/thu; nhóm có thay đổi thật **mở sẵn**, nhóm chỉ có noise thu gọn. File không thuộc model nào (rtwtypes.h, utility dùng chung...) vào nhóm **Shared / other** cuối cùng.
+- Fail-safe nhận diện: tên `X` chỉ tính là model khi gom được ≥ 3 file hoặc sở hữu file `.arxml` (cặp utility lẻ như `rt_nonfinite.c/.h` không thành model giả). Không nhận diện được model nào → report giữ layout phẳng như cũ.
 
 ## Chạy trên Azure DevOps
 
@@ -68,8 +85,10 @@ Setup một lần (ghi trong comment của yml): sửa tên repo tool + đườn
 
 - **Mặc định chỉ hiện thay đổi thật**: badge `Unimportant` và `Identical` tắt sẵn — file noise-only ẩn, dòng minor (vàng) trong file Modified thay bằng placeholder `⋯ N minor lines hidden`. Bật badge khi cần soi noise.
 - **Badge summary** đầu trang, thuật ngữ theo convention chung của tool compare: **Modified / Unimportant / Added / Deleted / Identical**. Click badge để ẩn/hiện loại đó.
+- **Model overview** + **AUTOSAR changes**: xem mục [AUTOSAR semantic summary](#autosar-semantic-summary) và [Group theo model / SWC](#group-theo-model--swc).
 - **Folder tree** kiểu Beyond Compare: ký hiệu theo file — `≠` Modified, `≈` Unimportant (chỉ comment/noise), `+` Added, `−` Deleted, `=` Identical (hover ký hiệu có tooltip). Folder xổ/thu, trạng thái folder = trạng thái nặng nhất bên trong. Click file nhảy thẳng tới mục chi tiết. Tree **luôn hiển thị đầy đủ mọi file** — badge chỉ ẩn mục detailed changes, không ẩn dòng trong tree.
-- **Detailed changes**: file **Modified mở sẵn** (đỡ click từng file), các loại khác click để xổ/thu, gắn tag màu theo loại. Nút Expand all / Collapse all.
+- **Filter box** trên toolbar: gõ để lọc theo tên file hoặc tên model (áp cho cả tree lẫn detailed changes) — hợp report hàng trăm file.
+- **Detailed changes** (gom theo model khi nhận diện được): file **Modified mở sẵn** (đỡ click từng file), các loại khác click để xổ/thu, gắn tag màu theo loại. Nút Expand all / Collapse all (xổ/thu cả nhóm model).
   - Modified: diff split 2 cột (đỏ/xanh), chỉ hunk thật; hunk noise ghi chú số lượng; khối moved tô xanh dương kèm dòng đối chiếu moved to/from.
   - Unimportant: diff từng hunk kèm nhãn loại noise (comment/rename/uuid/timestamp/whitespace).
   - Added/Deleted: hiện nội dung file (tối đa 400 dòng, binary chỉ ghi size).
@@ -87,9 +106,9 @@ compare_tool/
 ├── main.py          # CLI
 ├── scanner.py       # quét 2 cây thư mục, ghép file theo đường dẫn tương đối
 ├── diff_engine.py   # diff 2 lượt (raw + normalized), phân loại hunk, detect moved block
-├── c_rules.py       # rule C/H: strip comment, tokenize, detect rename
-├── arxml_rules.py   # rule ARXML: UUID, ADMIN-DATA, DATE, comment + trích port-interface
-└── report.py        # HTML report (tự chứa, badge toggle, diff xổ/thu)
+├── c_rules.py       # rule C/H: strip comment, tokenize, detect rename + trích RTE access point
+├── arxml_rules.py   # rule ARXML: UUID, ADMIN-DATA, DATE, comment + trích port-interface, SWC (port/runnable/event)
+└── report.py        # HTML report (tự chứa, badge toggle, model overview, group theo model, filter, diff xổ/thu)
 ```
 
 Muốn thêm rule mới: thêm hàm strip vào `c_rules.py`/`arxml_rules.py`, đăng ký vào shadow builder + `_build_variants` trong `diff_engine.py`.

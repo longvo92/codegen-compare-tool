@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 
 from .report import build_report
-from .scanner import scan, summarize, summarize_ifaces
+from .scanner import (scan, summarize, summarize_ifaces, summarize_rte,
+                      summarize_swcs)
 
 
 def main(argv=None):
@@ -65,6 +66,40 @@ def main(argv=None):
             print('  - {} ({}) in {}'.format(p, tag.replace('-INTERFACE', ''), rel))
     elif any('ifaces' in r for r in results.values()):
         print('ARXML interfaces: none added or removed')
+
+    def item(swc, name):
+        return '{}.{}'.format(swc.rsplit('/', 1)[-1], name)
+
+    swc_sum = summarize_swcs(results)
+    lines = []
+    for rel, s in swc_sum['swcs']['added']:
+        lines.append('  + SWC {} in {}'.format(s, rel))
+    for rel, s in swc_sum['swcs']['removed']:
+        lines.append('  - SWC {} in {}'.format(s, rel))
+    for cat, label in (('ports', 'port'), ('runnables', 'runnable'),
+                       ('events', 'event')):
+        for rel, s, n, d in swc_sum[cat]['added']:
+            lines.append('  + {} {}{} in {}'.format(
+                label, item(s, n), ' ({})'.format(d) if d else '', rel))
+        for rel, s, n, d in swc_sum[cat]['removed']:
+            lines.append('  - {} {}{} in {}'.format(
+                label, item(s, n), ' ({})'.format(d) if d else '', rel))
+        for rel, s, n, od, nd in swc_sum[cat]['changed']:
+            lines.append('  ~ {} {} ({} -> {}) in {}'.format(
+                label, item(s, n), od, nd, rel))
+    if lines:
+        print('AUTOSAR behavior: {} change(s)'.format(len(lines)))
+        for line in lines:
+            print(line)
+
+    rte_added, rte_removed = summarize_rte(results)
+    if rte_added or rte_removed:
+        print('RTE access points: {} added, {} removed'.format(
+            len(rte_added), len(rte_removed)))
+        for rel, n in rte_added:
+            print('  + {} in {}'.format(n, rel))
+        for rel, n in rte_removed:
+            print('  - {} in {}'.format(n, rel))
 
     out = Path(args.report)
     out.write_text(build_report(results, old_root, new_root), encoding='utf-8')

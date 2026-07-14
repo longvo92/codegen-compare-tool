@@ -2,9 +2,11 @@
 
 import datetime
 import html
+import re
 from pathlib import Path
 
-from .scanner import looks_binary, read_text, summarize, summarize_ifaces
+from .scanner import (looks_binary, read_text, summarize, summarize_ifaces,
+                      summarize_rte, summarize_swcs)
 
 CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
@@ -97,6 +99,37 @@ summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font
 .toolbar button { background: #2b2c30; color: #d4d4d4; border: 1px solid #444; border-radius: 4px;
     padding: 4px 10px; font-size: 12px; cursor: pointer; margin-right: 6px; }
 .toolbar button:hover { background: #35363b; }
+#flt { background: #2b2c30; color: #d4d4d4; border: 1px solid #444; border-radius: 4px;
+       padding: 4px 10px; font-size: 12px; width: 280px; margin-left: 10px; }
+#flt:focus { outline: none; border-color: #6a6a6a; }
+table.ov { border-collapse: collapse; font-size: 13px; margin: 4px 0 22px; }
+table.ov th { text-align: left; color: #8a8a8a; font-weight: normal; font-size: 12px;
+              padding: 3px 18px 4px 0; border-bottom: 1px solid #3a3b40; }
+table.ov td { padding: 5px 18px 5px 0; border-bottom: 1px solid #2c2d31; vertical-align: top; }
+table.ov a { color: #dcdcaa; text-decoration: none; border-bottom: 1px dotted #666;
+             cursor: pointer; }
+table.ov a:hover { color: #fff; }
+.cnt { margin-right: 10px; white-space: nowrap; }
+.cnt-real { color: #ffb3b3; } .cnt-add { color: #a8e6b0; } .cnt-del { color: #d9a8e6; }
+.cnt-ign { color: #ffe28a; } .cnt-id { color: #8a8a8a; }
+.aut { color: #9a9a9a; }
+.aut .a-add { color: #7bd88a; } .aut .a-del { color: #ff7b7b; } .aut .a-chg { color: #7fb3d9; }
+.ifgroup { color: #8a8a8a; font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+           margin: 8px 0 2px; }
+.iflist .ifgroup:first-child { margin-top: 0; }
+.if-chg { color: #7fb3d9; }
+details.model { margin: 16px 0; border: 1px solid #3a3b40; border-radius: 8px;
+                background: #202124; }
+details.model > summary { list-style: none; cursor: pointer; padding: 9px 14px;
+    font-size: 15px; color: #dcdcaa; user-select: none; display: flex;
+    align-items: center; gap: 10px; }
+details.model > summary::-webkit-details-marker { display: none; }
+details.model > summary::before { content: '▶'; font-size: 10px; color: #8a8a8a;
+                                  transition: transform .15s; }
+details.model[open] > summary::before { transform: rotate(90deg); }
+details.model > summary:hover { background: #26272b; }
+details.model > .mbody { padding: 0 12px 10px; }
+summary .mcounts { font-size: 12px; font-weight: normal; }
 """
 
 
@@ -256,6 +289,152 @@ _PRIO = {'real-change': 4, 'ignorable-only': 3, 'added': 2, 'deleted': 2, 'ident
 _STATUS_TITLE = {'real-change': 'Modified', 'ignorable-only': 'Unimportant (noise only)',
                  'added': 'Added', 'deleted': 'Deleted', 'identical': 'Identical'}
 
+# --- grouping by model / SWC (Embedded Coder AUTOSAR naming convention) ---
+
+SHARED_GROUP = 'Shared / other'
+# modular arxml export: <Model>_component.arxml, <Model>_interface.arxml, ...
+_ARXML_SPLIT_RE = re.compile(
+    r'(.+)_(component|datatypes?|interfaces?|implementation|behavior|timing)$',
+    re.IGNORECASE)
+_DETAIL_ORDER = {'real-change': 0, 'ignorable-only': 1, 'added': 2, 'deleted': 3}
+
+
+def _stem(rel):
+    base = rel.rsplit('/', 1)[-1]
+    dot = base.rfind('.')
+    return base[:dot] if dot > 0 else base
+
+
+def _detect_models(paths):
+    """Model-name candidates: X for any X.c, plus X for the modular arxml
+    export names (X_component.arxml, X_interface.arxml, ...)."""
+    cands = set()
+    for rel in paths:
+        low = rel.lower()
+        if low.endswith('.c'):
+            cands.add(_stem(rel))
+        elif low.endswith('.arxml'):
+            m = _ARXML_SPLIT_RE.match(_stem(rel))
+            if m:
+                cands.add(m.group(1))
+    return cands
+
+
+def _model_of(stem, ordered_models):
+    """Owning model of a file stem: X.ext, X_*.ext or Rte_X.h belong to X.
+    ordered_models is longest-first so SubModel_ab wins over SubModel."""
+    for m in ordered_models:
+        if stem == m or stem.startswith(m + '_') or stem == 'Rte_' + m:
+            return m
+    return None
+
+
+def _model_groups(results):
+    """{model: [rel, ...]} per Embedded Coder naming, SHARED_GROUP last, or
+    None when nothing qualifies (the report then keeps the flat layout).
+    A candidate counts as a model only when it groups >= 3 files or owns an
+    .arxml — stray utility pairs (rt_nonfinite.c/.h) stay in shared."""
+    ordered = sorted(_detect_models(results), key=len, reverse=True)
+    groups, shared = {}, []
+    for rel in results:
+        m = _model_of(_stem(rel), ordered)
+        if m:
+            groups.setdefault(m, []).append(rel)
+        else:
+            shared.append(rel)
+    for m in list(groups):
+        files = groups[m]
+        if len(files) < 3 and not any(f.lower().endswith('.arxml') for f in files):
+            shared.extend(groups.pop(m))
+    if not groups:
+        return None
+    out = {m: sorted(groups[m]) for m in sorted(groups)}
+    if shared:
+        out[SHARED_GROUP] = sorted(shared)
+    return out
+
+
+def _detail_order(rels, results):
+    """Detail-section order inside one group: Modified, Unimportant, Added,
+    Deleted; alphabetical within each status. Identical files drop out."""
+    return sorted((p for p in rels if results[p]['status'] in _DETAIL_ORDER),
+                  key=lambda p: (_DETAIL_ORDER[results[p]['status']], p))
+
+
+def _counts_html(rels, results):
+    """Colored per-status count spans for one model group + raw counts."""
+    c = {'real-change': 0, 'ignorable-only': 0, 'added': 0, 'deleted': 0,
+         'identical': 0}
+    for rel in rels:
+        c[results[rel]['status']] += 1
+    bits = []
+    for key, label, cls in (('real-change', 'Modified', 'cnt-real'),
+                            ('added', 'Added', 'cnt-add'),
+                            ('deleted', 'Deleted', 'cnt-del'),
+                            ('ignorable-only', 'Unimportant', 'cnt-ign')):
+        if c[key]:
+            bits.append('<span class="cnt {}">{} {}</span>'.format(cls, c[key], label))
+    if not bits:
+        bits.append('<span class="cnt cnt-id">unchanged</span>')
+    return ''.join(bits), c
+
+
+def _autosar_chips(rels, results):
+    """Compact AUTOSAR change rollup for one model group, e.g.
+    '+1 interface · +2/−1 port · ~1 event · +3 RTE'."""
+    ia = ir = sa = sr = ra = rr = 0
+    cats = {'ports': [0, 0, 0], 'runnables': [0, 0, 0], 'events': [0, 0, 0]}
+    for rel in rels:
+        r = results[rel]
+        d = r.get('ifaces')
+        if d:
+            ia += len(d['added'])
+            ir += len(d['removed'])
+        s = r.get('swc')
+        if s:
+            sa += len(s['swcs']['added'])
+            sr += len(s['swcs']['removed'])
+            for cat, acc in cats.items():
+                acc[0] += len(s[cat]['added'])
+                acc[1] += len(s[cat]['removed'])
+                acc[2] += len(s[cat]['changed'])
+        t = r.get('rte')
+        if t:
+            ra += len(t['added'])
+            rr += len(t['removed'])
+
+    def chip(a, r, c, label):
+        bits = []
+        if a:
+            bits.append('<span class="a-add">+{}</span>'.format(a))
+        if r:
+            bits.append('<span class="a-del">−{}</span>'.format(r))
+        if c:
+            bits.append('<span class="a-chg">~{}</span>'.format(c))
+        return '{} {}'.format('/'.join(bits), label) if bits else ''
+
+    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'interface'),
+             chip(*(cats['ports'] + ['port'])),
+             chip(*(cats['runnables'] + ['runnable'])),
+             chip(*(cats['events'] + ['event'])), chip(ra, rr, 0, 'RTE')]
+    return ' &middot; '.join(c for c in chips if c)
+
+
+def _overview_table(groups, results, model_anchors):
+    """Executive per-model rollup table shown at the top of the report."""
+    rows = []
+    for m, rels in groups.items():
+        counts_html, _c = _counts_html(rels, results)
+        chips = _autosar_chips(rels, results)
+        name = _esc(m)
+        if m in model_anchors:
+            name = '<a onclick="go(\'{}\')">{}</a>'.format(model_anchors[m], name)
+        rows.append('<tr><td>{}</td><td>{}</td><td class="aut">{}</td></tr>'
+                    .format(name, counts_html, chips or '&mdash;'))
+    return ('<h2>Model overview</h2><table class="ov">'
+            '<tr><th>Model / SWC</th><th>Files</th><th>AUTOSAR changes</th></tr>'
+            '{}</table>'.format(''.join(rows)))
+
 
 def _agg_status(node, results):
     """Folder status = most significant child status."""
@@ -298,8 +477,9 @@ def _tree_html(results, anchors):
                 name = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], name)
             # tc-* colors only: tree rows never hide, so the full tree stays
             # visible even while badges hide detail categories (sec-*)
-            out.append('<div class="tf {}"><span class="tmark {}" title="{}">{}</span>{}</div>'
-                       .format(sec.replace('sec-', 'tc-'), mcls,
+            out.append('<div class="tf {}" data-p="{}">'
+                       '<span class="tmark {}" title="{}">{}</span>{}</div>'
+                       .format(sec.replace('sec-', 'tc-'), _esc(rel), mcls,
                                _STATUS_TITLE[st], mark, name))
 
     walk(root)
@@ -333,26 +513,71 @@ def _iface_kind(tag):
     return tag.replace('-INTERFACE', '')
 
 
-def _iface_section(results, anchors):
-    """Top-of-report list of every port-interface added/removed across all
-    arxml files; empty string when no arxml file carries interface info."""
-    if_added, if_removed = summarize_ifaces(results)
-    if not any('ifaces' in r for r in results.values()):
+def _swc_item(swc, name):
+    """'/Comp/Ctrl', 'In2' -> 'Ctrl.In2' (short SWC name keeps rows compact)."""
+    return '{}.{}'.format(swc.rsplit('/', 1)[-1], name)
+
+
+def _autosar_section(results, anchors):
+    """Top-of-report rollup of every AUTOSAR-level change across all files:
+    port-interfaces, software components, ports, runnables, events and RTE
+    access points. Empty string when no file carries semantic info."""
+    if not any(('ifaces' in r or 'swc' in r or 'rte' in r)
+               for r in results.values()):
         return ''
-    parts = ['<h2>ARXML interface changes</h2>']
-    if not if_added and not if_removed:
-        parts.append('<div class="filenote">No port-interfaces added or removed.'
-                     '</div>')
+
+    def flink(rel):
+        loc = _esc(rel)
+        if rel in anchors:
+            loc = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], loc)
+        return loc
+
+    def row(cls, sign, name, desc, rel):
+        kinds = ' <span class="kinds">{}</span>'.format(_esc(desc)) if desc else ''
+        return ('<div><span class="{}">{} {}</span>{} &mdash; {}</div>'
+                .format(cls, sign, _esc(name), kinds, flink(rel)))
+
+    sections = []
+    if_added, if_removed = summarize_ifaces(results)
+    rows = [row('if-add', '+', p, _iface_kind(t), rel) for rel, p, t in if_added]
+    rows += [row('if-del', '−', p, _iface_kind(t), rel) for rel, p, t in if_removed]
+    if rows:
+        sections.append(('Port interfaces', rows))
+
+    swcs = summarize_swcs(results)
+    rows = [row('if-add', '+', s, '', rel) for rel, s in swcs['swcs']['added']]
+    rows += [row('if-del', '−', s, '', rel) for rel, s in swcs['swcs']['removed']]
+    if rows:
+        sections.append(('Software components', rows))
+
+    for cat, title in (('ports', 'Ports'), ('runnables', 'Runnables'),
+                       ('events', 'Events')):
+        rows = [row('if-add', '+', _swc_item(s, n), d, rel)
+                for rel, s, n, d in swcs[cat]['added']]
+        rows += [row('if-del', '−', _swc_item(s, n), d, rel)
+                 for rel, s, n, d in swcs[cat]['removed']]
+        rows += [row('if-chg', '~', _swc_item(s, n),
+                     '{} → {}'.format(od, nd) if od != nd else nd, rel)
+                 for rel, s, n, od, nd in swcs[cat]['changed']]
+        if rows:
+            sections.append((title, rows))
+
+    rte_added, rte_removed = summarize_rte(results)
+    rows = [row('if-add', '+', n, '', rel) for rel, n in rte_added]
+    rows += [row('if-del', '−', n, '', rel) for rel, n in rte_removed]
+    if rows:
+        sections.append(('RTE access points', rows))
+
+    parts = ['<h2>AUTOSAR changes</h2>']
+    if not sections:
+        parts.append('<div class="filenote">No AUTOSAR-level changes '
+                     '(interfaces, ports, runnables, events, RTE access '
+                     'points).</div>')
         return ''.join(parts)
     parts.append('<div class="iflist">')
-    for cls, sign, rows in (('if-add', '+', if_added), ('if-del', '−', if_removed)):
-        for rel, p, tag in rows:
-            loc = _esc(rel)
-            if rel in anchors:
-                loc = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], loc)
-            parts.append('<div><span class="{}">{} {}</span> '
-                         '<span class="kinds">{}</span> &mdash; {}</div>'.format(
-                             cls, sign, _esc(p), _esc(_iface_kind(tag)), loc))
+    for title, rows in sections:
+        parts.append('<div class="ifgroup">{}</div>'.format(title))
+        parts.extend(rows)
     parts.append('</div>')
     return ''.join(parts)
 
@@ -367,15 +592,116 @@ def _iface_note(r):
     return '<div class="ifnote">Interfaces: {}</div>'.format(_esc('; '.join(bits)))
 
 
+def _swc_note(r):
+    """Per-file one-liner listing SWC / port / runnable / event changes."""
+    d = r.get('swc')
+    if not d:
+        return ''
+    bits = ['+SWC {}'.format(s) for s in d['swcs']['added']]
+    bits += ['−SWC {}'.format(s) for s in d['swcs']['removed']]
+    for cat, label in (('ports', 'port'), ('runnables', 'runnable'),
+                       ('events', 'event')):
+        bits += ['+{} {}'.format(label, _swc_item(s, n))
+                 for s, n, _d in d[cat]['added']]
+        bits += ['−{} {}'.format(label, _swc_item(s, n))
+                 for s, n, _d in d[cat]['removed']]
+        bits += ['~{} {} ({} → {})'.format(label, _swc_item(s, n), od, nd)
+                 for s, n, od, nd in d[cat]['changed']]
+    if not bits:
+        return ''
+    return '<div class="ifnote">Behavior: {}</div>'.format(_esc('; '.join(bits)))
+
+
+def _rte_note(r):
+    """Per-file one-liner listing RTE access points added/removed."""
+    d = r.get('rte')
+    if not d:
+        return ''
+    bits = ['+' + n for n in d['added']] + ['−' + n for n in d['removed']]
+    return '<div class="ifnote">RTE: {}</div>'.format(_esc('; '.join(bits)))
+
+
+def _notes(r):
+    return _iface_note(r) + _swc_note(r) + _rte_note(r)
+
+
 def _file_open(anchor, rel, status, extra='', expanded=False):
     label, tag = _LABEL[status]
     sec = _TREE[status][2]
     if extra:
         extra = ' <span class="hcount">{}</span>'.format(extra)
-    return ('<details class="file {}" id="{}"{}><summary>{}'
+    return ('<details class="file {}" id="{}" data-p="{}"{}><summary>{}'
             ' <span class="tag {}">{}</span>{}</summary><div class="body">'
-            .format(sec, anchor, ' open' if expanded else '',
+            .format(sec, anchor, _esc(rel), ' open' if expanded else '',
                     _esc(rel), tag, label, extra))
+
+
+def _file_section(rel, results, old_root, new_root, anchors):
+    """One collapsible detail section for a non-identical file."""
+    r = results[rel]
+    status = r['status']
+    parts = []
+    if status == 'real-change':
+        hunks = r['hunks'] if not r['binary'] else []
+        n_real = sum(1 for h in hunks if h['kind'] == 'real')
+        n_moved = sum(1 for h in hunks if h['kind'] == 'moved')
+        n_min = len(hunks) - n_real - n_moved
+        extra = '({} hunk{}{}{})'.format(n_real, '' if n_real == 1 else 's',
+                                         ' + {} moved'.format(n_moved) if n_moved else '',
+                                         ' + {} minor'.format(n_min) if n_min else '')
+        parts.append(_file_open(anchors[rel], rel, 'real-change', extra, expanded=True))
+        parts.append(_notes(r))
+        if r['binary']:
+            parts.append('<div class="filenote">Binary file differs.</div>')
+        else:
+            old_lines = read_text(Path(old_root) / rel).split('\n')
+            new_lines = read_text(Path(new_root) / rel).split('\n')
+            if r['renames']:
+                pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
+                                  for a, b in sorted(r['renames'].items()))
+                parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
+            parts.append(_groups_html(old_lines, new_lines, hunks))
+    elif status == 'ignorable-only':
+        parts.append(_file_open(anchors[rel], rel, 'ignorable-only', _esc(_kinds_of(r))))
+        if not r['hunks']:
+            parts.append('<div class="filenote">Line endings / BOM only; '
+                         'no content difference.</div>')
+        else:
+            old_lines = read_text(Path(old_root) / rel).split('\n')
+            new_lines = read_text(Path(new_root) / rel).split('\n')
+            if r['renames']:
+                pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
+                                  for a, b in sorted(r['renames'].items()))
+                parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
+            parts.append(_groups_html(old_lines, new_lines, r['hunks']))
+    elif status == 'added':
+        path = Path(new_root) / rel
+        if looks_binary(path):
+            parts.append(_file_open(anchors[rel], rel, 'added',
+                                    '({} bytes, binary)'.format(path.stat().st_size)))
+            parts.append('<div class="filenote">Binary file added.</div>')
+        else:
+            lines = read_text(path).split('\n')
+            parts.append(_file_open(anchors[rel], rel, 'added',
+                                    '({} line{})'.format(len(lines),
+                                                         '' if len(lines) == 1 else 's')))
+            parts.append(_notes(r))
+            parts.append(_content_table(lines, 'add'))
+    else:  # deleted
+        path = Path(old_root) / rel
+        if looks_binary(path):
+            parts.append(_file_open(anchors[rel], rel, 'deleted',
+                                    '({} bytes, binary)'.format(path.stat().st_size)))
+            parts.append('<div class="filenote">Binary file deleted.</div>')
+        else:
+            lines = read_text(path).split('\n')
+            parts.append(_file_open(anchors[rel], rel, 'deleted',
+                                    '({} line{})'.format(len(lines),
+                                                         '' if len(lines) == 1 else 's')))
+            parts.append(_notes(r))
+            parts.append(_content_table(lines, 'del'))
+    parts.append('</div></details>')
+    return ''.join(parts)
 
 
 def build_report(results, old_root, new_root):
@@ -400,21 +726,27 @@ def build_report(results, old_root, new_root):
                  'Unimportant and Identical start hidden &mdash; only real '
                  'changes are shown.</div>')
 
-    real_files = [p for p, r in sorted(results.items()) if r['status'] == 'real-change']
-    ign_files = [p for p, r in sorted(results.items()) if r['status'] == 'ignorable-only']
-    added = [p for p, r in sorted(results.items()) if r['status'] == 'added']
-    deleted = [p for p, r in sorted(results.items()) if r['status'] == 'deleted']
-    identical = [p for p, r in sorted(results.items()) if r['status'] == 'identical']
-    detail_files = real_files + ign_files + added + deleted
+    groups = _model_groups(results)
+    if groups:
+        detail_files = [rel for rels in groups.values()
+                        for rel in _detail_order(rels, results)]
+        model_anchors = {m: 'm{}'.format(i) for i, (m, rels) in enumerate(groups.items())
+                         if _detail_order(rels, results)}
+    else:
+        detail_files = _detail_order(results, results)
+        model_anchors = {}
     anchors = {rel: 'f{}'.format(i) for i, rel in enumerate(detail_files)}
+    identical = [p for p in sorted(results) if results[p]['status'] == 'identical']
 
-    parts.append(_iface_section(results, anchors))
+    if groups:
+        parts.append(_overview_table(groups, results, model_anchors))
+    parts.append(_autosar_section(results, anchors))
 
     if results:
         parts.append('<h2>Folder tree</h2>')
         parts.append('<div class="tree">{}</div>'.format(_tree_html(results, anchors)))
 
-    if not real_files and not added and not deleted:
+    if not counts['real-change'] and not counts['added'] and not counts['deleted']:
         parts.append('<p>No real changes. All differences are ignorable '
                      '(comments / renames / UUIDs / timestamps / whitespace).</p>')
 
@@ -425,80 +757,31 @@ def build_report(results, old_root, new_root):
                      '<span class="sw sw-mv"></span>moved block&emsp;'
                      '<span class="sw sw-min"></span>minor noise</div>')
         parts.append('<div class="toolbar">'
-                     '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=true)">Expand all</button>'
-                     '<button type="button" onclick="document.querySelectorAll(\'details.file\').forEach(d=>d.open=false)">Collapse all</button>'
+                     '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=true)">Expand all</button>'
+                     '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=false)">Collapse all</button>'
+                     '<input id="flt" type="search" placeholder="Filter by file / model name&hellip;"'
+                     ' oninput="flt(this.value)">'
                      '</div>')
 
-    for rel in real_files:
-        r = results[rel]
-        hunks = r['hunks'] if not r['binary'] else []
-        n_real = sum(1 for h in hunks if h['kind'] == 'real')
-        n_moved = sum(1 for h in hunks if h['kind'] == 'moved')
-        n_min = len(hunks) - n_real - n_moved
-        extra = '({} hunk{}{}{})'.format(n_real, '' if n_real == 1 else 's',
-                                         ' + {} moved'.format(n_moved) if n_moved else '',
-                                         ' + {} minor'.format(n_min) if n_min else '')
-        parts.append(_file_open(anchors[rel], rel, 'real-change', extra, expanded=True))
-        parts.append(_iface_note(r))
-        if r['binary']:
-            parts.append('<div class="filenote">Binary file differs.</div>')
+    if groups:
+        for m, rels in groups.items():
+            drels = _detail_order(rels, results)
+            if not drels:
+                continue
+            counts_html, c = _counts_html(rels, results)
+            # groups without a single real change start collapsed so a big
+            # report opens on what matters
+            opn = ' open' if c['real-change'] else ''
+            parts.append('<details class="model" id="{}" data-m="{}"{}>'
+                         '<summary>{} <span class="mcounts">{}</span></summary>'
+                         '<div class="mbody">'.format(model_anchors[m], _esc(m),
+                                                      opn, _esc(m), counts_html))
+            for rel in drels:
+                parts.append(_file_section(rel, results, old_root, new_root, anchors))
             parts.append('</div></details>')
-            continue
-        old_lines = read_text(Path(old_root) / rel).split('\n')
-        new_lines = read_text(Path(new_root) / rel).split('\n')
-        if r['renames']:
-            pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
-                              for a, b in sorted(r['renames'].items()))
-            parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-        parts.append(_groups_html(old_lines, new_lines, hunks))
-        parts.append('</div></details>')
-
-    for rel in ign_files:
-        r = results[rel]
-        parts.append(_file_open(anchors[rel], rel, 'ignorable-only', _esc(_kinds_of(r))))
-        if not r['hunks']:
-            parts.append('<div class="filenote">Line endings / BOM only; '
-                         'no content difference.</div>')
-            parts.append('</div></details>')
-            continue
-        old_lines = read_text(Path(old_root) / rel).split('\n')
-        new_lines = read_text(Path(new_root) / rel).split('\n')
-        if r['renames']:
-            pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
-                              for a, b in sorted(r['renames'].items()))
-            parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-        parts.append(_groups_html(old_lines, new_lines, r['hunks']))
-        parts.append('</div></details>')
-
-    for rel in added:
-        path = Path(new_root) / rel
-        if looks_binary(path):
-            parts.append(_file_open(anchors[rel], rel, 'added',
-                                    '({} bytes, binary)'.format(path.stat().st_size)))
-            parts.append('<div class="filenote">Binary file added.</div>')
-        else:
-            lines = read_text(path).split('\n')
-            parts.append(_file_open(anchors[rel], rel, 'added',
-                                    '({} line{})'.format(len(lines),
-                                                         '' if len(lines) == 1 else 's')))
-            parts.append(_iface_note(results[rel]))
-            parts.append(_content_table(lines, 'add'))
-        parts.append('</div></details>')
-
-    for rel in deleted:
-        path = Path(old_root) / rel
-        if looks_binary(path):
-            parts.append(_file_open(anchors[rel], rel, 'deleted',
-                                    '({} bytes, binary)'.format(path.stat().st_size)))
-            parts.append('<div class="filenote">Binary file deleted.</div>')
-        else:
-            lines = read_text(path).split('\n')
-            parts.append(_file_open(anchors[rel], rel, 'deleted',
-                                    '({} line{})'.format(len(lines),
-                                                         '' if len(lines) == 1 else 's')))
-            parts.append(_iface_note(results[rel]))
-            parts.append(_content_table(lines, 'del'))
-        parts.append('</div></details>')
+    else:
+        for rel in detail_files:
+            parts.append(_file_section(rel, results, old_root, new_root, anchors))
 
     if identical:
         parts.append('<div class="sec-id"><h2>Identical files</h2><ul class="files">')
@@ -509,7 +792,21 @@ def build_report(results, old_root, new_root):
                  'function tg(el,k){document.body.classList.toggle("hide-"+k);'
                  'el.classList.toggle("off");}'
                  'function go(id){var d=document.getElementById(id);if(!d)return;'
-                 'd.open=true;d.scrollIntoView({behavior:"smooth"});}'
+                 'var m=d.closest("details.model");if(m)m.open=true;'
+                 'if(d.tagName==="DETAILS")d.open=true;'
+                 'd.scrollIntoView({behavior:"smooth"});}'
+                 'function flt(q){q=q.trim().toLowerCase();'
+                 'document.querySelectorAll("details.file[data-p]").forEach(function(d){'
+                 'var m=d.closest("details.model");'
+                 'var hit=!q||d.dataset.p.toLowerCase().indexOf(q)>=0'
+                 '||(m&&m.dataset.m.toLowerCase().indexOf(q)>=0);'
+                 'd.style.display=hit?"":"none";});'
+                 'document.querySelectorAll(".tf[data-p]").forEach(function(t){'
+                 't.style.display=(!q||t.dataset.p.toLowerCase().indexOf(q)>=0)?"":"none";});'
+                 'document.querySelectorAll("details.model").forEach(function(mo){'
+                 'var any=!q;if(!any)mo.querySelectorAll("details.file").forEach(function(d){'
+                 'if(d.style.display!=="none")any=true;});'
+                 'mo.style.display=any?"":"none";});}'
                  '</script>')
     parts.append('</body></html>')
     return ''.join(parts)
