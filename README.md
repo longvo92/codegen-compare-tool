@@ -17,6 +17,7 @@ Scan xong xuất HTML report tự chứa (mặc định `compare_report.html`), 
 | `--report out.html` | Đường dẫn file report (mặc định `compare_report.html`) |
 | `--exclude PATTERN` | Bỏ qua file khớp glob (đường dẫn tương đối hoặc tên file), lặp lại được. Vd: `--exclude compare_report.html` |
 | `--exit-zero` | Luôn exit 0 kể cả có thay đổi thật (chế độ report-only cho pipeline) |
+| `--arxml-only` | Chỉ scan `.arxml`/`.xml`, xuất report gọn (mặc định `arxml_update.html`): verdict + danh sách file updated + AUTOSAR changes. Không có thay đổi thật (chỉ noise/identical) → **không ghi file** — sự tồn tại của file chính là tín hiệu "có update" cho pipeline |
 
 ## Noise được bỏ qua (ignorable)
 
@@ -80,6 +81,20 @@ Repo có sẵn [azure-pipelines.yml](azure-pipelines.yml) mẫu cho repo codegen
 4. Report nằm ngay trong thư mục codegen, **publish artifact** `codegen` chung với code; CI build còn **commit report vào repo** với `[skip ci]`.
 
 Setup một lần (ghi trong comment của yml): sửa tên repo tool + đường dẫn codegen, và cấp quyền **Contribute** cho Build Service để push report. Tool cũng cài được qua `pip install <đường dẫn repo>` nhờ `pyproject.toml` (entry point `compare-tool`).
+
+## Đóng gói chạy trên server (không cần cài)
+
+```powershell
+.\build.ps1        # dist\compare_tool.pyz  (~26 KB) — cho server đã có Python 3.8+
+.\build.ps1 -Exe   # thêm dist\compare_tool.exe (~8 MB) — cho server không có gì
+```
+
+Cả hai đều là **1 file duy nhất**, copy lên server là chạy, không pip install, không giải nén:
+
+- **`.pyz` (zipapp, stdlib)**: chạy `python compare_tool.pyz <old> <new> [flags]`. Ưu tiên cách này khi server có Python — file nhỏ, build không cần dependency, không bị antivirus soi.
+- **`.exe` (PyInstaller onefile)**: chạy `compare_tool.exe <old> <new> [flags]`, server không cần Python. Build cần `pip install pyinstaller` trên máy dev; exe chỉ chạy trên Windows (build trên OS nào chạy trên OS đó). Lưu ý: exe đóng gói PyInstaller đôi khi bị antivirus/AppLocker trên server chặn — nếu bị thì dùng `.pyz`.
+
+Mọi flag CLI (`--report`, `--exclude`, `--exit-zero`, `--arxml-only`) hoạt động y hệt bản chạy từ source. Thư mục `build/`, `dist/` đã nằm trong `.gitignore`.
 
 ## Report HTML
 

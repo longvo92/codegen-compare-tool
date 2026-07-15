@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 out.html
 compare_report.html
+arxml_update.html
+build/
+dist/

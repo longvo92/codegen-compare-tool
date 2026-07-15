@@ -91,21 +91,24 @@ def _single_info(root, rel, is_added):
     return out
 
 
-def _excluded(rel, patterns):
+def _matches(rel, patterns):
     """Glob match against the relative path or the bare file name."""
     name = rel.rsplit('/', 1)[-1]
     return any(fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(name, pat)
                for pat in patterns)
 
 
-def scan(old_root, new_root, progress=None, exclude=()):
+def scan(old_root, new_root, progress=None, exclude=(), include=()):
     """Compare two trees. Returns {rel_path: result} sorted by path.
     result: {status, hunks, renames, notes, binary[, ifaces]}.
-    exclude: glob patterns (relative path or file name) to skip entirely."""
+    exclude: glob patterns (relative path or file name) to skip entirely.
+    include: when non-empty, only paths matching one of these globs are
+    compared (exclude still applies on top)."""
     old_files = list_files(old_root)
     new_files = list_files(new_root)
     all_paths = sorted(p for p in old_files | new_files
-                       if not _excluded(p, exclude))
+                       if (not include or _matches(p, include))
+                       and not _matches(p, exclude))
     results = {}
     for idx, rel in enumerate(all_paths):
         if rel in old_files and rel in new_files:

@@ -1,14 +1,15 @@
 """CLI entry point.
 
 Usage:
-    python -m compare_tool <old_dir> <new_dir> [--report out.html]
+    python -m compare_tool <old_dir> <new_dir> [--report out.html] [--arxml-only]
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-from .report import build_report
+from .diff_engine import RULES
+from .report import build_arxml_report, build_report
 from .scanner import (scan, summarize, summarize_ifaces, summarize_rte,
                       summarize_swcs)
 
@@ -21,8 +22,15 @@ def main(argv=None):
                     'Writes a self-contained HTML report.')
     ap.add_argument('old_dir', help='previous codegen output folder')
     ap.add_argument('new_dir', help='new codegen output folder')
-    ap.add_argument('--report', metavar='OUT.html', default='compare_report.html',
-                    help='HTML report output path (default: compare_report.html)')
+    ap.add_argument('--report', metavar='OUT.html', default=None,
+                    help='HTML report output path (default: compare_report.html, '
+                         'or arxml_update.html with --arxml-only)')
+    ap.add_argument('--arxml-only', action='store_true',
+                    help='compare only ARXML/XML files and write a compact '
+                         '"what changed in the AUTOSAR model" report instead of '
+                         'the full diff report; when nothing real changed, no '
+                         'report file is written (the file\'s existence itself '
+                         'signals an update)')
     ap.add_argument('--exclude', metavar='PATTERN', action='append', default=[],
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
@@ -30,6 +38,8 @@ def main(argv=None):
                     help='always exit 0 even when real changes exist '
                          '(report-only mode for CI pipelines)')
     args = ap.parse_args(argv)
+    if args.report is None:
+        args.report = 'arxml_update.html' if args.arxml_only else 'compare_report.html'
 
     old_root = Path(args.old_dir)
     new_root = Path(args.new_dir)
@@ -43,7 +53,10 @@ def main(argv=None):
         if done % 50 == 0 or done == total:
             print('  {}/{} {}'.format(done, total, rel))
 
-    results = scan(old_root, new_root, progress=progress, exclude=args.exclude)
+    include = tuple('*' + ext for ext, rs in RULES.items()
+                    if rs == 'arxml') if args.arxml_only else ()
+    results = scan(old_root, new_root, progress=progress, exclude=args.exclude,
+                   include=include)
     counts = summarize(results)
     print('Summary: {real-change} modified, {ignorable-only} unimportant, '
           '{added} added, {deleted} deleted, {identical} identical'.format(**counts))
@@ -102,8 +115,16 @@ def main(argv=None):
             print('  - {} in {}'.format(n, rel))
 
     out = Path(args.report)
-    out.write_text(build_report(results, old_root, new_root), encoding='utf-8')
-    print('Report written: {}'.format(out.resolve()))
+    if args.arxml_only:
+        page = build_arxml_report(results, old_root, new_root)
+        if page is None:
+            print('No ARXML updates -- report file not written.')
+        else:
+            out.write_text(page, encoding='utf-8')
+            print('ARXML update report written: {}'.format(out.resolve()))
+    else:
+        out.write_text(build_report(results, old_root, new_root), encoding='utf-8')
+        print('Report written: {}'.format(out.resolve()))
 
     if args.exit_zero:
         return 0

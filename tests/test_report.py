@@ -6,7 +6,7 @@ from pathlib import Path
 from compare_tool.diff_engine import compare_pair
 from compare_tool.report import (_char_diff, _group_hunks, _group_label,
                                  _group_table, _groups_html, _model_groups,
-                                 build_report)
+                                 build_arxml_report, build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -300,6 +300,50 @@ class TestModelReport(unittest.TestCase):
     def test_scanner_attached_semantics(self):
         self.assertIn('swc', self.results['Ctrl_component.arxml'])
         self.assertIn('rte', self.results['Ctrl.c'])
+
+
+class TestArxmlOnlyReport(unittest.TestCase):
+    """Compact ARXML-update report: file list + AUTOSAR summary; None (no
+    file written) when no arxml carries a real change."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.results = scan(FIX / 'old', FIX / 'new', include=['*.arxml', '*.xml'])
+        cls.page = build_arxml_report(cls.results, FIX / 'old', FIX / 'new')
+
+    def test_include_filter_limits_scan_to_arxml(self):
+        self.assertIn('arxml/real_change.arxml', self.results)
+        self.assertNotIn('src/real_change.c', self.results)
+
+    def test_page_lists_updated_arxml_files(self):
+        self.assertIn('ARXML Update Report', self.page)
+        self.assertIn('arxml/real_change.arxml', self.page)
+        self.assertIn('arxml/iface.arxml', self.page)
+
+    def test_page_carries_autosar_summary(self):
+        self.assertIn('AUTOSAR changes', self.page)
+        self.assertIn('+ /Interfaces/If_Torque', self.page)
+        self.assertIn('− /Interfaces/If_Diag', self.page)
+
+    def test_noise_only_files_not_listed(self):
+        files_block = self.page.split('Updated files')[1]
+        self.assertNotIn('uuid_only.arxml', files_block)
+        self.assertNotIn('admindata.arxml', files_block)
+        self.assertIn('noise-only differences', self.page)
+
+    def test_none_when_only_noise_changes(self):
+        results = scan(FIX / 'old', FIX / 'new',
+                       exclude=['real_change.arxml', 'iface.arxml'])
+        # C-file real changes present but must not count as arxml update
+        self.assertEqual(results['src/real_change.c']['status'], 'real-change')
+        self.assertIsNone(build_arxml_report(results, FIX / 'old', FIX / 'new'))
+
+    def test_added_and_deleted_arxml_count_as_update(self):
+        results = {'new.arxml': {'status': 'added', 'hunks': [], 'renames': {},
+                                 'notes': [], 'binary': False}}
+        page = build_arxml_report(results, 'o', 'n')
+        self.assertIn('1 added', page)
+        self.assertIn('+</span> new.arxml', page)
 
 
 class TestMovedRendering(unittest.TestCase):

@@ -5,6 +5,7 @@ import html
 import re
 from pathlib import Path
 
+from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_ifaces,
                       summarize_rte, summarize_swcs)
 
@@ -701,6 +702,65 @@ def _file_section(rel, results, old_root, new_root, anchors):
             parts.append(_notes(r))
             parts.append(_content_table(lines, 'del'))
     parts.append('</div></details>')
+    return ''.join(parts)
+
+
+def build_arxml_report(results, old_root, new_root):
+    """Compact ARXML-update report: did the AUTOSAR model change, and how.
+
+    Only .arxml/.xml files are considered; other files in `results` are
+    ignored. Returns None when no arxml file carries a real update
+    (real-change / added / deleted) -- the caller then writes no file, so
+    the report's very existence signals "arxml updated". Noise-only
+    differences (UUIDs, timestamps, comments, whitespace) do not count."""
+    ax = {rel: r for rel, r in results.items() if ruleset_for(rel) == 'arxml'}
+    updated = {rel: r for rel, r in ax.items()
+               if r['status'] in ('real-change', 'added', 'deleted')}
+    if not updated:
+        return None
+
+    counts = summarize(ax)
+    now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    parts = []
+    parts.append('<!DOCTYPE html><html><head><meta charset="utf-8">'
+                 '<title>ARXML Update Report</title><style>{}</style></head>'
+                 '<body>'.format(_CSS))
+    parts.append('<h1>ARXML Update Report</h1>')
+    parts.append('<div class="meta">OLD <code>{}</code> &rarr; NEW <code>{}</code>'
+                 ' &middot; {}</div>'.format(
+                     _esc(str(old_root)), _esc(str(new_root)), now))
+    bits = ['{} {}'.format(counts[key], label)
+            for key, label in (('real-change', 'modified'), ('added', 'added'),
+                               ('deleted', 'deleted')) if counts[key]]
+    parts.append('<div class="summary"><span class="badge b-real">ARXML '
+                 'updated: {}</span></div>'.format(_esc(', '.join(bits))))
+    if counts['ignorable-only']:
+        parts.append('<div class="hint">{} file(s) with noise-only differences '
+                     '(UUIDs / timestamps / comments / whitespace) not listed.'
+                     '</div>'.format(counts['ignorable-only']))
+
+    sign = {'real-change': ('if-chg', '~'), 'added': ('if-add', '+'),
+            'deleted': ('if-del', '−')}
+    parts.append('<h2>Updated files</h2><div class="iflist">')
+    for rel in sorted(updated):
+        r = updated[rel]
+        cls, s = sign[r['status']]
+        extra = ''
+        if r['status'] == 'real-change':
+            if r['binary']:
+                desc = 'binary change'
+            else:
+                n_real = sum(1 for h in r['hunks'] if h['kind'] == 'real')
+                n_moved = sum(1 for h in r['hunks'] if h['kind'] == 'moved')
+                desc = '{} hunk(s){}'.format(
+                    n_real, ', {} moved'.format(n_moved) if n_moved else '')
+            extra = ' <span class="kinds">{}</span>'.format(_esc(desc))
+        parts.append('<div><span class="{}">{}</span> {}{}</div>'.format(
+            cls, s, _esc(rel), extra))
+    parts.append('</div>')
+
+    parts.append(_autosar_section(ax, {}))
+    parts.append('</body></html>')
     return ''.join(parts)
 
 
