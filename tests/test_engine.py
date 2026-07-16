@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.scanner import scan, summarize_ifaces
+from compare_tool.scanner import scan, summarize_a2l, summarize_ifaces
 
 FIX = Path(__file__).parent / 'fixtures'
 
@@ -100,6 +100,19 @@ class TestComparePair(unittest.TestCase):
         r = compare_pair(old, new, 'f.arxml')
         self.assertEqual(r['status'], 'real-change')
 
+    def test_a2l_comment_only(self):
+        old = '/* gen Mon */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
+        new = '/* gen Tue */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
+        r = compare_pair(old, new, 'f.a2l')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'comment'})
+
+    def test_a2l_real(self):
+        old = '/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
+        new = '/begin MEASUREMENT M "d" UWORD CM 1 100 0 2\n/end MEASUREMENT\n'
+        r = compare_pair(old, new, 'f.a2l')
+        self.assertEqual(r['status'], 'real-change')
+
     def test_identical(self):
         r = compare_pair("int x;\n", "int x;\n", 'f.c')
         self.assertEqual(r['status'], 'identical')
@@ -189,6 +202,20 @@ class TestFixtureTree(unittest.TestCase):
         self.expect('arxml/admindata.arxml', 'ignorable-only')
         self.expect('arxml/real_change.arxml', 'real-change')
         self.expect('arxml/iface.arxml', 'real-change')
+        self.expect('a2l/comment_only.a2l', 'ignorable-only')
+        self.expect('a2l/cal.a2l', 'real-change')
+
+    def test_a2l_diff_recorded(self):
+        r = self.results['a2l/cal.a2l']
+        self.assertEqual(r['a2l'], {
+            'added': [('VehSpd', 'MEASUREMENT')],
+            'removed': [('K_Gain', 'CHARACTERISTIC')],
+        })
+
+    def test_a2l_summary_flattened(self):
+        added, removed = summarize_a2l(self.results)
+        self.assertIn(('a2l/cal.a2l', 'VehSpd', 'MEASUREMENT'), added)
+        self.assertIn(('a2l/cal.a2l', 'K_Gain', 'CHARACTERISTIC'), removed)
 
     def test_iface_diff_recorded(self):
         r = self.results['arxml/iface.arxml']

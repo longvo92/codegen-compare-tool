@@ -4,7 +4,7 @@ import fnmatch
 import os
 from pathlib import Path
 
-from . import arxml_rules, c_rules
+from . import a2l_rules, arxml_rules, c_rules
 from .diff_engine import compare_pair, ruleset_for
 
 SKIP_DIRS = {'.git', '__pycache__', '.svn'}
@@ -81,6 +81,10 @@ def compare_file(old_root, new_root, rel):
             s = arxml_rules.swc_diff(old_text, new_text)
             if s is not None and not arxml_rules.swc_diff_empty(s):
                 result['swc'] = s
+        elif ruleset_for(rel) == 'a2l':
+            d = a2l_rules.a2l_diff(old_text, new_text)
+            if d['added'] or d['removed']:
+                result['a2l'] = d
         elif rel.endswith('.c'):
             d = c_rules.rte_diff(old_text, new_text)
             if d['added'] or d['removed']:
@@ -104,6 +108,11 @@ def _single_info(root, rel, is_added):
         s = arxml_rules.swc_diff(old_t, new_t)
         if s is not None and not arxml_rules.swc_diff_empty(s):
             out['swc'] = s
+    elif ruleset_for(rel) == 'a2l':
+        text = read_text(path)
+        d = a2l_rules.a2l_diff(None, text) if is_added else a2l_rules.a2l_diff(text, None)
+        if d['added'] or d['removed']:
+            out['a2l'] = d
     elif rel.endswith('.c'):
         text = read_text(path)
         d = c_rules.rte_diff(None, text) if is_added else c_rules.rte_diff(text, None)
@@ -241,4 +250,16 @@ def summarize_rte(results):
             continue
         added.extend((rel, n) for n in d['added'])
         removed.extend((rel, n) for n in d['removed'])
+    return added, removed
+
+
+def summarize_a2l(results):
+    """Flatten per-file A2L diffs into two lists of (rel_path, name, kind)."""
+    added, removed = [], []
+    for rel, r in sorted(results.items()):
+        d = r.get('a2l')
+        if not d:
+            continue
+        added.extend((rel, n, k) for n, k in d['added'])
+        removed.extend((rel, n, k) for n, k in d['removed'])
     return added, removed

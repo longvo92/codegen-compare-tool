@@ -10,8 +10,8 @@ from pathlib import Path
 
 from .diff_engine import RULES
 from .report import build_arxml_report, build_report
-from .scanner import (scan, summarize, summarize_ifaces, summarize_rte,
-                      summarize_swcs)
+from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
+                      summarize_rte, summarize_swcs)
 
 
 def main(argv=None):
@@ -136,6 +136,15 @@ def main(argv=None):
             print('  + {} in {}'.format(n, rel))
         for rel, n in rte_removed:
             print('  - {} in {}'.format(n, rel))
+
+    a2l_added, a2l_removed = summarize_a2l(results)
+    if a2l_added or a2l_removed:
+        print('A2L objects: {} added, {} removed'.format(
+            len(a2l_added), len(a2l_removed)))
+        for rel, n, kind in a2l_added:
+            print('  + {} ({}) in {}'.format(n, kind, rel))
+        for rel, n, kind in a2l_removed:
+            print('  - {} ({}) in {}'.format(n, kind, rel))
 
     if args.arxml_only:
         page = build_arxml_report(results, old_root, new_root)

@@ -2,7 +2,7 @@
 
 import unittest
 
-from compare_tool import arxml_rules, c_rules
+from compare_tool import a2l_rules, arxml_rules, c_rules
 
 
 class TestCComments(unittest.TestCase):
@@ -256,6 +256,64 @@ class TestRteCalls(unittest.TestCase):
     def test_diff_one_side_missing_file(self):
         d = c_rules.rte_diff(None, 'Rte_Write_P_d(x);')
         self.assertEqual(d, {'added': ['Rte_Write_P_d'], 'removed': []})
+
+
+_A2L = (
+    'ASAP2_VERSION 1 71\n'
+    '/begin PROJECT Demo ""\n'
+    '  /begin MODULE Ctrl ""\n'
+    '    /begin CHARACTERISTIC K_Gain "gain /begin MEASUREMENT Fake"\n'
+    '      VALUE 0x80001000 __Scalar 100 CM_Gain 0 10\n'
+    '      /begin IF_DATA XCP\n'
+    '      /end IF_DATA\n'
+    '    /end CHARACTERISTIC\n'
+    '    /* /begin CHARACTERISTIC Commented "x" */\n'
+    '    /begin MEASUREMENT EngSpd "engine speed" UWORD CM_EngSpd 1 100 0 8000\n'
+    '    /end MEASUREMENT\n'
+    '  /end MODULE\n'
+    '/end PROJECT\n')
+
+
+class TestA2l(unittest.TestCase):
+    def test_extract(self):
+        # the '/begin' inside the description string and the commented-out
+        # block must not fake objects
+        self.assertEqual(a2l_rules.extract_objects(_A2L),
+                         {'K_Gain': 'CHARACTERISTIC', 'EngSpd': 'MEASUREMENT'})
+
+    def test_extract_name_on_next_line(self):
+        src = '/begin MEASUREMENT\n  VehSpd "v" UWORD CM 1 100 0 300\n/end MEASUREMENT\n'
+        self.assertEqual(a2l_rules.extract_objects(src), {'VehSpd': 'MEASUREMENT'})
+
+    def test_shadow_equal_for_comment_only(self):
+        a = '/* Mon */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
+        b = '/* Tue */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
+        self.assertEqual(a2l_rules.a2l_shadow(a), a2l_rules.a2l_shadow(b))
+
+    def test_diff_added_removed(self):
+        new = _A2L.replace(
+            '    /begin MEASUREMENT EngSpd "engine speed" UWORD CM_EngSpd 1 100 0 8000\n'
+            '    /end MEASUREMENT\n',
+            '    /begin MEASUREMENT VehSpd "vehicle speed" UWORD CM_VehSpd 1 100 0 300\n'
+            '    /end MEASUREMENT\n')
+        self.assertEqual(a2l_rules.a2l_diff(_A2L, new), {
+            'added': [('VehSpd', 'MEASUREMENT')],
+            'removed': [('EngSpd', 'MEASUREMENT')],
+        })
+
+    def test_diff_equal_is_empty(self):
+        self.assertEqual(a2l_rules.a2l_diff(_A2L, _A2L),
+                         {'added': [], 'removed': []})
+
+    def test_diff_one_side_missing_file(self):
+        d = a2l_rules.a2l_diff(None, _A2L)
+        self.assertEqual(d['added'], [('EngSpd', 'MEASUREMENT'),
+                                      ('K_Gain', 'CHARACTERISTIC')])
+        self.assertEqual(d['removed'], [])
+        d = a2l_rules.a2l_diff(_A2L, None)
+        self.assertEqual(d['added'], [])
+        self.assertEqual(d['removed'], [('EngSpd', 'MEASUREMENT'),
+                                        ('K_Gain', 'CHARACTERISTIC')])
 
 
 if __name__ == '__main__':

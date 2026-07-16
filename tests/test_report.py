@@ -211,8 +211,18 @@ class TestIfaceSection(unittest.TestCase):
     def test_per_file_note_rendered(self):
         self.assertIn('Interfaces: +/Interfaces/If_Torque', self.page)
 
+    def test_a2l_section_lists_added_and_removed(self):
+        self.assertIn('A2L characteristics / measurements', self.page)
+        self.assertIn('+ VehSpd', self.page)
+        self.assertIn('− K_Gain', self.page)
+        self.assertIn('MEASUREMENT', self.page)
+        self.assertIn('CHARACTERISTIC', self.page)
+
+    def test_a2l_per_file_note_rendered(self):
+        self.assertIn('A2L: +VehSpd (MEASUREMENT)', self.page)
+
     def test_no_section_without_arxml_iface_info(self):
-        results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*'])
+        results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*', 'a2l/*'])
         page = build_report(results, FIX / 'old', FIX / 'new')
         self.assertNotIn('AUTOSAR changes', page)
 

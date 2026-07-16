@@ -18,7 +18,7 @@ semantic change).
 
 from difflib import SequenceMatcher
 
-from . import arxml_rules, c_rules
+from . import a2l_rules, arxml_rules, c_rules
 
 # a block must have at least this many non-blank shadow lines to qualify as
 # moved; single lines (`break;`, `}`) reappear by coincidence far too often
@@ -30,6 +30,7 @@ RULES = {
     '.h': 'c',
     '.arxml': 'arxml',
     '.xml': 'arxml',
+    '.a2l': 'a2l',
 }
 
 
@@ -180,6 +181,12 @@ def _build_variants(old_text, new_text, ruleset, rename_map):
         variants.append(('timestamp',
                          _lines(cw(arxml_rules.strip_dates(arxml_rules.strip_admin_data(old_text)))),
                          _lines(cw(arxml_rules.strip_dates(arxml_rules.strip_admin_data(new_text))))))
+    elif ruleset == 'a2l':
+        # A2L comments are C-style; no rename map (calibration names are
+        # the payload, a renamed characteristic IS a real change)
+        variants.append(('comment',
+                         _lines(cw(c_rules.strip_c_comments(old_text))),
+                         _lines(cw(c_rules.strip_c_comments(new_text)))))
     return variants
 
 
@@ -210,6 +217,9 @@ def compare_pair(old_text, new_text, path):
     elif ruleset == 'arxml':
         old_shadow = arxml_rules.arxml_shadow(old_text)
         new_shadow = arxml_rules.arxml_shadow(new_text)
+    elif ruleset == 'a2l':
+        old_shadow = a2l_rules.a2l_shadow(old_text)
+        new_shadow = a2l_rules.a2l_shadow(new_text)
     else:
         old_shadow = c_rules.collapse_ws(old_text)
         new_shadow = c_rules.collapse_ws(new_text)

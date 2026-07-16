@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 
 from .diff_engine import ruleset_for
-from .scanner import (looks_binary, read_text, summarize, summarize_ifaces,
-                      summarize_rte, summarize_swcs)
+from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
+                      summarize_ifaces, summarize_rte, summarize_swcs)
 
 CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
@@ -398,7 +398,7 @@ def _counts_html(rels, results):
 def _autosar_chips(rels, results):
     """Compact AUTOSAR change rollup for one model group, e.g.
     '+1 interface · +2/−1 port · ~1 event · +3 RTE'."""
-    ia = ir = sa = sr = ra = rr = 0
+    ia = ir = sa = sr = ra = rr = aa = ar = 0
     cats = {'ports': [0, 0, 0], 'runnables': [0, 0, 0], 'events': [0, 0, 0]}
     for rel in rels:
         r = results[rel]
@@ -418,6 +418,10 @@ def _autosar_chips(rels, results):
         if t:
             ra += len(t['added'])
             rr += len(t['removed'])
+        a = r.get('a2l')
+        if a:
+            aa += len(a['added'])
+            ar += len(a['removed'])
 
     def chip(a, r, c, label):
         bits = []
@@ -432,7 +436,8 @@ def _autosar_chips(rels, results):
     chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'interface'),
              chip(*(cats['ports'] + ['port'])),
              chip(*(cats['runnables'] + ['runnable'])),
-             chip(*(cats['events'] + ['event'])), chip(ra, rr, 0, 'RTE')]
+             chip(*(cats['events'] + ['event'])), chip(ra, rr, 0, 'RTE'),
+             chip(aa, ar, 0, 'A2L')]
     return ' &middot; '.join(c for c in chips if c)
 
 
@@ -536,9 +541,10 @@ def _swc_item(swc, name):
 
 def _autosar_section(results, anchors):
     """Top-of-report rollup of every AUTOSAR-level change across all files:
-    port-interfaces, software components, ports, runnables, events and RTE
-    access points. Empty string when no file carries semantic info."""
-    if not any(('ifaces' in r or 'swc' in r or 'rte' in r)
+    port-interfaces, software components, ports, runnables, events, RTE
+    access points and A2L calibration objects. Empty string when no file
+    carries semantic info."""
+    if not any(('ifaces' in r or 'swc' in r or 'rte' in r or 'a2l' in r)
                for r in results.values()):
         return ''
 
@@ -584,11 +590,17 @@ def _autosar_section(results, anchors):
     if rows:
         sections.append(('RTE access points', rows))
 
+    a2l_added, a2l_removed = summarize_a2l(results)
+    rows = [row('if-add', '+', n, k, rel) for rel, n, k in a2l_added]
+    rows += [row('if-del', '−', n, k, rel) for rel, n, k in a2l_removed]
+    if rows:
+        sections.append(('A2L characteristics / measurements', rows))
+
     parts = ['<h2>AUTOSAR changes</h2>']
     if not sections:
         parts.append('<div class="filenote">No AUTOSAR-level changes '
                      '(interfaces, ports, runnables, events, RTE access '
-                     'points).</div>')
+                     'points, A2L objects).</div>')
         return ''.join(parts)
     parts.append('<div class="iflist">')
     for title, rows in sections:
@@ -637,8 +649,18 @@ def _rte_note(r):
     return '<div class="ifnote">RTE: {}</div>'.format(_esc('; '.join(bits)))
 
 
+def _a2l_note(r):
+    """Per-file one-liner listing A2L objects added/removed."""
+    d = r.get('a2l')
+    if not d:
+        return ''
+    bits = ['+{} ({})'.format(n, k) for n, k in d['added']]
+    bits += ['−{} ({})'.format(n, k) for n, k in d['removed']]
+    return '<div class="ifnote">A2L: {}</div>'.format(_esc('; '.join(bits)))
+
+
 def _notes(r):
-    return _iface_note(r) + _swc_note(r) + _rte_note(r)
+    return _iface_note(r) + _swc_note(r) + _rte_note(r) + _a2l_note(r)
 
 
 def _file_open(anchor, rel, status, extra='', expanded=False):
