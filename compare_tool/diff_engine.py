@@ -182,11 +182,14 @@ def _build_variants(old_text, new_text, ruleset, rename_map):
                          _lines(cw(arxml_rules.strip_dates(arxml_rules.strip_admin_data(old_text)))),
                          _lines(cw(arxml_rules.strip_dates(arxml_rules.strip_admin_data(new_text))))))
     elif ruleset == 'a2l':
-        # A2L comments are C-style; no rename map (calibration names are
-        # the payload, a renamed characteristic IS a real change)
+        # A2L string rules differ from C (literal backslash, "" quote
+        # escape) so the dedicated stripper is required; no rename map
+        # (calibration names are the payload, a renamed characteristic IS
+        # a real change). a2l_shadow == strip + collapse_ws, same as the
+        # shadow compare_pair builds, keeping variant and shadow in sync.
         variants.append(('comment',
-                         _lines(cw(c_rules.strip_c_comments(old_text))),
-                         _lines(cw(c_rules.strip_c_comments(new_text)))))
+                         _lines(a2l_rules.a2l_shadow(old_text)),
+                         _lines(a2l_rules.a2l_shadow(new_text))))
     return variants
 
 

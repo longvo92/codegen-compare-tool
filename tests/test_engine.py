@@ -113,6 +113,16 @@ class TestComparePair(unittest.TestCase):
         r = compare_pair(old, new, 'f.a2l')
         self.assertEqual(r['status'], 'real-change')
 
+    def test_a2l_comment_only_after_backslash_string(self):
+        # a string ending in a literal backslash must not leak the same-line
+        # comment into the shadow (A2L has no C escapes)
+        old = ('VAL "C:\\cal\\" /* built Mon */\n'
+               '/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n')
+        new = old.replace('Mon', 'Tue')
+        r = compare_pair(old, new, 'f.a2l')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'comment'})
+
     def test_identical(self):
         r = compare_pair("int x;\n", "int x;\n", 'f.c')
         self.assertEqual(r['status'], 'identical')

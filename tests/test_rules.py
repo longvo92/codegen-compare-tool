@@ -290,6 +290,29 @@ class TestA2l(unittest.TestCase):
         b = '/* Tue */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
         self.assertEqual(a2l_rules.a2l_shadow(a), a2l_rules.a2l_shadow(b))
 
+    def test_backslash_is_literal_not_escape(self):
+        # A2L strings have no C escapes: a description ending in a literal
+        # backslash (a Windows path) must not swallow its closing quote and
+        # blank the objects that follow
+        src = (
+            '/begin CHARACTERISTIC PathCal "C:\\cal\\"\n'
+            '  VALUE 0x1000 __S 100 CM 0 10\n'
+            '/end CHARACTERISTIC\n'
+            '/begin MEASUREMENT Speed "speed sig" UWORD CM_S 1 100 0 300\n'
+            '/end MEASUREMENT\n')
+        self.assertEqual(a2l_rules.extract_objects(src),
+                         {'PathCal': 'CHARACTERISTIC', 'Speed': 'MEASUREMENT'})
+
+    def test_doubled_quote_stays_inside_string(self):
+        src = ('/begin MEASUREMENT M "say ""hi"" /begin MEASUREMENT Fake"'
+               ' UWORD CM 1 100 0 1\n/end MEASUREMENT\n')
+        self.assertEqual(a2l_rules.extract_objects(src), {'M': 'MEASUREMENT'})
+
+    def test_comment_after_backslash_string_is_stripped(self):
+        a = 'VAL "C:\\cal\\" /* built Mon */\n'
+        b = 'VAL "C:\\cal\\" /* built Tue */\n'
+        self.assertEqual(a2l_rules.a2l_shadow(a), a2l_rules.a2l_shadow(b))
+
     def test_diff_added_removed(self):
         new = _A2L.replace(
             '    /begin MEASUREMENT EngSpd "engine speed" UWORD CM_EngSpd 1 100 0 8000\n'
