@@ -75,6 +75,63 @@ class TestRename(unittest.TestCase):
             "zz = zz + ab;")
 
 
+class TestAutogenNames(unittest.TestCase):
+    def test_rtb_pair(self):
+        self.assertTrue(c_rules.is_autogen_name_pair('rtb_Switch', 'rtb_Switch_h'))
+        # rtb-to-rtb counts even when the root changed (signal relabeled)
+        self.assertTrue(c_rules.is_autogen_name_pair('rtb_Sum1', 'rtb_SumOfElements'))
+
+    def test_mangle_suffix_pair(self):
+        self.assertTrue(c_rules.is_autogen_name_pair('Gain_Gain_c', 'Gain_Gain_o4'))
+        self.assertTrue(c_rules.is_autogen_name_pair('UnitDelay_DSTATE', 'UnitDelay_DSTATE_l'))
+
+    def test_temp_renumber_pair(self):
+        self.assertTrue(c_rules.is_autogen_name_pair('tmp', 'tmp_0'))
+        self.assertTrue(c_rules.is_autogen_name_pair('tmp_1', 'tmp_2'))
+        self.assertTrue(c_rules.is_autogen_name_pair('i_0', 'i_3'))
+        self.assertTrue(c_rules.is_autogen_name_pair('loop_ub', 'loop_ub_1'))
+
+    def test_negative_pairs(self):
+        self.assertFalse(c_rules.is_autogen_name_pair('x', 'x'))
+        self.assertFalse(c_rules.is_autogen_name_pair('alpha', 'beta'))
+        self.assertFalse(c_rules.is_autogen_name_pair('i_0', 'j_0'))
+        # meaningful multi-letter tails are not mangle suffixes
+        self.assertFalse(c_rules.is_autogen_name_pair('motor_in', 'motor_out'))
+        self.assertFalse(c_rules.is_autogen_name_pair('sensor_id', 'sensor_io'))
+        # numeric block suffixes (Sum1 vs Sum2) are meaningful names
+        self.assertFalse(c_rules.is_autogen_name_pair('Sensor_1', 'Sensor_2'))
+
+    def test_mangle_pair_rejected_when_name_preexists(self):
+        # pos_x -> pos_y where pos_y already existed in OLD: real rewiring
+        old_ids = {'pos_x', 'pos_y'}
+        new_ids = {'pos_y'}
+        self.assertFalse(c_rules.is_autogen_name_pair('pos_x', 'pos_y',
+                                                      old_ids, new_ids))
+        # rtb_* stays accepted even when names are reused across functions
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'rtb_Switch', 'rtb_Switch_h',
+            {'rtb_Switch', 'rtb_Switch_h'}, {'rtb_Switch', 'rtb_Switch_h'}))
+
+    def test_noise_map_chain_ok(self):
+        # renumber shift tmp_0->tmp_1, tmp_1->tmp_2 is a chain, not a cycle
+        m = c_rules.autogen_noise_map(
+            ['tmp_0 = a; tmp_1 = b;'], ['tmp_1 = a; tmp_2 = b;'])
+        self.assertEqual(m, {'tmp_0': 'tmp_1', 'tmp_1': 'tmp_2'})
+
+    def test_noise_map_swap_rejected(self):
+        # i_0 <-> i_1 swap is a semantic index change
+        self.assertIsNone(c_rules.autogen_noise_map(
+            ['y = a[i_0] + b[i_1];'], ['y = a[i_1] + b[i_0];']))
+
+    def test_noise_map_conflict_rejected(self):
+        self.assertIsNone(c_rules.autogen_noise_map(
+            ['x = tmp_0; y = tmp_0;'], ['x = tmp_1; y = tmp_2;']))
+
+    def test_noise_map_non_identifier_change_rejected(self):
+        self.assertIsNone(c_rules.autogen_noise_map(
+            ['rtb_A = u + 1;'], ['rtb_B = u + 2;']))
+
+
 class TestArxml(unittest.TestCase):
     def test_uuid(self):
         s = arxml_rules.strip_uuids('<E UUID="123-abc"><F UUID = "xyz"/></E>')
