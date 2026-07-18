@@ -134,6 +134,56 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r2['status'], 'real-change')
 
 
+class TestAutogenNoise(unittest.TestCase):
+    # rtb_* suffix reshuffle across two functions: the strict 1-1 map is
+    # rejected (names reused on both sides), the autogen rule catches it
+    OLD = ("void f1(void)\n{\n  real_T rtb_Switch;\n"
+           "  rtb_Switch = u1 + 1.0;\n  y1 = rtb_Switch;\n}\n"
+           "void f2(void)\n{\n  real_T rtb_Switch_h;\n"
+           "  rtb_Switch_h = u2 + 2.0;\n  y2 = rtb_Switch_h;\n}\n")
+    NEW = ("void f1(void)\n{\n  real_T rtb_Switch_g;\n"
+           "  rtb_Switch_g = u1 + 1.0;\n  y1 = rtb_Switch_g;\n}\n"
+           "void f2(void)\n{\n  real_T rtb_Switch;\n"
+           "  rtb_Switch = u2 + 2.0;\n  y2 = rtb_Switch;\n}\n")
+
+    def test_rtb_reshuffle_ignorable(self):
+        r = compare_pair(self.OLD, self.NEW, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_temp_renumber_ignorable(self):
+        old = "tmp = a;\ntmp_0 = b;\ny = tmp + tmp_0;\n"
+        new = "tmp_0 = a;\ntmp_1 = b;\ny = tmp_0 + tmp_1;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_index_swap_stays_real(self):
+        old = "y = a[i_0] + b[i_1];\n"
+        new = "y = a[i_1] + b[i_0];\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_autogen_plus_real_change_isolates_real(self):
+        old = self.OLD + "int lim = 5;\n"
+        new = self.NEW + "int lim = 10;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        ks = kinds(r)
+        self.assertIn('real', ks)
+        self.assertIn('rename', ks)
+        real = [h for h in r['hunks'] if h['kind'] == 'real']
+        self.assertEqual(len(real), 1)
+        self.assertEqual(real[0]['old_range'], [12, 13])
+
+    def test_signal_rewiring_stays_real(self):
+        # pos_y already exists in OLD: pos_x -> pos_y is rewiring, not mangle
+        old = "out = pos_x;\nchk = pos_y;\n"
+        new = "out = pos_y;\nchk = pos_y;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+
 class TestMovedBlocks(unittest.TestCase):
     OLD = ("void Alpha(void)\n{\n  alpha_state = 1;\n  alpha_out = 2;\n}\n"
            "void Beta(void)\n{\n  beta_state = 3;\n}\n")

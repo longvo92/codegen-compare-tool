@@ -151,6 +151,18 @@ def _nonblank(lines):
     return [l for l in lines if l.strip()]
 
 
+def _is_autogen_hunk(h, old_sh_lines, new_sh_lines, old_ids, new_ids):
+    """True when a shadow hunk's non-blank line pairs differ only by MATLAB
+    autogen-name swaps (rtb_* buffers, mangle suffixes, temp renumbering)
+    forming a consistent, cycle-free hunk-local map."""
+    i1, i2, j1, j2 = h
+    a = _nonblank(old_sh_lines[i1:i2])
+    b = _nonblank(new_sh_lines[j1:j2])
+    if not a or len(a) != len(b):
+        return False
+    return c_rules.autogen_noise_map(a, b, old_ids, new_ids) is not None
+
+
 def _slices_equal(h, old_variant_lines, new_variant_lines):
     """Compare a hunk's line slices under some normalization variant,
     ignoring blank lines (handles pure insert/delete of comment lines)."""
@@ -253,6 +265,27 @@ def compare_pair(old_text, new_text, path):
                 final_old_shadow_lines = old_shadow2_lines
                 result['renames'] = dict(rename_map)
 
+    # MATLAB autogen-name noise (rtb_* buffers, single-letter mangle
+    # suffixes, tmp_/i_/loop_ub renumbering): hunks whose line pairs differ
+    # only by such identifier swaps are ignorable even when the strict 1-1
+    # rename map rejected them — suffix reshuffles are function-local, so
+    # they are not bijective across a file. Checked per hunk with a
+    # hunk-local map; anything inconsistent stays real (fail-safe).
+    autogen_hunks = []
+    if ruleset == 'c' and candidates:
+        old_ids = set(t for t in c_rules.tokenize('\n'.join(final_old_shadow_lines))
+                      if c_rules.is_identifier(t))
+        new_ids = set(t for t in c_rules.tokenize('\n'.join(new_shadow_lines))
+                      if c_rules.is_identifier(t))
+        kept = []
+        for h in candidates:
+            if _is_autogen_hunk(h, final_old_shadow_lines, new_shadow_lines,
+                                old_ids, new_ids):
+                autogen_hunks.append(h)
+            else:
+                kept.append(h)
+        candidates = kept
+
     real_hunks = candidates
     moved_del, moved_ins = _detect_moves(candidates, final_old_shadow_lines,
                                          new_shadow_lines)
@@ -287,6 +320,8 @@ def compare_pair(old_text, new_text, path):
                     if _overlaps_side(j1, j2, mh[2], mh[3]):
                         kind, extra = 'moved', {'moved_from': line}
                         break
+            if kind is None and autogen_hunks and _overlaps(h, autogen_hunks):
+                kind = 'rename'  # autogen-name swap (rtb_/mangle/temp)
         if kind is None:
             kind = 'mixed'  # ignorable but caused by >1 rule combined
             for name, ov, nv in variants:
