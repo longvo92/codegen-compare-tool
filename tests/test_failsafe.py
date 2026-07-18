@@ -86,15 +86,22 @@ class TestScanErrors(_TreeCase):
         _fill(self.old, {'sub/x.c': 'int x;\n'})
         real_walk = scanner.os.walk
 
-        def bad_walk(top, onerror=None, **kw):
+        # signature must match os.walk(top, topdown, onerror, followlinks)
+        # positionally: on Python 3.8, os.walk recurses into subdirectories
+        # by calling the module-global `walk` name again (not a saved local
+        # reference), so once os.walk is patched, that recursive call lands
+        # on THIS mock too -- with all 4 args positional. A **kw-only
+        # signature blows up there even though the top-level call (from
+        # scanner.py, which uses onerror=...) looks fine.
+        def bad_walk(top, topdown=True, onerror=None, followlinks=False):
             if Path(top) == self.new:
                 onerror(OSError(13, 'Access is denied',
                                 str(Path(top) / 'sub')))
-                for t, d, f in real_walk(top, onerror=onerror, **kw):
+                for t, d, f in real_walk(top, topdown, onerror, followlinks):
                     d[:] = [x for x in d if x != 'sub']
                     yield t, d, f
             else:
-                for item in real_walk(top, onerror=onerror, **kw):
+                for item in real_walk(top, topdown, onerror, followlinks):
                     yield item
 
         with mock.patch.object(scanner.os, 'walk', bad_walk):
