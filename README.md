@@ -141,3 +141,12 @@ compare_tool/
 ```
 
 Muốn thêm rule mới: thêm hàm strip vào `c_rules.py`/`arxml_rules.py`, đăng ký vào shadow builder + `_build_variants` trong `diff_engine.py`.
+
+
+## Tác giả
+
+**Long Vo Thien**
+
+## License
+
+Phát hành theo giấy phép [MIT](LICENSE) © 2026 Long Vo Thien.
