@@ -66,3 +66,31 @@ def build_nodes(results):
         return out
 
     return walk(root)
+
+
+def filter_nodes(nodes, show_identical=True, show_unimportant=True, text=''):
+    """Prune a Node list for the tree view. Files with a hidden status
+    ('identical' / 'ignorable-only') or not matching the path substring drop
+    out; a directory survives only if it still has a surviving descendant, so
+    empty folders collapse away. Directory status/markers are left untouched so
+    a folder still shows the worst verdict living under it."""
+    text = text.strip().lower()
+
+    def keep_file(n):
+        if not show_identical and n.status == 'identical':
+            return False
+        if not show_unimportant and n.status == 'ignorable-only':
+            return False
+        if text and text not in (n.rel or '').lower():
+            return False
+        return True
+
+    out = []
+    for n in nodes:
+        if n.is_dir:
+            kids = filter_nodes(n.children, show_identical, show_unimportant, text)
+            if kids:
+                out.append(n._replace(children=kids))
+        elif keep_file(n):
+            out.append(n)
+    return out

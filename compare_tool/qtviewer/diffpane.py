@@ -25,6 +25,43 @@ from .minimap import Minimap
 
 _HINT = 'Select a file in the tree to view its diff.'
 
+
+def _pm(label, added, removed, changed=0):
+    """'+2/−1 port' style chip; empty string when nothing changed."""
+    bits = []
+    if added:
+        bits.append('+{}'.format(added))
+    if removed:
+        bits.append('−{}'.format(removed))
+    if changed:
+        bits.append('~{}'.format(changed))
+    return '{} {}'.format('/'.join(bits), label) if bits else ''
+
+
+def _semantic_summary(result):
+    """Compact AUTOSAR / A2L change rollup for the file header, reusing the
+    semantic diffs the scanner already attached (interfaces, SWC ports /
+    runnables / events, RTE access points, A2L objects). '' when none."""
+    chips = []
+    s = result.get('swc')
+    if s:
+        chips.append(_pm('SWC', len(s['swcs']['added']), len(s['swcs']['removed'])))
+        for cat, label in (('ports', 'port'), ('runnables', 'runnable'),
+                           ('events', 'event')):
+            chips.append(_pm(label, len(s[cat]['added']), len(s[cat]['removed']),
+                             len(s[cat]['changed'])))
+    d = result.get('ifaces')
+    if d:
+        chips.append(_pm('interface', len(d['added']), len(d['removed'])))
+    t = result.get('rte')
+    if t:
+        chips.append(_pm('RTE', len(t['added']), len(t['removed'])))
+    a = result.get('a2l')
+    if a:
+        chips.append(_pm('A2L', len(a['added']), len(a['removed'])))
+    chips = [c for c in chips if c]
+    return 'AUTOSAR / A2L:   ' + '   ·   '.join(chips) if chips else ''
+
 # per-side row background by mode; None = context (editor base colour)
 _ROW_BG = {
     ('real', 'old'):  '#3a2222', ('real', 'new'):  '#1f3a24',
@@ -137,7 +174,11 @@ class DiffPane(QStackedWidget):
         ml.addWidget(self._msg)
 
         self._header = QLabel('')
-        self._header.setStyleSheet('color:#e8e8e8; padding:6px 10px; font-weight:bold;')
+        self._header.setStyleSheet('color:#e8e8e8; padding:6px 10px 0; font-weight:bold;')
+        self._sem = QLabel('')
+        self._sem.setWordWrap(True)
+        self._sem.setStyleSheet('color:#9a9a9a; padding:0 10px 6px; font-size:12px;')
+        self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
         self._split = QSplitter(Qt.Horizontal)
@@ -156,12 +197,14 @@ class DiffPane(QStackedWidget):
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(0)
         dl.addWidget(self._header)
+        dl.addWidget(self._sem)
         dl.addWidget(body)
 
         self.addWidget(msg_page)   # index 0
         self.addWidget(diff_page)  # index 1
 
         self.rows = []
+        self._stops = []           # first row of each real/moved change block
         self._syncing = False
         self._link_scrolls()
 
@@ -201,6 +244,7 @@ class DiffPane(QStackedWidget):
 
     def _message(self, text):
         self.rows = []
+        self._stops = []
         self.minimap.set_rows([])
         self._msg.setText(text)
         self.setCurrentIndex(0)
@@ -234,11 +278,18 @@ class DiffPane(QStackedWidget):
         old_lines = read_text(old_p).split('\n')
         new_lines = read_text(new_p).split('\n')
         self.rows = aligned_rows(old_lines, new_lines, result['hunks'])
-        self._load_rows(rel, status)
+        self._load_rows(rel, status, result)
 
-    def _load_rows(self, rel, status):
+    def _load_rows(self, rel, status, result=None):
         rows = self.rows
-        self._header.setText('{}   ·   {}'.format(rel, status))
+        n_moved = sum(1 for r in rows if r.mode == 'moved')
+        head = '{}   ·   {}'.format(rel, status)
+        if n_moved:
+            head += '   ·   {} moved line(s)'.format(n_moved)
+        self._header.setText(head)
+        sem = _semantic_summary(result or {})
+        self._sem.setText(sem)
+        self._sem.setVisible(bool(sem))
         self.old_edit.setPlainText('\n'.join(r.old_txt or '' for r in rows))
         self.new_edit.setPlainText('\n'.join(r.new_txt or '' for r in rows))
         self.old_edit.set_numbers([str(r.old_no) if r.old_no else '' for r in rows])
@@ -263,12 +314,23 @@ class DiffPane(QStackedWidget):
                 (o_lo, o_hi), (n_lo, n_hi) = char_span(r.old_txt, r.new_txt)
                 self._seg_bg(self.old_edit, i, o_lo, o_hi, _SEG_BG.get((r.mode, 'old')))
                 self._seg_bg(self.new_edit, i, n_lo, n_hi, _SEG_BG.get((r.mode, 'new')))
+        # navigation stops: first row of each contiguous real/moved block
+        self._stops = []
+        was_change = False
+        for i, r in enumerate(rows):
+            is_change = r.mode in ('real', 'moved')
+            if is_change and not was_change:
+                self._stops.append(i)
+            was_change = is_change
         self.setCurrentIndex(1)
-        self._goto_first_change()
+        if self._stops:
+            self._center(self._stops[0])
 
     def _load_one_side(self, rel, label, lines, side):
         self.rows = []
+        self._stops = []
         self.minimap.set_rows([])
+        self._sem.setVisible(False)
         self._header.setText('{}   ·   {}'.format(rel, label))
         edit = self.old_edit if side == 'old' else self.new_edit
         other = self.new_edit if side == 'old' else self.old_edit
@@ -301,11 +363,21 @@ class DiffPane(QStackedWidget):
         fmt.setBackground(QColor(color))
         cursor.setCharFormat(fmt)
 
-    def _goto_first_change(self):
-        for i, r in enumerate(self.rows):
-            if r.mode != 'ctx':
-                block = self.old_edit.document().findBlockByNumber(i)
-                cur = QTextCursor(block)
-                self.old_edit.setTextCursor(cur)
-                self.old_edit.centerCursor()
-                return
+    def _center(self, row):
+        block = self.old_edit.document().findBlockByNumber(row)
+        self.old_edit.setTextCursor(QTextCursor(block))
+        self.old_edit.centerCursor()
+
+    # --- change navigation (real/moved blocks; minor noise is skipped) ---
+
+    def next_change(self):
+        if not self._stops:
+            return
+        cur = self.old_edit.textCursor().blockNumber()
+        self._center(next((s for s in self._stops if s > cur), self._stops[0]))
+
+    def prev_change(self):
+        if not self._stops:
+            return
+        cur = self.old_edit.textCursor().blockNumber()
+        self._center(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))

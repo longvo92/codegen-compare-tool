@@ -8,12 +8,13 @@ Diff two AUTOSAR code-generation output folders (MATLAB/Simulink Embedded Coder)
 
 Regenerating a Simulink model rewrites timestamps, UUIDs, comment banners and auto-generated variable names even when the behaviour is identical. A plain `git diff` or Beyond Compare run drowns the reviewer in that noise. This tool classifies every hunk as *real* or *ignorable*, then renders a self-contained HTML report with an AUTOSAR-level summary on top of the text diff.
 
-**Zero dependencies** — Python 3.8+ standard library only. No pip install required, no server, no internet access.
+**Zero dependencies** — Python 3.8+ standard library only. No pip install required, no server, no internet access. (The optional [side-by-side viewer](#side-by-side-viewer) adds PySide6; the CLI, GUI and HTML report stay dependency-free.)
 
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Command line](#command-line)
 - [GUI](#gui)
+- [Side-by-side viewer](#side-by-side-viewer)
 - [What counts as noise](#what-counts-as-noise)
 - [Moved block detection](#moved-block-detection)
 - [AUTOSAR semantic summary](#autosar-semantic-summary)
@@ -68,6 +69,7 @@ Exit `2` is never silent: the terminal prints `!!`, the report gets a red banner
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
 | `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact report (default `arxml_update.html`): a **per-type verdict** (`ARXML updated: …` / `A2L updated: …`, or `no changes` / `no files found`), the updated files split per type, and the AUTOSAR/A2L changes. The report is **always written** — when nothing changed it says "No ARXML or A2L updates" rather than skipping the file, so a missing file is never confused with a crashed run |
 | `--gui` | Open the GUI window instead of running in the terminal. `old_dir`/`new_dir` become optional and prefill the folder fields when given |
+| `--qt` | Open the **side-by-side viewer** (PySide6): a folder tree plus a two-pane old/new diff with a change minimap, Beyond-Compare style. `old_dir`/`new_dir` are optional; when omitted the viewer prompts for them. Needs the `viewer` extra (see below) |
 
 ## GUI
 
@@ -78,6 +80,22 @@ python -m compare_tool --gui
 A tkinter front panel (stdlib, no server) covering every CLI mode: browse for the OLD/NEW folders, pick where to save the report (leave it empty and the default name is placed **next to** the NEW folder, so the report does not scan itself on the next run), an ARXML/A2L-only checkbox, and an Exclude field taking space-separated globs.
 
 The scan runs on a worker thread — the window stays responsive and shows a progress bar. On completion you get a colour-coded verdict (green = no real change, orange = real changes, red = COMPARE INCOMPLETE), the same log the terminal prints, and an **Open report** button. It shares the `run_compare()` core with the CLI, so fail-safe semantics are identical: a worker that dies mid-run shows a red `RUN FAILED` instead of a half-finished result.
+
+## Side-by-side viewer
+
+```bash
+pip install "codegen-compare-tool[viewer]"   # or: pip install PySide6
+python -m compare_tool --qt <old_gen_folder> <new_gen_folder>
+```
+
+A Beyond-Compare-style desktop app (PySide6) for reviewing changes interactively instead of scrolling an HTML report:
+
+- **Folder tree** on the left, each file coloured by verdict (Modified / Unimportant / Added / Deleted / Identical / **NOT compared**). A path filter and *Show: Identical / Unimportant* toggles narrow it down; by default both are off, so the tree opens on real changes only.
+- **Two-pane diff** on the right: old and new aligned line-for-line and scrolled in lockstep, real changes in red/green, generator noise in yellow, moved blocks in blue, with the exact changed characters highlighted inside each line — the same classification the report uses.
+- **Change minimap** down the right edge: the whole file compressed to one bar per change, with a viewport box; click or drag to jump.
+- **`F7` / `F8`** step to the previous / next real change (noise is skipped). For `.arxml`/`.a2l` files the header shows the AUTOSAR / A2L rollup (`+1 port · ~1 event`, …).
+
+PySide6 is imported only under `--qt`, so the CLI and the HTML report keep working on a headless box with no Qt installed. Fail-safe is unchanged: an uncompared path raises a red **COMPARE INCOMPLETE** banner and a scan crash shows a loud failure — never an empty, clean-looking tree.
 
 ## What counts as noise
 

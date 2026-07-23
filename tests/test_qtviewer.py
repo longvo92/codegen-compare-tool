@@ -3,7 +3,8 @@ here so the suite runs on a headless box without PySide6 installed."""
 
 import unittest
 
-from compare_tool.qtviewer.tree import PRIO, STATUS, build_nodes
+from compare_tool.qtviewer.tree import (PRIO, STATUS, build_nodes,
+                                        filter_nodes)
 
 
 def _res(mapping):
@@ -54,6 +55,45 @@ class TestBuildNodes(unittest.TestCase):
             self.assertIn(st, STATUS)
             marker, label, color = STATUS[st]
             self.assertTrue(marker and label and color.startswith('#'))
+
+
+class TestFilterNodes(unittest.TestCase):
+    def _nodes(self, mapping):
+        return build_nodes(_res(mapping))
+
+    def _rels(self, nodes):
+        out = []
+        for n in nodes:
+            if n.is_dir:
+                out.extend(self._rels(n.children))
+            else:
+                out.append(n.rel)
+        return out
+
+    def test_hides_identical_when_off(self):
+        nodes = self._nodes({'a.c': 'identical', 'b.c': 'real-change'})
+        kept = filter_nodes(nodes, show_identical=False)
+        self.assertEqual(self._rels(kept), ['b.c'])
+
+    def test_hides_unimportant_when_off(self):
+        nodes = self._nodes({'a.c': 'ignorable-only', 'b.c': 'added'})
+        kept = filter_nodes(nodes, show_unimportant=False)
+        self.assertEqual(self._rels(kept), ['b.c'])
+
+    def test_empty_folder_collapses_away(self):
+        nodes = self._nodes({'noise/a.c': 'identical', 'real/b.c': 'real-change'})
+        kept = filter_nodes(nodes, show_identical=False)
+        self.assertEqual([n.name for n in kept], ['real'])
+
+    def test_text_filter_matches_path_substring(self):
+        nodes = self._nodes({'src/ctrl.c': 'real-change', 'src/plant.c': 'real-change'})
+        kept = filter_nodes(nodes, text='ctrl')
+        self.assertEqual(self._rels(kept), ['src/ctrl.c'])
+
+    def test_error_never_hidden_by_status_filters(self):
+        nodes = self._nodes({'bad.c': 'error'})
+        kept = filter_nodes(nodes, show_identical=False, show_unimportant=False)
+        self.assertEqual(self._rels(kept), ['bad.c'])
 
 
 if __name__ == '__main__':

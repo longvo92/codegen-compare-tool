@@ -9,14 +9,15 @@ import sys
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QPalette
-from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QMainWindow,
-                               QProgressBar, QSplitter, QTreeWidget,
-                               QTreeWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QHBoxLayout,
+                               QLabel, QLineEdit, QMainWindow, QProgressBar,
+                               QSplitter, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from ..diff_engine import RULES
 from ..scanner import summarize
 from .diffpane import DiffPane
-from .tree import STATUS, build_nodes
+from .tree import STATUS, build_nodes, filter_nodes
 from .worker import ScanWorker
 
 REL_ROLE = Qt.UserRole  # QTreeWidgetItem data slot holding a file's rel path
@@ -52,10 +53,34 @@ class MainWindow(QMainWindow):
         self.tree.setUniformRowHeights(True)
         self.tree.itemSelectionChanged.connect(self._on_select)
 
+        # filter row: path search + status toggles. Defaults hide noise
+        # (identical + unimportant) so the tree opens on real changes.
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText('Filter by path…')
+        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.textChanged.connect(self._refresh_tree)
+        self.cb_identical = QCheckBox('Identical')
+        self.cb_unimportant = QCheckBox('Unimportant')
+        self.cb_identical.toggled.connect(self._refresh_tree)
+        self.cb_unimportant.toggled.connect(self._refresh_tree)
+        toggles = QHBoxLayout()
+        toggles.setContentsMargins(0, 0, 0, 0)
+        toggles.addWidget(QLabel('Show:'))
+        toggles.addWidget(self.cb_identical)
+        toggles.addWidget(self.cb_unimportant)
+        toggles.addStretch(1)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(6, 6, 6, 0)
+        lv.setSpacing(4)
+        lv.addWidget(self.filter_edit)
+        lv.addLayout(toggles)
+        lv.addWidget(self.tree, 1)
+
         self.diff = DiffPane()
 
         split = QSplitter(Qt.Horizontal)
-        split.addWidget(self.tree)
+        split.addWidget(left)
         split.addWidget(self.diff)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -82,6 +107,15 @@ class MainWindow(QMainWindow):
         act_rescan.triggered.connect(self._start_scan)
         tb.addAction(act_open)
         tb.addAction(act_rescan)
+        tb.addSeparator()
+        act_prev = QAction('◀ Prev change', self)
+        act_prev.setShortcut('F7')
+        act_prev.triggered.connect(lambda: self.diff.prev_change())
+        act_next = QAction('Next change ▶', self)
+        act_next.setShortcut('F8')
+        act_next.triggered.connect(lambda: self.diff.next_change())
+        tb.addAction(act_prev)
+        tb.addAction(act_next)
 
         if self.old and self.new:
             self._start_scan()
@@ -128,7 +162,7 @@ class MainWindow(QMainWindow):
 
     def _on_done(self, results):
         self.results = results
-        self._fill_tree(build_nodes(results))
+        self._refresh_tree()
         counts = summarize(results)
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
@@ -151,6 +185,18 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage('SCAN FAILED')
 
     # --- tree fill + selection ---
+
+    def _refresh_tree(self):
+        """Rebuild the tree from results under the current filter + toggles.
+        Cheap enough to run on every keystroke; selection is not preserved."""
+        self.tree.clear()
+        if not self.results:
+            return
+        nodes = filter_nodes(build_nodes(self.results),
+                             show_identical=self.cb_identical.isChecked(),
+                             show_unimportant=self.cb_unimportant.isChecked(),
+                             text=self.filter_edit.text())
+        self._fill_tree(nodes)
 
     def _fill_tree(self, nodes):
         def add(parent, node):
