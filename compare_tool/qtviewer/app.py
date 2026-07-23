@@ -53,14 +53,17 @@ class MainWindow(QMainWindow):
         self.tree.setUniformRowHeights(True)
         self.tree.itemSelectionChanged.connect(self._on_select)
 
-        # filter row: path search + status toggles. Defaults hide noise
-        # (identical + unimportant) so the tree opens on real changes.
+        # filter row: path search + status toggles. The full tree is shown by
+        # default (like Beyond Compare's folder view) -- untick a box to hide
+        # Identical / Unimportant files when you want to focus on real changes.
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText('Filter by path…')
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._refresh_tree)
         self.cb_identical = QCheckBox('Identical')
+        self.cb_identical.setChecked(True)
         self.cb_unimportant = QCheckBox('Unimportant')
+        self.cb_unimportant.setChecked(True)
         self.cb_identical.toggled.connect(self._refresh_tree)
         self.cb_unimportant.toggled.connect(self._refresh_tree)
         toggles = QHBoxLayout()

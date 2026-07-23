@@ -259,9 +259,6 @@ class DiffPane(QStackedWidget):
         if result.get('binary'):
             self._message('{}\n\nBinary file differs.'.format(rel))
             return
-        if status == 'identical':
-            self._message('{}\n\nIdentical.'.format(rel))
-            return
         if status == 'added':
             if looks_binary(new_p):
                 self._message('{}\n\nBinary file added.'.format(rel))
@@ -274,10 +271,14 @@ class DiffPane(QStackedWidget):
                 return
             self._load_one_side(rel, 'Deleted', read_text(old_p).split('\n'), 'old')
             return
-        # real-change / ignorable-only
+        # real-change / ignorable-only / identical all show the two-pane code;
+        # identical has no hunks so it renders as plain context (no highlights)
+        if status == 'identical' and (looks_binary(old_p) or looks_binary(new_p)):
+            self._message('{}\n\nIdentical (binary).'.format(rel))
+            return
         old_lines = read_text(old_p).split('\n')
         new_lines = read_text(new_p).split('\n')
-        self.rows = aligned_rows(old_lines, new_lines, result['hunks'])
+        self.rows = aligned_rows(old_lines, new_lines, result.get('hunks', []))
         self._load_rows(rel, status, result)
 
     def _load_rows(self, rel, status, result=None):
@@ -323,8 +324,12 @@ class DiffPane(QStackedWidget):
                 self._stops.append(i)
             was_change = is_change
         self.setCurrentIndex(1)
+        # start at the top of the file; jump to the first change only if there
+        # is one (identical / noise-only files stay at line 1)
         if self._stops:
-            self._center(self._stops[0])
+            self._reveal(self._stops[0])
+        else:
+            self.old_edit.verticalScrollBar().setValue(0)
 
     def _load_one_side(self, rel, label, lines, side):
         self.rows = []
@@ -363,10 +368,16 @@ class DiffPane(QStackedWidget):
         fmt.setBackground(QColor(color))
         cursor.setCharFormat(fmt)
 
-    def _center(self, row):
+    def _reveal(self, row, context=3):
+        """Scroll so `row` sits near the TOP of the pane (a few lines of
+        context above), not vertically centred -- centring leaves the whole
+        upper half blank, which reads as the diff starting 'too low'. The old
+        editor drives; the scrollbar mirror carries the new pane along."""
         block = self.old_edit.document().findBlockByNumber(row)
         self.old_edit.setTextCursor(QTextCursor(block))
-        self.old_edit.centerCursor()
+        # NoWrap: the vertical scrollbar is in lines, so its value is the top
+        # visible line index
+        self.old_edit.verticalScrollBar().setValue(max(0, row - context))
 
     # --- change navigation (real/moved blocks; minor noise is skipped) ---
 
@@ -374,10 +385,10 @@ class DiffPane(QStackedWidget):
         if not self._stops:
             return
         cur = self.old_edit.textCursor().blockNumber()
-        self._center(next((s for s in self._stops if s > cur), self._stops[0]))
+        self._reveal(next((s for s in self._stops if s > cur), self._stops[0]))
 
     def prev_change(self):
         if not self._stops:
             return
         cur = self.old_edit.textCursor().blockNumber()
-        self._center(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))
+        self._reveal(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))
