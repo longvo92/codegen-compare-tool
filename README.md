@@ -97,6 +97,14 @@ A Beyond-Compare-style desktop app (PySide6) for reviewing changes interactively
 
 PySide6 is imported only under `--qt`, so the CLI and the HTML report keep working on a headless box with no Qt installed. Fail-safe is unchanged: an uncompared path raises a red **COMPARE INCOMPLETE** banner and a scan crash shows a loud failure — never an empty, clean-looking tree.
 
+**Standalone `.exe`** — to hand the viewer to colleagues who have no Python, build a single self-contained binary with [PyInstaller](https://pyinstaller.org):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build-viewer.ps1
+```
+
+That produces `dist\CodeGenCompareViewer.exe` (~45 MB) from [`packaging/compare-viewer.spec`](packaging/compare-viewer.spec) — double-click to open, or pass two folder paths as arguments to prefill OLD/NEW. PyInstaller does not cross-compile, so build on the OS you are targeting.
+
 ## What counts as noise
 
 | Kind | Rule | Files |
