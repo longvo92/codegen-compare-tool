@@ -196,9 +196,13 @@ class DiffPane(QStackedWidget):
         dl = QVBoxLayout(diff_page)
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(0)
+        # header + semantic line stay at their natural (small) height; the
+        # editor body takes ALL remaining vertical space (stretch=1), so the
+        # two-pane diff fills the pane from just under the header instead of
+        # being pushed to the bottom by an oversized header gap
         dl.addWidget(self._header)
         dl.addWidget(self._sem)
-        dl.addWidget(body)
+        dl.addWidget(body, 1)
 
         self.addWidget(msg_page)   # index 0
         self.addWidget(diff_page)  # index 1
