@@ -1,49 +1,64 @@
-# Build standalone artifacts into dist\ for deployment on servers
-# without installing the tool:
+# Build the standalone artifacts into dist\.
 #
-#   dist\compare_tool.pyz   single file, runs on any machine with Python 3.8+
-#                           (python compare_tool.pyz <old> <new> ...)
-#   dist\compare_tool.exe   single file, needs NOTHING installed on the target
-#                           (built only with -Exe; requires pyinstaller locally:
-#                            pip install pyinstaller)
+#   dist\compare-tool.exe   ONE file, needs NOTHING installed on the target --
+#                           CLI + tkinter panel + side-by-side viewer together:
+#                             compare-tool.exe <old> <new>        CLI + HTML report (exit 0/1/2)
+#                             compare-tool.exe --qt <old> <new>   side-by-side viewer
+#                             compare-tool.exe --gui              tkinter panel
+#                             double-click                        viewer (folder prompts)
+#                           Built as a CONSOLE app so terminal runs keep stdout
+#                           and the exit code; GUI modes hide the console window
+#                           at runtime (see packaging\entry.py).
+#
+#   dist\compare_tool.pyz   optional tiny zipapp (~26 KB) for machines that
+#                           already have Python 3.8+. Stdlib only, so the CLI
+#                           and --gui work anywhere; --qt additionally needs
+#                           PySide6 installed on that machine.
 #
 # Usage:
-#   .\build.ps1          # .pyz only
-#   .\build.ps1 -Exe     # .pyz + .exe
+#   .\build.ps1             # exe only (needs pyinstaller + PySide6 locally)
+#   .\build.ps1 -Pyz        # exe + zipapp
+#   .\build.ps1 -PyzOnly    # zipapp only (no PyInstaller / PySide6 needed)
 
-param([switch]$Exe)
+param([switch]$Pyz, [switch]$PyzOnly)
 
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-$entry = @'
+New-Item -ItemType Directory -Force dist | Out-Null
+
+# --- zipapp (.pyz) ---
+if ($Pyz -or $PyzOnly) {
+    $entry = @'
 import sys
 
 from compare_tool.main import main
 
 sys.exit(main())
 '@
+    $stage = 'build\zipapp'
+    if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+    New-Item -ItemType Directory -Force $stage | Out-Null
+    Copy-Item compare_tool $stage -Recurse
+    Get-ChildItem $stage -Recurse -Directory -Filter __pycache__ |
+        Remove-Item -Recurse -Force
+    Set-Content "$stage\__main__.py" $entry -Encoding ascii
+    python -m zipapp $stage -o dist\compare_tool.pyz -c
+    if ($LASTEXITCODE -ne 0) { throw 'zipapp build failed' }
+    Write-Host 'OK dist\compare_tool.pyz  (run: python compare_tool.pyz <old> <new>)'
+}
 
-New-Item -ItemType Directory -Force dist | Out-Null
-
-# --- zipapp (.pyz) ---
-$stage = 'build\zipapp'
-if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-New-Item -ItemType Directory -Force $stage | Out-Null
-Copy-Item compare_tool $stage -Recurse
-Get-ChildItem $stage -Recurse -Directory -Filter __pycache__ |
-    Remove-Item -Recurse -Force
-Set-Content "$stage\__main__.py" $entry -Encoding ascii
-python -m zipapp $stage -o dist\compare_tool.pyz -c
-if ($LASTEXITCODE -ne 0) { throw 'zipapp build failed' }
-Write-Host 'OK dist\compare_tool.pyz  (run: python compare_tool.pyz <old> <new>)'
-
-# --- PyInstaller onefile (.exe) ---
-if ($Exe) {
-    Set-Content 'build\entry_compare_tool.py' $entry -Encoding ascii
-    pyinstaller --onefile --name compare_tool --paths . `
-        --distpath dist --workpath build\pyinstaller --specpath build `
-        build\entry_compare_tool.py
+# --- PyInstaller onefile (.exe): CLI + GUI + viewer in one binary ---
+if (-not $PyzOnly) {
+    python -m pip install --upgrade pyinstaller "PySide6>=6.5"
+    if ($LASTEXITCODE -ne 0) { throw 'installing build dependencies failed' }
+    python -m PyInstaller --noconfirm --clean packaging\compare-tool.spec
     if ($LASTEXITCODE -ne 0) { throw 'pyinstaller build failed' }
-    Write-Host 'OK dist\compare_tool.exe  (run: compare_tool.exe <old> <new>)'
+
+    $exe = Join-Path $PSScriptRoot 'dist\compare-tool.exe'
+    if (-not (Test-Path $exe)) { throw "build finished but $exe is missing" }
+    $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+    Write-Host "OK dist\compare-tool.exe ($mb MB)"
+    Write-Host '   CLI:    compare-tool.exe <old> <new>'
+    Write-Host '   viewer: compare-tool.exe --qt <old> <new>   (or double-click)'
 }

@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for the CodeGen Compare side-by-side viewer.
+# PyInstaller spec for the ONE self-contained compare-tool binary: CLI,
+# tkinter panel and side-by-side viewer in a single file.
 #
 # Build (on the SAME OS you want the binary for -- PyInstaller does not
 # cross-compile):
-#     pyinstaller --noconfirm --clean packaging/compare-viewer.spec
+#     .\build.ps1                     (wrapper, recommended)
+#     pyinstaller --noconfirm --clean packaging/compare-tool.spec
 # Output:
-#     dist/CodeGenCompareViewer(.exe)   -- one self-contained file, no Python
-#     needed on the target machine.
+#     dist/compare-tool(.exe)
 
 import os
 
@@ -15,9 +16,14 @@ import os
 _here = SPECPATH
 _root = os.path.dirname(_here)
 
+# Both GUIs are imported lazily (inside functions) so a headless box never
+# needs them; name them explicitly so the frozen build definitely carries them.
+_HIDDEN = ['compare_tool.gui', 'compare_tool.qtviewer.app']
+
 # The viewer only touches QtCore / QtGui / QtWidgets. PySide6's addons bundle
 # QtQuick, WebEngine, 3D, Charts, multimedia, … none of which we use -- exclude
-# them so the binary stays as small as PySide6 allows.
+# them so the binary stays as small as PySide6 allows. tkinter is NOT excluded:
+# --gui needs it.
 _EXCLUDES = [
     'PySide6.QtQml', 'PySide6.QtQuick', 'PySide6.QtQuick3D',
     'PySide6.QtQuickWidgets', 'PySide6.QtQuickControls2',
@@ -32,15 +38,14 @@ _EXCLUDES = [
     'PySide6.QtSerialPort', 'PySide6.QtSerialBus', 'PySide6.QtPdf',
     'PySide6.QtPdfWidgets', 'PySide6.QtDesigner', 'PySide6.QtHelp',
     'PySide6.QtUiTools', 'PySide6.QtSvgWidgets', 'PySide6.QtNetwork',
-    'tkinter',
 ]
 
 a = Analysis(
-    [os.path.join(_here, 'viewer_entry.py')],
+    [os.path.join(_here, 'entry.py')],
     pathex=[_root],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=_HIDDEN,
     excludes=_EXCLUDES,
     noarchive=False,
 )
@@ -53,11 +58,14 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='CodeGenCompareViewer',
+    name='compare-tool',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     runtime_tmpdir=None,
-    console=False,   # GUI app: no console window
+    # CONSOLE build on purpose: a terminal run must keep stdout and its exit
+    # code (CI gates on exit 1 / 2). GUI modes hide the console window at
+    # runtime instead -- see packaging/entry.py.
+    console=True,
 )

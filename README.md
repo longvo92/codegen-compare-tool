@@ -97,13 +97,7 @@ A Beyond-Compare-style desktop app (PySide6) for reviewing changes interactively
 
 PySide6 is imported only under `--qt`, so the CLI and the HTML report keep working on a headless box with no Qt installed. Fail-safe is unchanged: an uncompared path raises a red **COMPARE INCOMPLETE** banner and a scan crash shows a loud failure — never an empty, clean-looking tree.
 
-**Standalone `.exe`** — to hand the viewer to colleagues who have no Python, build a single self-contained binary with [PyInstaller](https://pyinstaller.org):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build-viewer.ps1
-```
-
-That produces `dist\CodeGenCompareViewer.exe` (~45 MB) from [`packaging/compare-viewer.spec`](packaging/compare-viewer.spec) — double-click to open, or pass two folder paths as arguments to prefill OLD/NEW. PyInstaller does not cross-compile, so build on the OS you are targeting.
+**Standalone `.exe`** — colleagues without Python get the viewer from the same single binary the CLI ships in: run `.\build.ps1` and hand them `dist\compare-tool.exe`. Double-click opens the viewer; see [Single-file build](#single-file-build).
 
 ## What counts as noise
 
@@ -187,14 +181,24 @@ The YAML comments list the one-time setup: repo name and codegen paths, plus **C
 ## Single-file build
 
 ```powershell
-.\build.ps1        # dist\compare_tool.pyz  (~26 KB) - for servers that already have Python 3.8+
-.\build.ps1 -Exe   # also dist\compare_tool.exe (~8 MB) - for servers with nothing installed
+.\build.ps1           # dist\compare-tool.exe  - one file, nothing to install on the target
+.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~26 KB) for machines that have Python 3.8+
+.\build.ps1 -PyzOnly  # zipapp only (building it needs no PyInstaller / PySide6)
 ```
 
-Both are a **single file**: copy it to the machine and run it. No pip install, no unpacking.
+`dist\compare-tool.exe` is **one binary carrying all three front ends**:
 
-- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer this when Python is available — small, no build dependencies, not flagged by antivirus.
-- **`.exe` (PyInstaller onefile)**: `compare_tool.exe <old> <new> [flags]`, no Python needed on the target. Building it needs `pip install pyinstaller` on the dev machine, and the executable only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` in that case.
+| Invocation | What happens |
+|---|---|
+| `compare-tool.exe <old> <new> [flags]` | CLI: scan, write the HTML report, exit `0`/`1`/`2` |
+| `compare-tool.exe --qt <old> <new>` | side-by-side viewer |
+| `compare-tool.exe --gui` | tkinter panel |
+| double-click (no arguments) | viewer, prompting for the two folders |
+
+It is deliberately built as a **console** application: a terminal run keeps its stdout *and its exit code*, so the CI gate (`1` = real changes, `2` = compare incomplete) keeps working. GUI modes hide the console window at runtime instead — a windowed build would make the shell stop waiting for the process and throw the exit code away. The trade-off is a brief console flash when you double-click. A crash in GUI mode un-hides the console so the traceback is never swallowed.
+
+- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~26 KB, no build dependencies, not flagged by antivirus. CLI and `--gui` work anywhere; `--qt` additionally needs PySide6 on that machine.
+- **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target. Building needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs them), and the binary only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` there.
 
 Every CLI flag behaves identically in the packaged builds. `build/` and `dist/` are already in `.gitignore`.
 
