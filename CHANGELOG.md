@@ -3,6 +3,45 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [1.1.0] — 2026-07-24
+
+The side-by-side viewer becomes **the** front end: it is what runs when no
+folders are given, and it got the interface work to carry that role.
+
+### Added
+
+- **Branded chrome**: the logo is the window, taskbar and `.exe` icon, and the
+  full lockup greets you on the landing screen.
+- **Toolbar help**: `User guide` (`F1`, an in-app walkthrough of the tree, the
+  category toggles, the diff colours and the shortcuts), `Release notes` (this
+  changelog, shipped inside the binary) and `About` (version, author, license).
+  Nothing here goes to the network.
+- **First change** / **Last change** (`Ctrl+Home` / `Ctrl+End`) beside the
+  existing `F7` / `F8` stepping.
+- A `change 3 of 7` readout on the action bar, next to the buttons that move it.
+
+### Changed
+
+- **Navigation and export moved off the toolbar to a bar along the bottom of
+  the window**, next to the diff they act on, each with an icon. The toolbar
+  keeps opening folders and the help actions.
+- **The viewer is the default front end.** `compare-tool` with no folders (or
+  a double-clicked `.exe`) opens it; naming both folders still runs the
+  terminal compare and its exit code. `--qt` (now also spelled `--viewer`)
+  stays, for viewing folders named on the command line.
+- Icons are tinted to one monochrome set, Qt's own colour icons included, so
+  the toolbar reads as one family.
+- The quick-changes panel sizes its first column to its content instead of
+  eliding AUTOSAR paths to `arxml/…`.
+
+### Removed
+
+- **The tkinter panel (`--gui`)**. It duplicated the viewer with less in it;
+  everything it did — browse for folders, ARXML/A2L-only, exclude globs,
+  writing the report — the viewer or the CLI does. `--gui` is now an
+  unrecognised flag rather than a silent no-op. tkinter is no longer bundled
+  in the `.exe` either.
+
 ## [1.0.0] — 2026-07-24
 
 First stable release. The tool grew from "write an HTML report" into three

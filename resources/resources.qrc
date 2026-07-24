@@ -1,0 +1,20 @@
+<!DOCTYPE RCC><RCC version="1.0">
+  <qresource prefix="/icons">
+    <file alias="export.svg">icons/svg/export.svg</file>
+    <file alias="nav-first-change.svg">icons/svg/nav-first-change.svg</file>
+    <file alias="nav-last-change.svg">icons/svg/nav-last-change.svg</file>
+    <file alias="nav-next-change.svg">icons/svg/nav-next-change.svg</file>
+    <file alias="nav-prev-change.svg">icons/svg/nav-prev-change.svg</file>
+    <file alias="report.svg">icons/svg/report.svg</file>
+    <file alias="review-accept.svg">icons/svg/review-accept.svg</file>
+    <file alias="review-comment.svg">icons/svg/review-comment.svg</file>
+    <file alias="review-reject.svg">icons/svg/review-reject.svg</file>
+    <file alias="review-resolved.svg">icons/svg/review-resolved.svg</file>
+  </qresource>
+  <qresource prefix="/logo">
+    <file alias="logo-mark.svg">logo/logo-mark.svg</file>
+    <file alias="logo-full.svg">logo/logo-full.svg</file>
+    <file alias="app.ico">logo/app.ico</file>
+    <file alias="logo-mark-256.png">logo/logo-mark-256.png</file>
+  </qresource>
+</RCC>

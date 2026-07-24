@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QSplitter,
 
 from ..scanner import looks_binary, read_text
 from ..view_model import aligned_rows, char_span
+from .icons import logo_pixmap
 from .minimap import Minimap
 
 _HINT = 'Select a file in the tree to view its diff.'
@@ -174,12 +175,26 @@ class DiffPane(QStackedWidget):
 
     def __init__(self):
         super().__init__()
+        # landing / message page. The logo only shows on the landing state:
+        # a "binary file differs" or "NOT compared" message should read as a
+        # verdict about a file, not as a splash screen.
+        self._logo = QLabel()
+        self._logo.setAlignment(Qt.AlignCenter)
+        pm = logo_pixmap(340)
+        if pm is not None:
+            self._logo.setPixmap(pm)
+        self._logo.setVisible(False)
         self._msg = QLabel(_HINT)
         self._msg.setAlignment(Qt.AlignCenter)
         self._msg.setWordWrap(True)
+        self._msg.setStyleSheet('color:#b9b9b9; font-size:13px;')
         msg_page = QWidget()
         ml = QVBoxLayout(msg_page)
+        ml.setSpacing(18)
+        ml.addStretch(1)
+        ml.addWidget(self._logo)
         ml.addWidget(self._msg)
+        ml.addStretch(1)
 
         self._header = QLabel('')
         self._header.setStyleSheet('color:#e8e8e8; padding:6px 10px 0; font-weight:bold;')
@@ -218,6 +233,7 @@ class DiffPane(QStackedWidget):
         self.rows = []
         self._stops = []           # first row of each real/moved change block
         self._head_base = ''       # header without the "change k of N" suffix
+        self._pos_text = ''        # "change k of N", mirrored on the action bar
         self._syncing = False
         self._link_scrolls()
 
@@ -241,6 +257,7 @@ class DiffPane(QStackedWidget):
     # --- public seam ---
 
     def clear(self):
+        self._logo.setVisible(False)
         self._msg.setText(_HINT)
         self.setCurrentIndex(0)
 
@@ -253,6 +270,7 @@ class DiffPane(QStackedWidget):
             self._msg.setText('Drag the OLD and NEW folders onto this window\n'
                               '(drop both at once, or one after the other).\n\n'
                               'Or use "Open folders…" in the toolbar.')
+        self._logo.setVisible(True)
         self.setCurrentIndex(0)
 
     def show_file(self, rel, result, old_root, new_root):
@@ -270,6 +288,8 @@ class DiffPane(QStackedWidget):
         self.rows = []
         self._stops = []
         self.minimap.set_rows([])
+        self._pos_text = ''
+        self._logo.setVisible(False)
         self._msg.setText(text)
         self.setCurrentIndex(0)
 
@@ -354,6 +374,7 @@ class DiffPane(QStackedWidget):
         if self._stops:
             self._reveal(self._stops[0])
         else:
+            self._pos_text = ''
             self.old_edit.setExtraSelections([])
             self.new_edit.setExtraSelections([])
             self.old_edit.verticalScrollBar().setValue(0)
@@ -361,6 +382,7 @@ class DiffPane(QStackedWidget):
     def _load_one_side(self, rel, label, lines, side):
         self.rows = []
         self._stops = []
+        self._pos_text = ''
         self.minimap.set_rows([])
         self._sem.setVisible(False)
         self._header.setText('{}   ·   {}'.format(rel, label))
@@ -436,11 +458,17 @@ class DiffPane(QStackedWidget):
 
     def _update_position(self, row):
         if not self._stops:
+            self._pos_text = ''
             return
         idx = max(i for i, s in enumerate(self._stops) if s <= row) + 1 \
             if any(s <= row for s in self._stops) else 1
-        self._header.setText('{}   ·   change {} of {}'.format(
-            self._head_base, idx, len(self._stops)))
+        self._pos_text = 'change {} of {}'.format(idx, len(self._stops))
+        self._header.setText('{}   ·   {}'.format(self._head_base, self._pos_text))
+
+    def position_text(self):
+        """'change 3 of 7' for the action bar; '' when there is nothing to
+        step through (identical or noise-only file, or no file open)."""
+        return self._pos_text
 
     # --- change navigation (real/moved blocks; noise is skipped) ---
 
@@ -455,3 +483,11 @@ class DiffPane(QStackedWidget):
             return
         cur = self.old_edit.textCursor().blockNumber()
         self._reveal(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))
+
+    def first_change(self):
+        if self._stops:
+            self._reveal(self._stops[0])
+
+    def last_change(self):
+        if self._stops:
+            self._reveal(self._stops[-1])

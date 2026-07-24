@@ -9,19 +9,22 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QPalette
-from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QProgressBar,
-                               QSplitter, QTreeWidget, QTreeWidgetItem,
-                               QVBoxLayout, QWidget)
+                               QSizePolicy, QSplitter, QStyle, QToolButton,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
 from ..scanner import apply_fold, summarize
+from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
+from .icons import ACCENT, app_icon, icon, std_icon
 from .summary import SummaryPanel
 from .tree import STATUS, build_nodes, filter_nodes
 from .worker import ScanWorker
@@ -47,6 +50,7 @@ class MainWindow(QMainWindow):
         self.worker = None
 
         self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
+        self.setWindowIcon(app_icon())
         self.resize(1200, 800)
         self.setAcceptDrops(True)  # drop the two folders straight onto the window
 
@@ -126,12 +130,17 @@ class MainWindow(QMainWindow):
         split.setStretchFactor(1, 1)
         split.setSizes([400, 800])
 
+        self._make_actions()
+
         central = QWidget()
         v = QVBoxLayout(central)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self.banner)
-        v.addWidget(split)
+        v.addWidget(split, 1)
+        # navigation and export live on a bar at the BOTTOM, next to the diff
+        # they act on -- the toolbar up top is for opening folders and help
+        v.addWidget(self._action_bar())
         self.setCentralWidget(central)
 
         self.progress = QProgressBar()
@@ -139,39 +148,133 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(False)
         self.statusBar().addPermanentWidget(self.progress)
 
-        tb = self.addToolBar('main')
-        tb.setMovable(False)
-        act_open = QAction('Open folders…', self)
-        act_open.triggered.connect(self._pick_folders)
-        tb.addAction(act_open)
-        tb.addSeparator()
-        act_prev = QAction('◀ Prev change', self)
-        act_prev.setShortcut('F7')
-        act_prev.triggered.connect(lambda: self.diff.prev_change())
-        act_next = QAction('Next change ▶', self)
-        act_next.setShortcut('F8')
-        act_next.triggered.connect(lambda: self.diff.next_change())
-        tb.addAction(act_prev)
-        tb.addAction(act_next)
-        tb.addSeparator()
-        self.act_export = QAction('Export report…', self)
-        self.act_export.setShortcut('Ctrl+E')
-        self.act_export.setEnabled(False)
-        self.act_export.triggered.connect(self._export_report)
-        tb.addAction(self.act_export)
-        # both shortcuts must fire wherever the focus is inside the window
-        for act in (act_prev, act_next, self.act_export):
-            self.addAction(act)
+        self._build_toolbar()
 
         if self.old and self.new:
             self._start_scan()
         else:
             # no folders yet: invite a drag & drop instead of forcing a modal
-            # file dialog on the reviewer the moment the app opens
-            self.diff.show_drop_hint()
+            # file dialog on the reviewer the moment the app opens. One folder
+            # on the command line counts as OLD and waits for its NEW.
+            self.diff.show_drop_hint(self.old)
             self.statusBar().showMessage(
+                'Drop the NEW folder onto this window.' if self.old else
                 'Drag the OLD and NEW folders onto this window, or use '
                 '"Open folders…".')
+
+    # --- actions, toolbar, bottom action bar ---
+
+    def _make_actions(self):
+        """Every command the window offers, in one place. The bottom bar and
+        the toolbar are just two views of these actions, so a button and its
+        shortcut can never drift apart."""
+        self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon),
+                                'Open folders…', self)
+        self.act_open.setToolTip('Choose the OLD and NEW folders — or drop them '
+                                 'straight onto the window')
+        self.act_open.triggered.connect(self._pick_folders)
+
+        nav = (('act_first', 'nav-first-change', 'First change', 'Ctrl+Home',
+                self._first_change),
+               ('act_prev', 'nav-prev-change', 'Previous change', 'F7',
+                self._prev_change),
+               ('act_next', 'nav-next-change', 'Next change', 'F8',
+                self._next_change),
+               ('act_last', 'nav-last-change', 'Last change', 'Ctrl+End',
+                self._last_change))
+        for attr, glyph, text, key, slot in nav:
+            act = QAction(icon(glyph), text, self)
+            act.setShortcut(key)
+            act.setToolTip('{} ({}) — noise is skipped'.format(text, key))
+            act.triggered.connect(slot)
+            setattr(self, attr, act)
+
+        self.act_export = QAction(icon('export', ACCENT), 'Export report…', self)
+        self.act_export.setShortcut('Ctrl+E')
+        self.act_export.setEnabled(False)
+        self.act_export.setToolTip('Write the full HTML report (Ctrl+E) — always '
+                                   'the complete scan, never the folded view')
+        self.act_export.triggered.connect(self._export_report)
+
+        self.act_guide = QAction(icon('report'), 'User guide', self)
+        self.act_guide.setShortcut('F1')
+        self.act_guide.setToolTip('How to use the viewer (F1)')
+        self.act_guide.triggered.connect(lambda: show_user_guide(self))
+
+        self.act_notes = QAction(icon('review-resolved'), 'Release notes', self)
+        self.act_notes.setToolTip("What changed in this and earlier versions")
+        self.act_notes.triggered.connect(lambda: show_release_notes(self))
+
+        self.act_about = QAction(app_icon(), 'About', self)
+        self.act_about.setToolTip('Version, author and license')
+        self.act_about.triggered.connect(lambda: show_about(self))
+
+        # the bottom-bar buttons do not register shortcuts themselves, so the
+        # window must hold these actions for F7/F8/Ctrl+E to fire wherever the
+        # focus happens to be
+        for act in (self.act_first, self.act_prev, self.act_next,
+                    self.act_last, self.act_export):
+            self.addAction(act)
+
+    def _build_toolbar(self):
+        tb = self.addToolBar('main')
+        tb.setObjectName('main')
+        tb.setMovable(False)
+        tb.setIconSize(QSize(20, 20))
+        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tb.addAction(self.act_open)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        tb.addWidget(spacer)  # help actions sit on the right, away from Open
+        tb.addAction(self.act_guide)
+        tb.addAction(self.act_notes)
+        tb.addAction(self.act_about)
+
+    @staticmethod
+    def _tool_button(action, primary=False):
+        b = QToolButton()
+        b.setDefaultAction(action)  # icon, text, tooltip and enabled state
+        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        b.setIconSize(QSize(20, 20))
+        b.setCursor(Qt.PointingHandCursor)
+        if primary:
+            b.setObjectName('primary')
+        return b
+
+    def _action_bar(self):
+        bar = QFrame()
+        bar.setObjectName('actionbar')
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 5, 8, 5)
+        h.setSpacing(4)
+        for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
+            h.addWidget(self._tool_button(act))
+        self.pos_label = QLabel('')
+        self.pos_label.setStyleSheet('color:#9a9a9a; padding:0 10px;')
+        h.addWidget(self.pos_label)
+        h.addStretch(1)
+        h.addWidget(self._tool_button(self.act_export, primary=True))
+        return bar
+
+    # navigation goes through the window so the position readout stays in step
+    def _first_change(self):
+        self.diff.first_change()
+        self._sync_position()
+
+    def _prev_change(self):
+        self.diff.prev_change()
+        self._sync_position()
+
+    def _next_change(self):
+        self.diff.next_change()
+        self._sync_position()
+
+    def _last_change(self):
+        self.diff.last_change()
+        self._sync_position()
+
+    def _sync_position(self):
+        self.pos_label.setText(self.diff.position_text())
 
     # --- folder selection ---
 
@@ -248,6 +351,7 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         self.summary.set_results({})
         self.diff.clear()
+        self.pos_label.setText('')
         self._raw_results = {}
         self.results = {}
         self.act_export.setEnabled(False)
@@ -397,6 +501,43 @@ class MainWindow(QMainWindow):
         rel = self._selected_rel()
         if rel and rel in self.results:
             self.diff.show_file(rel, self.results[rel], self.old, self.new)
+            self._sync_position()
+
+
+# chrome styling. Deliberately narrow: the diff editors, the minimap and the
+# per-file tree colours are painted in code, and a stylesheet rule on their
+# items would override those verdict colours.
+_QSS = """
+QToolBar#main { background:#25262a; border:0; border-bottom:1px solid #34363c;
+                padding:4px 6px; spacing:2px; }
+QToolBar#main QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
+QToolBar#main QToolButton:hover { background:#34363c; }
+QToolBar#main QToolButton:pressed { background:#3d404a; }
+QFrame#actionbar { background:#25262a; border-top:1px solid #34363c; }
+QFrame#actionbar QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
+QFrame#actionbar QToolButton:hover { background:#34363c; }
+QFrame#actionbar QToolButton:pressed { background:#3d404a; }
+QFrame#actionbar QToolButton:disabled { color:#6a6a6a; }
+QToolButton#primary { background:#343a63; }
+QToolButton#primary:hover { background:#454c80; }
+QToolButton#primary:disabled { background:#2b2d33; }
+QTreeWidget { border:1px solid #34363c; border-radius:6px; }
+QTreeWidget::item { padding:2px 0; }
+QTreeWidget::item:selected { background:#3a4a7a; }
+QHeaderView::section { background:#2a2c31; color:#b9b9b9; border:0;
+                       border-right:1px solid #34363c; padding:4px 6px; }
+QLineEdit { background:#232427; border:1px solid #3a3c42; border-radius:6px;
+            padding:5px 8px; }
+QLineEdit:focus { border:1px solid #7c8cf8; }
+QSplitter::handle { background:#34363c; }
+QSplitter::handle:horizontal { width:3px; }
+QSplitter::handle:vertical { height:3px; }
+QStatusBar { background:#25262a; color:#b0b0b0; border-top:1px solid #34363c; }
+QProgressBar { background:#232427; border:1px solid #3a3c42; border-radius:6px;
+               text-align:center; color:#d0d0d0; }
+QProgressBar::chunk { background:#4F46E5; border-radius:5px; }
+QCheckBox { spacing:6px; }
+"""
 
 
 def _apply_dark(app):
@@ -414,14 +555,29 @@ def _apply_dark(app):
     p.setColor(QPalette.Highlight, QColor('#3a5a7a'))
     p.setColor(QPalette.HighlightedText, QColor('#ffffff'))
     app.setPalette(p)
+    app.setStyleSheet(_QSS)
+
+
+def _taskbar_identity():
+    """Windows groups taskbar buttons by AppUserModelID; without our own the
+    frozen exe inherits the host python's and shows its icon instead."""
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            'LongVoThien.CodeGenCompareTool')
+    except Exception:
+        pass  # not Windows, or the call is unavailable: cosmetic either way
 
 
 def run_viewer(old=None, new=None, exclude=(), arxml_only=False):
     app = QApplication.instance()
     owns = app is None
     if owns:
+        _taskbar_identity()
         app = QApplication(sys.argv[:1])
     _apply_dark(app)
+    app.setApplicationName('CodeGen Compare')
+    app.setWindowIcon(app_icon())
     win = MainWindow(old, new, exclude, arxml_only)
     win.show()
     return app.exec() if owns else 0

@@ -2,7 +2,7 @@
 
 Usage:
     python -m compare_tool <old_dir> <new_dir> [--report out.html] [--arxml-only]
-    python -m compare_tool --gui
+    python -m compare_tool                     # side-by-side viewer
 """
 
 import argparse
@@ -21,8 +21,7 @@ def default_report_name(arxml_only):
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                 progress=None):
-    """Scan two trees and write the HTML report. Shared core of the CLI and
-    the GUI so both keep identical fail-safe semantics.
+    """Scan two trees and write the HTML report.
     Returns (results, counts)."""
     out = Path(out)
     # delete a leftover report from an earlier run BEFORE scanning: if this
@@ -45,9 +44,8 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
 
 
 def summary_lines(results, counts):
-    """Scan summary as plain-text lines: counts, uncompared paths, modified
-    files and the AUTOSAR/A2L semantic rollups. The CLI prints them, the
-    GUI shows them in its log pane."""
+    """Scan summary as plain-text lines the CLI prints: counts, uncompared
+    paths, modified files and the AUTOSAR/A2L semantic rollups."""
     lines = []
     lines.append('Summary: {real-change} modified, {comment-only} comment-only, '
                  '{ignorable-only} unimportant, {added} added, {deleted} deleted, '
@@ -123,25 +121,24 @@ def summary_lines(results, counts):
     return lines
 
 
-def main(argv=None):
+def _parser():
     ap = argparse.ArgumentParser(
         prog='compare_tool',
         description='Compare two AUTOSAR codegen folders, filtering MATLAB noise '
                     '(comments, 1-1 renames, UUIDs, timestamps, whitespace). '
-                    'Writes a self-contained HTML report.')
+                    'With both folders given it writes a self-contained HTML '
+                    'report; without them it opens the side-by-side viewer.')
     ap.add_argument('old_dir', nargs='?', default=None,
                     help='previous codegen output folder')
     ap.add_argument('new_dir', nargs='?', default=None,
                     help='new codegen output folder')
-    ap.add_argument('--gui', action='store_true',
-                    help='open the graphical front panel (tkinter) instead of '
-                         'running in the terminal; old_dir/new_dir are '
-                         'optional and prefill the folder fields when given')
-    ap.add_argument('--qt', action='store_true',
+    ap.add_argument('--qt', '--viewer', dest='qt', action='store_true',
                     help='open the side-by-side compare viewer (PySide6): a '
                          'folder tree with a two-pane old/new diff, like Beyond '
-                         'Compare. old_dir/new_dir are optional; when omitted '
-                         'the viewer prompts for them')
+                         'Compare. This is also what runs when no folders are '
+                         'given, so the flag is only needed to view folders '
+                         'passed on the command line instead of comparing them '
+                         'in the terminal')
     ap.add_argument('--report', metavar='OUT.html', default=None,
                     help='HTML report output path (default: compare_report.html, '
                          'or arxml_update.html with --arxml-only)')
@@ -160,16 +157,45 @@ def main(argv=None):
                          '(report-only mode for CI pipelines); compare '
                          'errors still exit 2 -- an incomplete compare '
                          'must never look green')
+    return ap
+
+
+def _wants_viewer(args):
+    """The viewer is the default front end: the terminal compare runs only
+    when both folders are named on the command line."""
+    return bool(args.qt or not (args.old_dir and args.new_dir))
+
+
+def viewer_requested(argv):
+    """Whether this argv opens the viewer, decided WITHOUT running the compare.
+
+    The frozen entry point calls it to hide the console window before Qt comes
+    up, so that decision and :func:`main`'s use exactly one rule.
+    """
+    argv = list(argv)
+    if any(a in ('-h', '--help') for a in argv):
+        return False  # the help text belongs on a console the user can read
+    try:
+        return _wants_viewer(_parser().parse_args(argv))
+    except SystemExit:
+        return False  # bad usage: keep the console, argparse prints there
+
+
+def main(argv=None):
+    ap = _parser()
     args = ap.parse_args(argv)
-    if args.gui:
-        from .gui import run_gui  # deferred: tkinter may be absent headless
-        return run_gui(args.old_dir, args.new_dir)
-    if args.qt:
+    if _wants_viewer(args):
         from .qtviewer import run_viewer  # deferred: PySide6 may be absent
-        return run_viewer(args.old_dir, args.new_dir, exclude=args.exclude,
-                          arxml_only=args.arxml_only)
-    if not args.old_dir or not args.new_dir:
-        ap.error('old_dir and new_dir are required (or use --gui)')
+        try:
+            return run_viewer(args.old_dir, args.new_dir, exclude=args.exclude,
+                              arxml_only=args.arxml_only)
+        except ImportError as e:
+            # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
+            # Say so plainly instead of dumping a traceback.
+            ap.error('the side-by-side viewer needs PySide6 -- install it with '
+                     'pip install "codegen-compare-tool[viewer]", or name both '
+                     'folders to compare them in the terminal instead ({})'
+                     .format(e))
     # Windows consoles often run a legacy codepage (cp1252/cp437) that cannot
     # encode every character in codegen identifiers/paths; a print must never
     # kill the run, so degrade unencodable characters instead of raising

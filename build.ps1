@@ -1,18 +1,18 @@
 # Build the standalone artifacts into dist\.
 #
 #   dist\compare-tool.exe   ONE file, needs NOTHING installed on the target --
-#                           CLI + tkinter panel + side-by-side viewer together:
+#                           CLI + side-by-side viewer together, carrying the
+#                           app icon and the viewer's image resources:
 #                             compare-tool.exe <old> <new>        CLI + HTML report (exit 0/1/2)
-#                             compare-tool.exe --qt <old> <new>   side-by-side viewer
-#                             compare-tool.exe --gui              tkinter panel
-#                             double-click                        viewer (folder prompts)
+#                             compare-tool.exe --qt <old> <new>   viewer, folders loaded
+#                             double-click                        viewer (drop the folders in)
 #                           Built as a CONSOLE app so terminal runs keep stdout
-#                           and the exit code; GUI modes hide the console window
-#                           at runtime (see packaging\entry.py).
+#                           and the exit code; the viewer hides the console
+#                           window at runtime (see packaging\entry.py).
 #
 #   dist\compare_tool.pyz   optional tiny zipapp (~26 KB) for machines that
 #                           already have Python 3.8+. Stdlib only, so the CLI
-#                           and --gui work anywhere; --qt additionally needs
+#                           works anywhere; the viewer additionally needs
 #                           PySide6 installed on that machine.
 #
 # Usage:
@@ -48,7 +48,7 @@ sys.exit(main())
     Write-Host 'OK dist\compare_tool.pyz  (run: python compare_tool.pyz <old> <new>)'
 }
 
-# --- PyInstaller onefile (.exe): CLI + GUI + viewer in one binary ---
+# --- PyInstaller onefile (.exe): CLI + viewer in one binary ---
 if (-not $PyzOnly) {
     python -m pip install --upgrade pyinstaller "PySide6>=6.5"
     if ($LASTEXITCODE -ne 0) { throw 'installing build dependencies failed' }
