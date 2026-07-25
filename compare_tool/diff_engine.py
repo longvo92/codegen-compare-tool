@@ -6,7 +6,8 @@ A raw hunk that does not intersect any real hunk is ignorable; it is labeled
 by testing single normalization rules one at a time.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
-kind in {real, moved, comment, rename, uuid, timestamp, whitespace, mixed}
+kind in {real, moved, comment, rename, uuid, timestamp, sw-version,
+         whitespace, mixed}
 
 Moved blocks: a pure-delete hunk whose non-blank shadow content reappears
 verbatim as exactly one pure-insert hunk (and vice versa) is labeled 'moved'
@@ -193,6 +194,9 @@ def _build_variants(old_text, new_text, ruleset, rename_map):
         variants.append(('timestamp',
                          _lines(cw(arxml_rules.strip_dates(arxml_rules.strip_admin_data(old_text)))),
                          _lines(cw(arxml_rules.strip_dates(arxml_rules.strip_admin_data(new_text))))))
+        variants.append(('sw-version',
+                         _lines(cw(arxml_rules.strip_sw_version(old_text))),
+                         _lines(cw(arxml_rules.strip_sw_version(new_text)))))
     elif ruleset == 'a2l':
         # A2L string rules differ from C (literal backslash, "" quote
         # escape) so the dedicated stripper is required; no rename map

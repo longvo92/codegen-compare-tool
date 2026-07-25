@@ -118,12 +118,13 @@ PySide6 is imported only when the viewer opens, so the CLI and the HTML report k
 | `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated). Accepted only when the map is bijective, the old name disappears completely from the new file, and the new name never existed in the old file (blocks an `a`↔`b` swap). Any line the map cannot explain stays REAL | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
+| `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
 | `whitespace` | Indentation, trailing spaces, blank lines | all |
 | `line-endings` | CRLF vs LF, BOM | all |
 
 Auto-generated name churn is recognised as a `rename`: Embedded Coder temporaries such as `rtb_*`, mangling suffixes and renumbered temporaries change between runs without changing behaviour.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, renames, whitespace) — regenerating a model rewrites comment banners constantly, and "only the comment banner moved" triages very differently from "an identifier was renamed". The split runs all the way down: separate counts in the CLI summary, its own report badge and tree marker, and its own colour (**purple**, vs yellow for other noise) on the changed *lines* in both the HTML report and the viewer. A file mixing comments *with* other noise stays Unimportant: the narrower claim has to be exact.
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — regenerating a model rewrites comment banners constantly, and "only the comment banner moved" triages very differently from "an identifier was renamed". The split runs all the way down: separate counts in the CLI summary, its own report badge and tree marker, and its own colour (**purple**, vs yellow for other noise) on the changed *lines* in both the HTML report and the viewer. A file mixing comments *with* other noise stays Unimportant: the narrower claim has to be exact.
 
 Fail-safe principle throughout: **if it cannot be proven to be noise, it is marked REAL.**
 

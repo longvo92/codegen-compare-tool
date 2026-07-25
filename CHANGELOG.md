@@ -26,6 +26,10 @@ folders are given, and it got the interface work to carry that role.
   `● Compare incomplete`), so a result reads as final or in-progress at a
   glance. The verdict counts move to the right of the bar, where a transient
   message can no longer wipe them.
+- **`<SW-VERSION>` is now noise** (`sw-version` kind, folded into Unimportant):
+  a version stamp bumped on every regenerate is not a behaviour change. The
+  match is anchored, so `<SW-MAJOR-VERSION>` and similar tags are untouched,
+  and a version bump next to a real change still reports as a real change.
 
 ### Changed
 
