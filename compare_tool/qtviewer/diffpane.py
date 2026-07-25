@@ -83,6 +83,10 @@ _SEG_BG = {
 # F7/F8 are visibly doing something even when the file fits on screen and
 # there is nothing to scroll
 _CUR_BG = QColor(255, 255, 255, 34)
+# OLD/NEW pane-banner accents: one source, used for both the tag text and the
+# underline so the two can never drift apart
+_OLD_ACCENT = '#c98b8b'
+_NEW_ACCENT = '#8ec69a'
 _FILLER_BG = '#26272b'   # the absent side of an insert/delete
 _ADD_BG = '#1f3a24'
 _DEL_BG = '#3a2222'
@@ -208,8 +212,8 @@ class DiffPane(QStackedWidget):
         # the right, so which side is which is unmistakable at a glance. Each
         # banner is wrapped INTO the splitter pane, so it tracks the split when
         # the reviewer drags the divider.
-        self._old_name = self._pane_banner('#c98b8b')
-        self._new_name = self._pane_banner('#8ec69a')
+        self._old_name = self._pane_banner(_OLD_ACCENT)
+        self._new_name = self._pane_banner(_NEW_ACCENT)
         self._split = QSplitter(Qt.Horizontal)
         self._split.addWidget(self._pane(self._old_name, self.old_edit))
         self._split.addWidget(self._pane(self._new_name, self.new_edit))
@@ -269,8 +273,8 @@ class DiffPane(QStackedWidget):
         name, bright, with the full path as a tooltip. Called wherever a file
         is shown, so the two roots are in hand."""
         for lbl, root, tag, accent in (
-                (self._old_name, old_root, 'OLD', '#c98b8b'),
-                (self._new_name, new_root, 'NEW', '#8ec69a')):
+                (self._old_name, old_root, 'OLD', _OLD_ACCENT),
+                (self._new_name, new_root, 'NEW', _NEW_ACCENT)):
             p = Path(root)
             lbl.setText('<span style="color:{}">{}</span>'
                         '<span style="color:#e8e8e8">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
@@ -430,7 +434,11 @@ class DiffPane(QStackedWidget):
         self._pos_text = ''
         self.minimap.set_rows([])
         self._sem.setVisible(False)
-        self._header.setText('{}   ·   {}'.format(rel, label))
+        # keep _head_base in step with the shown header (an added/deleted file
+        # has no change stops, but leaving a stale base from the previous file
+        # is exactly the kind of drift that bites later)
+        self._head_base = '{}   ·   {}'.format(rel, label)
+        self._header.setText(self._head_base)
         edit = self.old_edit if side == 'old' else self.new_edit
         other = self.new_edit if side == 'old' else self.old_edit
         bg = _DEL_BG if side == 'old' else _ADD_BG

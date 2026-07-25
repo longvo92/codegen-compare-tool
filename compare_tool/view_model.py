@@ -46,7 +46,9 @@ def char_span(old_txt, new_txt):
     return (pre, len(old_txt) - suf), (pre, len(new_txt) - suf)
 
 
-def _mode_of(kind):
+def mode_of(kind):
+    """Hunk kind -> paint mode, the ONE place this mapping lives so the report
+    and the viewer can never disagree on how a kind is coloured/hidden."""
     if kind == 'real':
         return 'real'
     if kind == 'moved':
@@ -77,7 +79,7 @@ def aligned_rows(old_lines, new_lines, hunks):
         for k in range(i1 - oi):
             rows.append(Row(oi + k + 1, old_lines[oi + k],
                             nj + k + 1, new_lines[nj + k], 'ctx', 'equal'))
-        mode = _mode_of(h['kind'])
+        mode = mode_of(h['kind'])
         span = max(i2 - i1, j2 - j1)
         for k in range(span):
             o_no, o_txt = (i1 + k + 1, old_lines[i1 + k]) if i1 + k < i2 else (None, None)

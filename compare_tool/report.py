@@ -8,7 +8,7 @@ from pathlib import Path
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
-from .view_model import char_span
+from .view_model import char_span, mode_of
 
 CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
@@ -193,14 +193,7 @@ def _group_table(old_lines, new_lines, group):
     for idx, h in enumerate(group):
         hi1, hi2 = h['old_range']
         hj1, hj2 = h['new_range']
-        if h['kind'] == 'real':
-            mode = 'real'
-        elif h['kind'] == 'moved':
-            mode = 'moved'
-        elif h['kind'] == 'comment':
-            mode = 'comment'
-        else:
-            mode = 'minor'
+        mode = mode_of(h['kind'])  # same kind->mode mapping the viewer uses
         # changed block, pad shorter side
         span = max(hi2 - hi1, hj2 - hj1)
         for k in range(span):
