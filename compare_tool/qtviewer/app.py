@@ -143,10 +143,21 @@ class MainWindow(QMainWindow):
         v.addWidget(self._action_bar())
         self.setCentralWidget(central)
 
+        # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
+        # incomplete), the verdict counts as a permanent widget on the right so
+        # a transient message can never wipe them, and the progress bar.
+        self.state_label = QLabel()
+        self.state_label.setTextFormat(Qt.RichText)
+        self.state_label.setStyleSheet('padding:0 8px;')
+        self.statusBar().addWidget(self.state_label)
+        self.counts_label = QLabel('')
+        self.counts_label.setStyleSheet('color:#9aa1ad; padding:0 8px;')
+        self.statusBar().addPermanentWidget(self.counts_label)
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(240)
         self.progress.setVisible(False)
         self.statusBar().addPermanentWidget(self.progress)
+        self._set_state('idle', 'Ready')
 
         self._build_toolbar()
 
@@ -157,10 +168,19 @@ class MainWindow(QMainWindow):
             # file dialog on the reviewer the moment the app opens. One folder
             # on the command line counts as OLD and waits for its NEW.
             self.diff.show_drop_hint(self.old)
-            self.statusBar().showMessage(
-                'Drop the NEW folder onto this window.' if self.old else
-                'Drag the OLD and NEW folders onto this window, or use '
-                '"Open folders…".')
+            self._set_state('idle', 'Waiting for the NEW folder' if self.old else
+                            'Ready — drop the OLD and NEW folders')
+
+    # tool-state chip on the status bar: a coloured dot plus a word, so the
+    # reviewer can tell at a glance whether a result is final or still coming
+    _STATE_DOT = {'idle': '#8a8f98', 'busy': '#e2c16b',
+                  'ready': '#7bd88a', 'error': '#ff7b7b'}
+
+    def _set_state(self, kind, text):
+        dot = self._STATE_DOT.get(kind, '#8a8f98')
+        self.state_label.setText(
+            '<span style="color:{}; font-size:15px;">●</span>&nbsp; {}'
+            .format(dot, text))
 
     # --- actions, toolbar, bottom action bar ---
 
@@ -321,8 +341,7 @@ class MainWindow(QMainWindow):
             # first drop of a pair: OLD, and wait for the second
             self.old, self.new = dirs[0], None
             self.diff.show_drop_hint(self.old)
-            self.statusBar().showMessage(
-                'OLD = {} — now drop the NEW folder.'.format(self.old))
+            self._set_state('idle', 'OLD set — now drop the NEW folder')
             self._front()
             return
         else:
@@ -358,7 +377,8 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)  # busy/indeterminate until first tick
         self.setWindowTitle('AUTOSAR CodeGen Compare — {}  →  {}'.format(self.old, self.new))
-        self.statusBar().showMessage('Scanning…')
+        self.counts_label.setText('')
+        self._set_state('busy', 'Scanning…')
         # the scan itself is rule-free; the rules are applied to its results,
         # so flipping a category never costs a second walk of the disk
         self.worker = ScanWorker(self.old, self.new, self.exclude, self.include)
@@ -370,7 +390,8 @@ class MainWindow(QMainWindow):
     def _on_progress(self, done, total, rel):
         self.progress.setRange(0, max(total, 1))
         self.progress.setValue(done)
-        self.statusBar().showMessage('Scanning {}/{}: {}'.format(done, total, rel))
+        # update the state chip itself, not showMessage, so the dot stays lit
+        self._set_state('busy', 'Scanning {}/{}: {}'.format(done, total, rel))
 
     def _on_done(self, results):
         self._raw_results = results
@@ -400,17 +421,26 @@ class MainWindow(QMainWindow):
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
         counts = summarize(self.results)
-        self.statusBar().showMessage(
+        self.counts_label.setText(
             '{real-change} modified · {comment-only} comment-only · '
             '{ignorable-only} unimportant · {added} added · {deleted} deleted · '
             '{identical} identical · {error} error(s)'.format(**counts))
+        # a compare with an uncompared path is NOT a clean result: the chip
+        # says so in red, matching the banner, so the state is never green when
+        # something could be hiding a change
+        if counts['error']:
+            self._set_state('error', 'Compare incomplete — {} not compared'
+                            .format(counts['error']))
+        else:
+            self._set_state('ready', 'Ready')
 
     def _on_fail(self, msg):
         self.progress.setVisible(False)
+        self.counts_label.setText('')
         self.banner.setText('‼ SCAN FAILED — no results (treat everything as '
                             'potentially changed): {}'.format(msg))
         self.banner.setVisible(True)
-        self.statusBar().showMessage('SCAN FAILED')
+        self._set_state('error', 'Scan failed')
 
     # --- report export ---
 
@@ -440,7 +470,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, 'Export failed',
                                  '{}: {}'.format(type(e).__name__, e))
             return
-        self.statusBar().showMessage('Report written (full scan): {}'.format(out))
+        # transient, with a timeout, so the state chip returns after it clears
+        self.statusBar().showMessage('Report written (full scan): {}'.format(out), 8000)
         if QMessageBox.question(
                 self, 'Report exported',
                 'Written to:\n{}\n\nIt contains the full compare, including any '
@@ -554,6 +585,9 @@ def _apply_dark(app):
     p.setColor(QPalette.ButtonText, text)
     p.setColor(QPalette.Highlight, QColor('#3a5a7a'))
     p.setColor(QPalette.HighlightedText, QColor('#ffffff'))
+    # the filter box's "Filter by path…" placeholder: Fusion fades it so far it
+    # is barely legible on the dark field, so set an explicit, readable grey
+    p.setColor(QPalette.PlaceholderText, QColor('#9aa1ad'))
     app.setPalette(p)
     app.setStyleSheet(_QSS)
 

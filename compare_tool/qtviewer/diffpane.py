@@ -204,9 +204,15 @@ class DiffPane(QStackedWidget):
         self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
+        # a folder-name banner sits over each editor: OLD on the left, NEW on
+        # the right, so which side is which is unmistakable at a glance. Each
+        # banner is wrapped INTO the splitter pane, so it tracks the split when
+        # the reviewer drags the divider.
+        self._old_name = self._pane_banner('#c98b8b')
+        self._new_name = self._pane_banner('#8ec69a')
         self._split = QSplitter(Qt.Horizontal)
-        self._split.addWidget(self.old_edit)
-        self._split.addWidget(self.new_edit)
+        self._split.addWidget(self._pane(self._old_name, self.old_edit))
+        self._split.addWidget(self._pane(self._new_name, self.new_edit))
         self._split.setSizes([500, 500])
         self.minimap = Minimap(self.old_edit)
         body = QWidget()
@@ -236,6 +242,40 @@ class DiffPane(QStackedWidget):
         self._pos_text = ''        # "change k of N", mirrored on the action bar
         self._syncing = False
         self._link_scrolls()
+
+    @staticmethod
+    def _pane_banner(accent):
+        # neutral dark strip, coloured only in the OLD/NEW tag text and a thin
+        # underline -- a full red/green band would read as a changed diff row
+        lbl = QLabel('')
+        lbl.setStyleSheet(
+            'background:#2a2c31; color:{}; padding:5px 10px; font-weight:bold; '
+            'font-size:13px; border-bottom:2px solid {};'.format(accent, accent))
+        lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        return lbl
+
+    @staticmethod
+    def _pane(banner, editor):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(banner)
+        lay.addWidget(editor, 1)
+        return w
+
+    def _set_pane_names(self, old_root, new_root):
+        """Name each pane by its folder: a coloured OLD/NEW tag then the folder
+        name, bright, with the full path as a tooltip. Called wherever a file
+        is shown, so the two roots are in hand."""
+        for lbl, root, tag, accent in (
+                (self._old_name, old_root, 'OLD', '#c98b8b'),
+                (self._new_name, new_root, 'NEW', '#8ec69a')):
+            p = Path(root)
+            lbl.setText('<span style="color:{}">{}</span>'
+                        '<span style="color:#e8e8e8">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
+                        .format(accent, tag, p.name or str(p)))
+            lbl.setToolTip(str(p))
 
     # --- scroll sync: equal block counts make it a straight mirror ---
 
@@ -296,6 +336,7 @@ class DiffPane(QStackedWidget):
     def _show_file(self, rel, result, old_root, new_root):
         status = result.get('status')
         old_p, new_p = Path(old_root) / rel, Path(new_root) / rel
+        self._set_pane_names(old_root, new_root)
         if status == 'error':
             self._message('{}\n\nNOT compared — treat as potentially changed.\n{}'
                           .format(rel, '; '.join(result.get('notes', []))))
@@ -328,7 +369,11 @@ class DiffPane(QStackedWidget):
     def _load_rows(self, rel, status, result=None):
         rows = self.rows
         n_moved = sum(1 for r in rows if r.mode == 'moved')
-        head = '{}   ·   {}'.format(rel, status)
+        # header names the file only -- the verdict (real-change / identical /
+        # …) is already the tree's Status column, so repeating it here was
+        # redundant technical noise. The moved-line note and "change k of N"
+        # stay: those are about navigating THIS diff, not a repeated label.
+        head = rel
         if n_moved:
             head += '   ·   {} moved line(s)'.format(n_moved)
         self._head_base = head

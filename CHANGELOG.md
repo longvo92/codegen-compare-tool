@@ -19,12 +19,26 @@ folders are given, and it got the interface work to carry that role.
 - **First change** / **Last change** (`Ctrl+Home` / `Ctrl+End`) beside the
   existing `F7` / `F8` stepping.
 - A `change 3 of 7` readout on the action bar, next to the buttons that move it.
+- **A folder banner over each diff pane** — `OLD · <folder>` on the left,
+  `NEW · <folder>` on the right (full path on hover) — so which side is which
+  is never in doubt.
+- **A tool-state chip** on the status bar (`● Ready` / `● Scanning…` /
+  `● Compare incomplete`), so a result reads as final or in-progress at a
+  glance. The verdict counts move to the right of the bar, where a transient
+  message can no longer wipe them.
 
 ### Changed
 
 - **Navigation and export moved off the toolbar to a bar along the bottom of
   the window**, next to the diff they act on, each with an icon. The toolbar
   keeps opening folders and the help actions.
+- The diff header names the file only; the verdict (`real-change`, …) is
+  already the tree's Status column, so it is no longer repeated there.
+- The quick-changes panel drops its leading "Updated ARXML / A2L files" list —
+  the folder tree above already lists every changed file — and opens straight
+  at the semantic changes (ports, events, RTE, …).
+- The `Filter by path…` placeholder is set to a readable grey instead of the
+  near-invisible faded default.
 - **The viewer is the default front end.** `compare-tool` with no folders (or
   a double-clicked `.exe`) opens it; naming both folders still runs the
   terminal compare and its exit code. `--qt` (now also spelled `--viewer`)

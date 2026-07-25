@@ -1,10 +1,11 @@
 """Rows for the viewer's quick-changes panel: pure logic, NO Qt import.
 
-This is the same "what changed in the model / calibration surface" rollup the
-``--arxml-only`` report gives -- which ARXML/A2L files were updated, and the
-AUTOSAR-level changes underneath (port interfaces, software components, ports,
-runnables, events, RTE access points, A2L objects) -- so the reviewer can see
-the shape of the change without opening a report.
+This is the AUTOSAR-level rollup ``--arxml-only`` gives -- port interfaces,
+software components, ports, runnables, events, RTE access points, A2L objects
+added / removed / changed -- so the reviewer can see the shape of the change
+without opening a report. (The list of updated files it once led with is left
+out here: the folder tree above already lists every changed file, so it was a
+redundant restatement.)
 
 Kept Qt-free so it can be unit tested headless; the widget in summary.py only
 walks the returned sections and paints them.
@@ -12,14 +13,11 @@ walks the returned sections and paints them.
 
 from collections import namedtuple
 
-from ..diff_engine import ruleset_for
 from ..scanner import (summarize_a2l, summarize_ifaces, summarize_rte,
                        summarize_swcs)
 
 # sign: '+' added, '−' removed, '~' changed. rel = file to jump to.
 Row = namedtuple('Row', 'sign name detail rel')
-
-_FILE_SIGN = {'real-change': '~', 'added': '+', 'deleted': '−'}
 
 
 def _iface_kind(tag):
@@ -31,34 +29,9 @@ def _item(swc, name):
     return '{}.{}'.format(swc.rsplit('/', 1)[-1], name)
 
 
-def _updated_files(results):
-    rows = []
-    for rel, r in sorted(results.items()):
-        if ruleset_for(rel) not in ('arxml', 'a2l'):
-            continue
-        sign = _FILE_SIGN.get(r['status'])
-        if not sign:
-            continue
-        if r['status'] != 'real-change':
-            detail = ''
-        elif r.get('binary'):
-            detail = 'binary change'
-        else:
-            n_real = sum(1 for h in r['hunks'] if h['kind'] == 'real')
-            n_moved = sum(1 for h in r['hunks'] if h['kind'] == 'moved')
-            detail = '{} hunk(s){}'.format(
-                n_real, ', {} moved'.format(n_moved) if n_moved else '')
-        rows.append(Row(sign, rel, detail, rel))
-    return rows
-
-
 def summary_sections(results):
     """[(title, [Row, ...]), ...] -- only non-empty sections, in report order."""
     sections = []
-
-    rows = _updated_files(results)
-    if rows:
-        sections.append(('Updated ARXML / A2L files', rows))
 
     added, removed = summarize_ifaces(results)
     rows = [Row('+', p, _iface_kind(t), rel) for rel, p, t in added]
