@@ -32,7 +32,10 @@ All notable changes to this project are documented here. Versions follow
 - **Review mode is off by default** — the note box no longer takes height on
   every run. Anything already signed off still reaches the exported report.
 - The OLD pane and the exported report name the commit, not the temp folder.
-- The window title carries the NEW folder's name, not two absolute paths.
+- **A tidier frame around the diff**: `User guide`, `Release notes` and `About`
+  now sit under one `Help` menu, the landing screen is two lines, the status
+  chip says `Ready`, and the window title carries the NEW folder's name
+  instead of two absolute paths.
 
 ## [1.1.0] — 2026-07-26
 

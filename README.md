@@ -88,7 +88,7 @@ Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was r
 
 ## Side-by-side viewer
 
-Desktop app (PySide6): folder tree, two-pane diff with a minimap, per-change review notes, and a commit picker when the NEW folder is in a git checkout.
+Desktop app (PySide6): folder tree, two-pane diff with a minimap and syntax colouring, per-change review notes, and a commit picker when the folder is in a git checkout.
 
 ```bash
 pip install "codegen-compare-tool[viewer]"   # or: pip install PySide6
@@ -100,11 +100,9 @@ python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
 
 Two ways in: `Open folders…` for two folders you name yourself, and `Git compare…` for **one** folder in a git checkout — it lists the commits that touched that folder, checks the one you pick out to a temp folder (read-only — your working copy is never touched), and compares as usual.
 
-Review sign-off lives behind the `Review mode` toggle: write a note per change, or sign off a whole file at once with `Ctrl+Shift+R`.
+`Review mode` adds the note box and a `Review` column in the tree — green when every change in a row is signed off, amber part way, grey when none is. Sign off one change (`Ctrl+R`) or a whole file (`Ctrl+Shift+R`); the notes travel into the exported report.
 
-[insert picture]
-
-Full walkthrough is built into the app — `User guide` (`F1`) or `Release notes` in the toolbar, both work offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
+Full walkthrough is built into the app — `Help` → `User guide` (`F1`), which works offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
 
 ## What counts as noise
 
@@ -173,7 +171,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 ```powershell
 .\build.ps1           # dist\compare-tool.exe  - one file, nothing to install on the target
-.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~26 KB) for machines that have Python 3.8+
+.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~80 KB) for machines that have Python 3.8+
 .\build.ps1 -PyzOnly  # zipapp only (building it needs no PyInstaller / PySide6)
 ```
 
@@ -187,7 +185,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 Built as a **console** application so terminal runs keep their exit code (`1` = real changes, `2` = compare incomplete) for the CI gate. The viewer hides the console window at runtime — you'll see a brief flash on double-click. A crash un-hides the console so the error is visible.
 
-- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~26 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
+- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~80 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
 - **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target. Building needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs them), and the binary only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` there.
 
 Every CLI flag behaves identically in the packaged builds. `build/` and `dist/` are already in `.gitignore`.

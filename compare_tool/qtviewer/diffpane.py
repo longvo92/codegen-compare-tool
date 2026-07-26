@@ -366,18 +366,18 @@ class DiffPane(QStackedWidget):
         self.unitChanged.emit()
 
     def show_drop_hint(self, old=None):
-        """Landing screen when no folders are chosen yet."""
+        """Landing screen when no folders are chosen yet. Two lines: it is a
+        splash, not documentation -- the toolbar buttons are right there, and
+        the User guide holds the rest."""
         if old:
-            self._msg.setText('OLD folder:\n{}\n\nNow drop the NEW folder onto '
-                              'this window.'.format(old))
+            self._msg.setText('OLD: {}\n\nNow drop the NEW folder.'
+                              .format(Path(old).name or old))
         else:
-            # both ways in are named here: the git one needs a single folder,
-            # and a landing screen that only talks about a pair hides that
-            self._msg.setText('Drag the OLD and NEW folders onto this window\n'
-                              '(drop both at once, or one after the other).\n\n'
-                              'Or "Open folders…" in the toolbar — or '
-                              '"Git compare…" to use one folder\nand take the '
-                              'other side from its own history.')
+            # the git way in gets a mention: a landing screen that only talks
+            # about a pair of folders hides half the tool
+            self._msg.setText('Drop the OLD and NEW folders here.\n'
+                              'Or use "Open folders…" — or "Git compare…" for '
+                              'one folder and its own history.')
         self._logo.setVisible(True)
         self._forget_units()
         self.setCurrentIndex(0)

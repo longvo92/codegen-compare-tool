@@ -238,9 +238,10 @@ class MainWindow(QMainWindow):
             # no folders yet: invite a drag & drop instead of forcing a modal
             # file dialog on the reviewer the moment the app opens. One folder
             # on the command line counts as OLD and waits for its NEW.
+            # the chip says the tool's state, nothing else: what to do next is
+            # on the landing screen in the middle, in bigger type
             self.diff.show_drop_hint(self.old)
-            self._set_state('idle', 'Waiting for the NEW folder' if self.old else
-                            'Ready — drop the OLD and NEW folders')
+            self._set_state('idle', 'Ready')
 
     # tool-state chip on the status bar: a coloured dot plus a word, so the
     # reviewer can tell at a glance whether a result is final or still coming
@@ -350,10 +351,24 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_review_mode)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        tb.addWidget(spacer)  # help actions sit on the right, away from Open
-        tb.addAction(self.act_guide)
-        tb.addAction(self.act_notes)
-        tb.addAction(self.act_about)
+        tb.addWidget(spacer)
+        # the three help pages behind one menu on the right: they are read once
+        # and then never again, so three permanent buttons were spending the
+        # top bar on the rarest thing in the window
+        self.help_button = QToolButton()
+        self.help_button.setText('Help')
+        self.help_button.setIcon(icon('report'))
+        self.help_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.help_button.setIconSize(QSize(20, 20))
+        self.help_button.setPopupMode(QToolButton.InstantPopup)
+        self.help_button.setCursor(Qt.PointingHandCursor)
+        menu = QMenu(self.help_button)  # parented, so it outlives this call
+        menu.addAction(self.act_guide)
+        menu.addAction(self.act_notes)
+        menu.addSeparator()
+        menu.addAction(self.act_about)
+        self.help_button.setMenu(menu)
+        tb.addWidget(self.help_button)
 
     @staticmethod
     def _tool_button(action, primary=False):
@@ -663,7 +678,7 @@ class MainWindow(QMainWindow):
             # first drop of a pair: OLD, and wait for the second
             self.old, self.new = dirs[0], None
             self.diff.show_drop_hint(self.old)
-            self._set_state('idle', 'OLD set — now drop the NEW folder')
+            self._set_state('idle', 'Ready')
             self._front()
             return
         else:
@@ -1066,7 +1081,11 @@ class MainWindow(QMainWindow):
 # items would override those verdict colours.
 _QSS = """
 QToolBar#main { background:#25262a; border:0; border-bottom:1px solid #34363c;
-                padding:4px 6px; spacing:2px; }
+                padding:4px 12px 4px 6px; spacing:2px; }
+/* the Help button carries a menu: without room for it the arrow is clipped
+   against the window edge */
+QToolBar#main QToolButton::menu-indicator { subcontrol-position: right center;
+                subcontrol-origin: padding; right:-2px; }
 QToolBar#main QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
 QToolBar#main QToolButton:hover { background:#34363c; }
 QToolBar#main QToolButton:pressed { background:#3d404a; }

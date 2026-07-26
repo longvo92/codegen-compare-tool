@@ -17,7 +17,7 @@ from .icons import app_icon, logo_pixmap
 GUIDE = """
 # Using the side-by-side viewer
 
-## 1. Two folders, by hand
+## 1. Two folders
 
 - `Open folders…` -- both sides in one dialog, change either one, `Compare`
 - Or drag & drop OLD and NEW onto the window (together, or one after the other)
@@ -25,21 +25,20 @@ GUIDE = """
 
 ## 2. One folder, against its own history
 
-- `Git compare…` -- pick **one** folder, OLD comes from a commit
-- Folder has to sit in a git checkout (Azure DevOps or any other remote)
+- `Git compare…` -- pick **one** folder in a git checkout; OLD comes from a
+  commit, so there is no second folder to find
+- Lists the commits that touched that folder; the box below takes any revision
+  you type: sha, branch, tag, `HEAD~3`
 - `Browse…` at the top switches folder without leaving the dialog
-- Lists only commits that touched that folder
-- Box at the bottom takes any revision: sha, branch, tag, `HEAD~3`
-- The commit is checked out to a temp folder -- your working tree is untouched
-- Temp checkouts are deleted when the app closes
+- The commit is checked out to a temp folder -- your working tree is never
+  touched, and the temp copy goes when the app closes
 
 ## 3. Read the tree
 
 - Every file always listed -- a verdict never removes a row
 - A folder shows its heaviest child verdict
 - Box above the tree filters by path
-- Right-click a row: show it in Explorer, or copy its full path. Both use the
-  NEW side; a deleted file falls back to OLD, the only side it is still on
+- Right-click a row: show it in Explorer, or copy its full path
 
 | Mark | Verdict | Meaning |
 |---|---|---|
@@ -88,13 +87,18 @@ GUIDE = """
 
 ## 7. Review sign-off
 
-- Off by default -- turn on `Review mode` in the toolbar for the note box
-- Write a note on the current change
-- Tick **Reviewed** (`Ctrl+R`), then `F8` to the next one
-- `Whole file` signs off every change in the file at once (`Ctrl+Shift+R`);
-  press again to clear it. Notes you wrote are kept
+- Off by default -- turn on `Review mode` in the toolbar
+- Write a note on the current change, tick **Reviewed** (`Ctrl+R`), `F8` to the
+  next one
+- `Whole file` signs off the whole file at once (`Ctrl+Shift+R`); press again
+  to clear it. Notes you wrote are kept
+- Only real changes can be signed off; a note follows the change's content, not
+  its line number
 - Saves automatically to `codegen-review.json`, next to the NEW folder
-- Only real changes can be signed off
+- Export carries every note, plus a **Reviewed** badge to hide what's done
+
+The tree gains a `Review` column in this mode. A folder's count is everything
+underneath it.
 
 | Review column | Meaning |
 |---|---|
@@ -102,11 +106,6 @@ GUIDE = """
 | amber `3/7` | part way through |
 | grey `0/7` | nothing signed off yet |
 | `—` | nothing here can be signed off (noise, identical, NOT compared) |
-
-- A folder's count is everything underneath it
-
-- A note follows the change's content, not its line number
-- Export carries every note, plus a **Reviewed** badge to hide what's done
 
 ## Fail-safe
 
