@@ -7,41 +7,32 @@ All notable changes to this project are documented here. Versions follow
 
 ### Added
 
-- **`Git compare…`** — a second way in, next to `Open folders…`. Pick **one**
-  folder from a git checkout and the OLD side comes from its own history: no
-  second folder, no manual export. The picker lists only commits that touched
-  that folder, and takes any sha, branch, tag or `HEAD~3` you type instead.
-- The commit is read out to a temp folder, so your working copy is never
-  touched — you can compare while you are still editing. Temp checkouts go
-  when you close the app.
-- The OLD pane and the exported report name the commit, not the temp folder,
-  so a report still says what it was compared against.
-- **`Whole file`** signs off every change in a file at once (`Ctrl+Shift+R`),
-  and clears them again the same way. Notes you already wrote are kept. A file
-  with nothing to sign off — noise-only, identical, or one that could not be
-  compared — still cannot be marked.
-
-- **Syntax colouring in the diff panes** for C/H and ARXML/XML: comments,
-  strings, numbers, keywords, types (including `real_T` and the other Embedded
-  Coder typedefs), tags and attributes. A2L is left plain on purpose — almost
-  every line of it would light up, which is decoration, not information.
+- **`Git compare…`** — compare one folder against its own history. The picker
+  lists the commits that touched it, or takes any sha, branch, tag or `HEAD~3`
+  you type. The commit is read out to a temp folder, so your working copy is
+  never touched.
+- **`Whole file`** (`Ctrl+Shift+R`) signs off every change in a file at once,
+  and clears it again. Notes you wrote are kept.
+- **`Review` column** in the folder tree: green when every change in the row
+  is signed off, amber part way, grey when none is, `—` where there is nothing
+  to sign off. Folders count what is underneath them.
+- **Right-click a row** to show that file in Explorer, or copy its full path.
+- **Syntax colouring** in the diff panes for C/H and ARXML/XML. A2L stays
+  plain: almost every line of it would light up.
 
 ### Changed
 
-- **Both dialogs now show everything they are about to use, and let you change
-  it.** `Open folders…` puts OLD and NEW in one dialog, prefilled — changing
-  one side no longer means re-picking the other. `Git compare…` carries the
-  folder at the top with its own `Browse…`, so a second repository is one
-  click, not a restart.
-- **One colour language for the diff.** Comment and Unimportant changes now use
-  the same red/green as a real change, one shade dimmer, instead of a purple
-  and a yellow of their own — in the viewer *and* the report. Red means
-  removed, green means added, and nothing else competes for those two.
-- The syntax colours deliberately avoid red and green, so code colour and
-  change colour never get mistaken for each other.
-- **Review mode is off by default.** The note box no longer takes a strip of
-  height on every run; turn it on from the toolbar when you are signing off.
-  Anything already reviewed still reaches the exported report either way.
+- **One colour language for the diff.** Comment and Unimportant changes use the
+  same red/green as a real change, one shade dimmer — no more purple and
+  yellow, in the viewer *and* the report. The syntax colours avoid red and
+  green, so code colour and change colour are never mistaken for each other.
+- **Both dialogs show what they are about to use, and let you change it.**
+  `Open folders…` holds OLD and NEW together; `Git compare…` switches to
+  another repository without a restart.
+- **Review mode is off by default** — the note box no longer takes height on
+  every run. Anything already signed off still reaches the exported report.
+- The OLD pane and the exported report name the commit, not the temp folder.
+- The window title carries the NEW folder's name, not two absolute paths.
 
 ## [1.1.0] — 2026-07-26
 

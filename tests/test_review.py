@@ -106,6 +106,93 @@ class TestUnits(unittest.TestCase):
                             review.units(r, blob='bb')[0].key)
 
 
+class TestUnitsOf(unittest.TestCase):
+    """``units_of`` is the one place that decides which side a verdict needs
+    read. The diff pane and the tree's review column both go through it, so a
+    file can never be 'fully signed off' in one and unfinished in the other."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = Path(self.tmp.name) / 'old'
+        self.new = Path(self.tmp.name) / 'new'
+        self.old.mkdir()
+        self.new.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, name, old_text=None, new_text=None, binary=False):
+        for root, text in ((self.old, old_text), (self.new, new_text)):
+            if text is None:
+                continue
+            p = root / name
+            if binary:
+                p.write_bytes(text)
+            else:
+                p.write_text(text, encoding='utf-8')
+        return self.old / name, self.new / name
+
+    def test_reading_the_sides_gives_the_same_keys_as_passing_the_lines(self):
+        old_p, new_p = self._write('m.c', OLD_C, NEW_C)
+        r = compare_pair(OLD_C, NEW_C, 'm.c')
+        read = review.units_of(r, old_p, new_p)
+        given = review.units_of(r, old_p, new_p, OLD_C.split('\n'),
+                                NEW_C.split('\n'))
+        self.assertEqual(len(read), 1)
+        self.assertEqual([u.key for u in read], [u.key for u in given])
+
+    def test_added_reads_the_new_side_deleted_the_old(self):
+        old_p, new_p = self._write('gone.c', old_text='int gone;\n')
+        deleted = review.units_of({'status': 'deleted', 'hunks': []},
+                                  old_p, new_p)
+        old_p2, new_p2 = self._write('fresh.c', new_text='int fresh;\n')
+        added = review.units_of({'status': 'added', 'hunks': []},
+                                old_p2, new_p2)
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(len(added), 1)
+        self.assertIsNone(added[0].index)
+
+    def test_binary_change_is_keyed_by_the_new_bytes(self):
+        old_p, new_p = self._write('t.bin', b'\x00\x01', b'\x00\x02', binary=True)
+        r = {'status': 'real-change', 'binary': True, 'hunks': []}
+        first = review.units_of(r, old_p, new_p)
+        self.assertEqual(len(first), 1)
+        new_p.write_bytes(b'\x00\x03')
+        # regenerated differently -> different key -> comes back not reviewed
+        self.assertNotEqual(first[0].key, review.units_of(r, old_p, new_p)[0].key)
+
+    def test_binary_added_file_is_signable_by_its_own_bytes(self):
+        old_p, new_p = self._write('img.bin', new_text=b'\x00img', binary=True)
+        us = review.units_of({'status': 'added', 'hunks': []}, old_p, new_p)
+        self.assertEqual(len(us), 1)
+        self.assertEqual(us[0].label, 'whole file')
+
+    def test_noise_and_identical_have_nothing_to_sign_off(self):
+        # the tree column must not paint these green: nobody read anything
+        noisy = OLD_C.replace('/* banner */', '/* banner v2 */')
+        old_p, new_p = self._write('n.c', OLD_C, noisy)
+        r = compare_pair(OLD_C, noisy, 'n.c')
+        self.assertEqual(r['status'], 'comment-only')
+        self.assertEqual(review.units_of(r, old_p, new_p), [])
+        old_p, new_p = self._write('same.c', OLD_C, OLD_C)
+        self.assertEqual(review.units_of(compare_pair(OLD_C, OLD_C, 'same.c'),
+                                         old_p, new_p), [])
+
+    def test_a_path_that_cannot_be_read_yields_no_unit(self):
+        # fail-safe: no unit means nothing can be marked reviewed, so an
+        # unreadable file can never be hidden behind a sign-off
+        r = compare_pair(OLD_C, NEW_C, 'm.c')
+        missing_old, missing_new = self.old / 'nope.c', self.new / 'nope.c'
+        self.assertEqual(review.units_of(r, missing_old, missing_new), [])
+        self.assertEqual(review.units_of({'status': 'added', 'hunks': []},
+                                         missing_old, missing_new), [])
+
+    def test_error_verdict_is_never_signable(self):
+        old_p, new_p = self._write('e.c', OLD_C, NEW_C)
+        r = {'status': 'error', 'hunks': [], 'notes': ['unreadable']}
+        self.assertEqual(review.units_of(r, old_p, new_p), [])
+
+
 class TestStore(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

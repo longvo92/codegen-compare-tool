@@ -438,22 +438,24 @@ class DiffPane(QStackedWidget):
             self._message('{}\n\nNOT compared — treat as potentially changed.\n{}'
                           .format(rel, '; '.join(result.get('notes', []))))
             return
+        # units come from the shared seam, never from a local reading of the
+        # verdict: the tree's review column counts the same units, and a second
+        # copy of "which side does this status need" is how the two start
+        # disagreeing about whether a file is fully signed off
         if result.get('binary'):
             # a binary change is still a change to sign off; it is keyed by the
             # file's own bytes, so a regenerated binary drops the signature
-            self._units = review.units(result, blob=review.blob_digest(new_p))
+            self._units = review.units_of(result, old_p, new_p)
             self._message('{}\n\nBinary file differs.'.format(rel))
             return
         if status in ('added', 'deleted'):
             path = new_p if status == 'added' else old_p
             label = 'Added' if status == 'added' else 'Deleted'
+            self._units = review.units_of(result, old_p, new_p)
             if looks_binary(path):
-                self._units = review.units(result, blob=review.blob_digest(path))
                 self._message('{}\n\nBinary file {}.'.format(rel, status))
                 return
             lines = read_text(path).split('\n')
-            kw = {'new_lines' if status == 'added' else 'old_lines': lines}
-            self._units = review.units(result, **kw)
             self._load_one_side(rel, label, lines,
                                 'new' if status == 'added' else 'old')
             return
@@ -468,7 +470,7 @@ class DiffPane(QStackedWidget):
         # folding is a display choice: the units (and therefore the review keys)
         # come from the hunks, so what a note is attached to never depends on
         # which categories happen to be folded on screen
-        self._units = review.units(result, old_lines, new_lines)
+        self._units = review.units_of(result, old_p, new_p, old_lines, new_lines)
         self.rows, row_map = collapse_rows(rows, self._fold)
         self._load_rows(rel, status, result, row_map)
 

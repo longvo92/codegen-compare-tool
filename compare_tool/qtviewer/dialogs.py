@@ -38,6 +38,8 @@ GUIDE = """
 - Every file always listed -- a verdict never removes a row
 - A folder shows its heaviest child verdict
 - Box above the tree filters by path
+- Right-click a row: show it in Explorer, or copy its full path. Both use the
+  NEW side; a deleted file falls back to OLD, the only side it is still on
 
 | Mark | Verdict | Meaning |
 |---|---|---|
@@ -93,6 +95,16 @@ GUIDE = """
   press again to clear it. Notes you wrote are kept
 - Saves automatically to `codegen-review.json`, next to the NEW folder
 - Only real changes can be signed off
+
+| Review column | Meaning |
+|---|---|
+| green `7/7` | every change in the row signed off |
+| amber `3/7` | part way through |
+| grey `0/7` | nothing signed off yet |
+| `—` | nothing here can be signed off (noise, identical, NOT compared) |
+
+- A folder's count is everything underneath it
+
 - A note follows the change's content, not its line number
 - Export carries every note, plus a **Reviewed** badge to hide what's done
 

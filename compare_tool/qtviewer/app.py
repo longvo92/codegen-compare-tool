@@ -6,16 +6,17 @@ raises a loud red banner -- an incomplete compare must never look clean.
 """
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QPalette
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QMainWindow, QMessageBox, QPlainTextEdit,
+                               QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
                                QProgressBar, QSizePolicy, QSplitter, QStyle,
                                QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
@@ -30,10 +31,42 @@ from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
 from .summary import SummaryPanel
-from .tree import STATUS, build_nodes, filter_nodes
+from .tree import REVIEW_COLOR, STATUS, build_nodes, filter_nodes, review_state
 from .worker import ScanWorker
 
-REL_ROLE = Qt.UserRole  # QTreeWidgetItem data slot holding a file's rel path
+REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
+PATH_ROLE = Qt.UserRole + 1  # relative path of any row, file or folder
+REVIEW_COL = 2               # tree column shown only while review mode is on
+
+# Windows can select the file itself inside its folder; anywhere else the most
+# a desktop can be asked for is the folder, and the label must not over-claim
+_SHOW_FILE = 'Show in Explorer' if sys.platform == 'win32' \
+    else 'Open containing folder'
+
+
+def _open_in_file_manager(path, select=False):
+    """Show `path` in the desktop's file manager.
+
+    Explorer takes ``/select,`` to open the containing folder with the file
+    highlighted, which is the whole point of asking from a file row -- a
+    codegen folder holds hundreds of files. It also exits non-zero on success,
+    so its exit code is deliberately not checked. Everywhere else (and for a
+    folder row) the containing folder is handed to the desktop.
+
+    Cosmetic by nature: a failure to open a window must not take the compare
+    down, so this reports False instead of raising.
+    """
+    p = Path(path)
+    if select and sys.platform == 'win32':
+        # one command string, not an argv list: Explorer parses "/select,<path>"
+        # itself and list2cmdline's quoting of that single argument breaks it
+        try:
+            subprocess.Popen('explorer /select,"{}"'.format(p))
+            return True
+        except OSError:
+            pass  # fall through to the plain folder below
+    folder = p.parent if (select or p.is_file()) else p
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 
 def _arxml_include():
@@ -68,6 +101,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self._reviews = review.ReviewStore()  # replaced per scan, see _load_reviews
         self._review_unit = None  # (rel, key, label) the note box is editing
+        self._units = {}          # rel -> reviewable units, read once per scan
         self._git_temp = None     # where commits are checked out, this session
         self._old_label = None    # what OLD is, when its folder does not say
 
@@ -83,15 +117,24 @@ class MainWindow(QMainWindow):
                                   'font-weight:bold; border-bottom:1px solid #b04a4a;')
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['File', 'Status'])
+        # the Review column exists at all times but is hidden until review mode
+        # is on: adding and removing a column would reset the header's own
+        # sizing every time the mode is toggled
+        self.tree.setHeaderLabels(['File', 'Status', 'Review'])
+        self.tree.setColumnHidden(REVIEW_COL, True)
         self.tree.setUniformRowHeights(True)
         # the name column hugs its content instead of taking a fixed 380 px,
         # so Status sits right next to the file name and never gets pushed out
         # of the panel
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         self.tree.itemSelectionChanged.connect(self._on_select)
+        # right-click a row to open that file where it actually lives -- the
+        # reviewer's next step after seeing a diff is often the file itself
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
 
         # path search only. Verdicts never remove a row: the folder structure
         # must stay stable so the reviewer's bearings do not shift when change
@@ -394,8 +437,13 @@ class MainWindow(QMainWindow):
         if not on:
             self._commit_review()  # a note typed and not yet left behind
         self.review_box.setVisible(on)
+        # the tree's Review column belongs to the same mode: it is progress
+        # bookkeeping, useless while nobody is signing anything off, and it
+        # costs a read of every changed file to fill
+        self.tree.setColumnHidden(REVIEW_COL, not on)
         if on:
             self._load_review()
+            self._refresh_review_column()
             self.note_edit.setFocus()
 
     def _toggle_reviewed(self):
@@ -429,6 +477,7 @@ class MainWindow(QMainWindow):
         if changed:
             self._save_reviews()
         self._load_review()
+        self._refresh_review_column()
         self.statusBar().showMessage(
             '{} change(s) in {} marked {}'.format(
                 changed, rel, 'not reviewed' if done else 'reviewed'), 6000)
@@ -528,6 +577,7 @@ class MainWindow(QMainWindow):
             return
         self._reviews.set(rel, key, note, reviewed, label)
         self._save_reviews()
+        self._refresh_review_column()  # this file just moved along
 
     def _save_reviews(self):
         try:
@@ -721,10 +771,15 @@ class MainWindow(QMainWindow):
         self.pos_label.setText('')
         self._raw_results = {}
         self.results = {}
+        self._units = {}  # different folders, different content, different keys
         self.act_export.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)  # busy/indeterminate until first tick
-        self.setWindowTitle('AUTOSAR CodeGen Compare — {}  →  {}'.format(self.old, self.new))
+        # the folder NAME, not the two absolute paths: a title bar is not wide
+        # enough for a pair of them, and both roots are already named over the
+        # diff panes -- with the full path in their tooltip
+        name = Path(self.new).name or str(self.new)
+        self.setWindowTitle('AUTOSAR CodeGen Compare — {}'.format(name))
         self._load_reviews()
         self.counts_label.setText('')
         self._set_state('busy', 'Scanning…')
@@ -859,16 +914,18 @@ class MainWindow(QMainWindow):
                                      text=self.filter_edit.text()))
 
     def _fill_tree(self, nodes):
-        def add(parent, node):
+        def add(parent, node, prefix):
             marker, label, color = STATUS[node.status]
             item = QTreeWidgetItem(['{}  {}'.format(marker, node.name), label])
             brush = QBrush(QColor(color))
             item.setForeground(0, brush)
             item.setForeground(1, brush)
+            rel = node.rel or (prefix + node.name)
+            item.setData(0, PATH_ROLE, rel)  # folders included: the menu opens those too
             if not node.is_dir:
                 item.setData(0, REL_ROLE, node.rel)
             for ch in node.children:
-                add(item, ch)
+                add(item, ch, rel + '/')
             if parent is None:
                 self.tree.addTopLevelItem(item)
             else:
@@ -877,7 +934,109 @@ class MainWindow(QMainWindow):
                 item.setExpanded(True)
 
         for n in nodes:
-            add(None, n)
+            add(None, n, '')
+        self._refresh_review_column()
+
+    # --- review column: how far along each file is ---
+
+    def _file_units(self, rel):
+        """Reviewable units of one file, read from disk once per scan.
+
+        Cached because the column is rebuilt on every keystroke in the filter
+        box and after every tick, and re-reading both sides of every changed
+        file for that would make the tree crawl. Folding a category cannot
+        change the answer: only noise verdicts fold, and those have no units
+        either way."""
+        if rel not in self._units:
+            result = self.results.get(rel)
+            self._units[rel] = review.units_of(
+                result, Path(self.old) / rel, Path(self.new) / rel) \
+                if result and self.old and self.new else []
+        return self._units[rel]
+
+    def _refresh_review_column(self):
+        """Repaint the Review column from the store. A folder shows the tally
+        of everything under it, so a collapsed tree still says where the work
+        is left."""
+        if self.tree.isColumnHidden(REVIEW_COL):
+            return
+
+        def walk(item):
+            rel = item.data(0, REL_ROLE)
+            if rel is None:  # folder: the sum of what is underneath
+                done = total = 0
+                for i in range(item.childCount()):
+                    d, t = walk(item.child(i))
+                    done += d
+                    total += t
+            else:
+                units = self._file_units(rel)
+                total = len(units)
+                done = sum(1 for u in units
+                           if self._reviews.is_reviewed(rel, u.key))
+            self._paint_review(item, done, total)
+            return done, total
+
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+
+    def _paint_review(self, item, done, total):
+        state = review_state(done, total)
+        if state is None:
+            # nothing signable here: an em dash, not a green tick. A noise-only
+            # or NOT-compared file has nothing anyone could have read, and a
+            # free "done" on it is exactly the false all-clear to avoid.
+            item.setText(REVIEW_COL, '—')
+            item.setForeground(REVIEW_COL, QBrush(QColor('#5a5d63')))
+            item.setToolTip(REVIEW_COL, 'Nothing here can be signed off.')
+            return
+        item.setText(REVIEW_COL, '{}/{}'.format(done, total))
+        item.setForeground(REVIEW_COL, QBrush(QColor(REVIEW_COLOR[state])))
+        item.setToolTip(REVIEW_COL, '{} of {} change(s) reviewed'.format(done, total))
+
+    # --- right-click: open the file where it really lives ---
+
+    def _tree_menu(self, pos):
+        menu = self._context_menu(self.tree.itemAt(pos))
+        if menu is not None:
+            menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _context_menu(self, item):
+        """The right-click menu for one tree row, or None when the row has
+        nothing to offer. Built apart from showing it so the menu can be
+        rendered and looked at without a blocking exec()."""
+        if item is None or not (self.old and self.new):
+            return None
+        rel = item.data(0, PATH_ROLE)
+        if not rel:
+            return None
+        is_file = item.data(0, REL_ROLE) is not None
+        # NEW is the folder being reviewed, so it is the only side worth an
+        # entry -- except for a deleted path, which exists nowhere else but
+        # OLD. Offering both sides everywhere was two clicks' worth of choice
+        # for a question that has one answer.
+        target = Path(self.new) / rel
+        if not target.exists():
+            target = Path(self.old) / rel
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)  # the tooltip carries the full path
+        act = menu.addAction(_SHOW_FILE if is_file else 'Open folder')
+        exists = target.exists()
+        act.setEnabled(exists)
+        act.setToolTip(str(target) if exists else
+                       '{}\n\nNot on either side any more.'.format(target))
+        act.triggered.connect(
+            lambda _checked=False, p=target, s=is_file:
+            _open_in_file_manager(p, select=s))
+        menu.addSeparator()
+        # the FULL path of the same target the entry above opens: a relative
+        # path is not something you can paste into a shell, an explorer bar or
+        # a ticket, which is what a copied path is for
+        full = str(target)
+        copy = menu.addAction('Copy full path')
+        copy.setToolTip(full)
+        copy.triggered.connect(lambda: QApplication.clipboard().setText(full))
+        return menu
 
     def _selected_rel(self):
         items = self.tree.selectedItems()
