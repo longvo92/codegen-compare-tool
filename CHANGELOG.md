@@ -3,6 +3,68 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Review sign-off.** Each change can carry a note saying what it is for, and
+  a `Reviewed` tick. The bar under the diff edits the change you are on;
+  `Ctrl+R` ticks it, so a pass can stay on the keyboard: `F8`, tick, `F8`.
+- **Notes travel into the exported report**, each next to the change it
+  describes, with a `Reviewed` badge that folds away everything already signed
+  off — so a second pass opens on what is left. The badge starts *shown*: the
+  report is the record of what the compare found, and nothing in it is hidden
+  until the reader asks.
+- Reviews live in **`codegen-review.json`**, written beside the NEW folder
+  rather than inside it, so regenerating the code does not take the review with
+  it. `--review FILE` feeds the same file to the command-line report; it is
+  never picked up implicitly.
+
+### Changed — viewer
+
+- **Unticking `Comment` or `Unimportant` now hides those lines in the diff panes
+  too**, not just the file's verdict. Each run collapses to a
+  `⋯ 3 uuid lines hidden` marker carrying the same text on both sides, so the
+  panes stay in lockstep and the marker reads as context rather than as a
+  difference. The count and the kind are always stated — this hides noise, it
+  does not drop it — and ticking the category back on brings the lines back.
+  Folding is a display choice only: review notes stay attached to their hunks
+  either way.
+
+### Changed — report header
+
+- The badge row is **two groups**: what the compare found (`Modified`,
+  `Unimportant`, `Added / Deleted`), then past a divider `Reviewed` — how far a
+  human has got through it. Two different questions, so two groups.
+- **`Added` and `Deleted` share one badge.** Both are "a whole file appeared or
+  vanished", and a reviewer flips them together.
+- **`Comment` and `Identical` are no longer reported categories**: no badge, no
+  detail section. A regenerated comment banner is the noisiest and least
+  informative thing a codegen diff produces, and this report is what you send to
+  someone else. Comment lines inside a Modified file stay **in** the file — the
+  report is the record — but are never displayed, and the
+  `⋯ N comment lines hidden` placeholder still states how many were folded. Both
+  verdicts keep their row and mark in the folder tree. The **viewer is
+  unchanged** and still shows all of it: it is the reading surface, the report
+  is the record.
+- **The header names the compare folders, not their absolute paths** (full path
+  on hover). The path was a fact about the machine that ran the compare, and
+  spelled out in full it wrapped the header over the result.
+
+### Notes
+
+- **A sign-off is anchored to the content of its change, not to a line
+  number.** An edit elsewhere in the file keeps the note attached; a change that
+  is generated differently comes back as *not reviewed*. A stale signature can
+  therefore never hide something nobody has read — the same fail-safe principle
+  as the rest of the tool. The old text stays in the file, with the line range
+  it applied to.
+- Only real and moved changes can be signed off. Noise has no tick — the tool's
+  claim is that you can ignore it. An added, deleted or binary file is signed
+  off as a whole, having no individual hunks to point at.
+- `change 3 of 7` now counts one stop per hunk, matching the hunk count the
+  command line prints and the units a note attaches to.
+
 ## [1.1.0] — 2026-07-24
 
 The side-by-side viewer becomes **the** front end: it is what runs when no

@@ -7,7 +7,8 @@ import unittest
 
 from compare_tool.diff_engine import compare_pair
 from compare_tool.report import _char_diff
-from compare_tool.view_model import Row, aligned_rows, char_span
+from compare_tool.view_model import (Row, aligned_rows, char_span,
+                                     collapse_rows, hunk_row_starts)
 
 
 class TestCharSpan(unittest.TestCase):
@@ -121,6 +122,94 @@ class TestAlignedRows(unittest.TestCase):
                "void Alpha(void)\n{\n  a = 1;\n  b = 2;\n}\n")
         _r, rows = self._rows(old, new)
         self.assertTrue(any(row.mode == 'moved' for row in rows))
+
+
+class TestHunkRowStarts(unittest.TestCase):
+    """The viewer scrolls to a change by hunk index, and a review note is
+    attached by hunk. If these row positions ever drifted from aligned_rows,
+    the pane would jump to one change while the note bar edited another."""
+
+    def _case(self, old, new, path='m.c'):
+        r = compare_pair(old, new, path)
+        rows = aligned_rows(old.split('\n'), new.split('\n'), r['hunks'])
+        return r, rows, hunk_row_starts(r['hunks'])
+
+    def test_start_row_is_the_first_row_of_each_hunk(self):
+        old = 'a\nb\nc\nd\ne\nf\ng\n'
+        new = 'a\nB\nc\nd\ne\nF\ng\n'
+        r, rows, starts = self._case(old, new)
+        self.assertEqual(len(starts), len(r['hunks']))
+        for h, row in zip(r['hunks'], starts):
+            # the hunk's first old line lands exactly on that row
+            self.assertEqual(rows[row].old_no, h['old_range'][0] + 1)
+            self.assertNotEqual(rows[row].mode, 'ctx')
+
+    def test_insert_only_hunk_starts_on_its_padded_row(self):
+        old = 'a\nb\n'
+        new = 'a\nx\ny\nb\n'
+        r, rows, starts = self._case(old, new)
+        row = starts[0]
+        self.assertIsNone(rows[row].old_txt)  # padded side
+        self.assertEqual(rows[row].new_no, r['hunks'][0]['new_range'][0] + 1)
+
+    def test_no_hunks_no_starts(self):
+        self.assertEqual(hunk_row_starts([]), [])
+
+
+class TestCollapseRows(unittest.TestCase):
+    """Unticking a compare category hides its lines in the panes too. What must
+    hold: a real change can never be folded, and a fold always says how much it
+    hid."""
+
+    def _rows(self, *specs):
+        return [Row(i + 1, 'o{}'.format(i), i + 1, 'n{}'.format(i), mode, kind)
+                for i, (mode, kind) in enumerate(specs)]
+
+    def test_a_run_becomes_one_row_stating_the_count(self):
+        rows = self._rows(('ctx', 'equal'), ('minor', 'uuid'), ('minor', 'uuid'),
+                          ('minor', 'uuid'), ('ctx', 'equal'))
+        out, _m = collapse_rows(rows, ['minor'])
+        self.assertEqual([r.mode for r in out], ['ctx', 'folded', 'ctx'])
+        self.assertIn('3 uuid lines hidden', out[1].old_txt)
+
+    def test_both_sides_carry_the_same_placeholder_text(self):
+        # identical text on both sides: the row must read as context, not as a
+        # difference, and the panes must keep the same block count
+        out, _m = collapse_rows(self._rows(('minor', 'uuid')), ['minor'])
+        self.assertEqual(out[0].old_txt, out[0].new_txt)
+        self.assertIsNone(out[0].old_no)
+        self.assertIn('1 uuid line hidden', out[0].old_txt)
+
+    def test_real_and_moved_can_never_be_folded(self):
+        rows = self._rows(('real', 'real'), ('moved', 'moved'))
+        out, _m = collapse_rows(rows, ['real', 'moved', 'minor'])
+        self.assertEqual([r.mode for r in out], ['real', 'moved'])
+
+    def test_only_the_unticked_category_folds(self):
+        rows = self._rows(('comment', 'comment'), ('minor', 'uuid'))
+        out, _m = collapse_rows(rows, ['comment'])
+        self.assertEqual([r.mode for r in out], ['folded', 'minor'])
+        out, _m = collapse_rows(rows, ['comment', 'minor'])
+        self.assertEqual([r.mode for r in out], ['folded'])
+        self.assertIn('comment + uuid', out[0].old_txt)
+
+    def test_row_map_carries_navigation_stops_across(self):
+        rows = self._rows(('minor', 'uuid'), ('minor', 'uuid'),
+                          ('real', 'real'), ('minor', 'uuid'), ('real', 'real'))
+        out, row_map = collapse_rows(rows, ['minor'])
+        self.assertEqual([r.mode for r in out],
+                         ['folded', 'real', 'folded', 'real'])
+        self.assertEqual(row_map[2], 1)  # the real rows still land on themselves
+        self.assertEqual(row_map[4], 3)
+        for i, r in enumerate(rows):
+            if r.mode == 'real':
+                self.assertEqual(out[row_map[i]].mode, 'real')
+
+    def test_no_modes_is_the_identity(self):
+        rows = self._rows(('minor', 'uuid'), ('real', 'real'))
+        out, row_map = collapse_rows(rows, [])
+        self.assertEqual(out, rows)
+        self.assertEqual(row_map, [0, 1])
 
 
 if __name__ == '__main__':

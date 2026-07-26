@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import review
 from .diff_engine import RULES
 from .report import build_arxml_report, build_report
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
@@ -20,7 +21,7 @@ def default_report_name(arxml_only):
 
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
-                progress=None):
+                progress=None, reviews=None):
     """Scan two trees and write the HTML report.
     Returns (results, counts)."""
     out = Path(out)
@@ -38,7 +39,7 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
         # a silently absent file (indistinguishable from a run that died)
         page = build_arxml_report(results, old_root, new_root)
     else:
-        page = build_report(results, old_root, new_root)
+        page = build_report(results, old_root, new_root, reviews)
     out.write_text(page, encoding='utf-8')
     return results, counts
 
@@ -152,6 +153,13 @@ def _parser():
     ap.add_argument('--exclude', metavar='PATTERN', action='append', default=[],
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
+    ap.add_argument('--review', metavar='REVIEW.json', default=None,
+                    help='review file written by the viewer (default name: '
+                         'codegen-review.json). Its notes are rendered next to '
+                         'the changes they belong to and the report gains a '
+                         'Reviewed badge that hides the changes already signed '
+                         'off. Not loaded unless named: a report must not pick '
+                         'up someone else\'s sign-off by accident')
     ap.add_argument('--exit-zero', action='store_true',
                     help='always exit 0 even when real changes exist '
                          '(report-only mode for CI pipelines); compare '
@@ -211,6 +219,18 @@ def main(argv=None):
         if not p.is_dir():
             ap.error('{} is not a directory: {}'.format(name, p))
 
+    reviews = None
+    if args.review:
+        reviews = review.ReviewStore.load(args.review)
+        if reviews.error:
+            # loud, not fatal: an unread review file leaves every change
+            # counting as not reviewed, so the report still shows everything
+            print('!! review file NOT read: {} -- {}'.format(
+                reviews.path, reviews.error), file=sys.stderr)
+        if args.arxml_only:
+            print('note: --review has no effect with --arxml-only (that report '
+                  'lists files, not individual changes)', file=sys.stderr)
+
     out = Path(args.report)
     print('Scanning...')
 
@@ -219,7 +239,8 @@ def main(argv=None):
             print('  {}/{} {}'.format(done, total, rel))
 
     results, counts = run_compare(old_root, new_root, out, args.arxml_only,
-                                  exclude=args.exclude, progress=progress)
+                                  exclude=args.exclude, progress=progress,
+                                  reviews=reviews)
     for line in summary_lines(results, counts):
         print(line)
 

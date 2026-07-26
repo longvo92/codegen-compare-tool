@@ -9,15 +9,16 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QPalette
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QMainWindow, QMessageBox, QProgressBar,
-                               QSizePolicy, QSplitter, QStyle, QToolButton,
-                               QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+                               QMainWindow, QMessageBox, QPlainTextEdit,
+                               QProgressBar, QSizePolicy, QSplitter, QStyle,
+                               QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
+from .. import review
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
@@ -37,6 +38,20 @@ def _arxml_include():
     return tuple('*' + ext for ext, rs in RULES.items() if rs in ('arxml', 'a2l'))
 
 
+class _NoteEdit(QPlainTextEdit):
+    """Review note box that says when the reviewer leaves it.
+
+    Clicking a diff line moves to another change, so the text has to be written
+    back on the way out -- before the cursor lands somewhere else. QPlainTextEdit
+    has no editingFinished of its own, hence this."""
+
+    left = Signal()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.left.emit()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, old=None, new=None, exclude=(), arxml_only=False):
         super().__init__()
@@ -48,6 +63,8 @@ class MainWindow(QMainWindow):
         self._raw_results = {}  # verdicts straight from the scan
         self.results = {}       # ... after the current compare rules
         self.worker = None
+        self._reviews = review.ReviewStore()  # replaced per scan, see _load_reviews
+        self._review_unit = None  # (rel, key, label) the note box is editing
 
         self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
         self.setWindowIcon(app_icon())
@@ -122,6 +139,7 @@ class MainWindow(QMainWindow):
         left.setSizes([560, 240])
 
         self.diff = DiffPane()
+        self.diff.unitChanged.connect(self._on_unit_changed)
 
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
@@ -138,6 +156,9 @@ class MainWindow(QMainWindow):
         v.setSpacing(0)
         v.addWidget(self.banner)
         v.addWidget(split, 1)
+        # the review note sits directly under the diff it describes, above the
+        # navigation that moves off it
+        v.addWidget(self._review_bar())
         # navigation and export live on a bar at the BOTTOM, next to the diff
         # they act on -- the toolbar up top is for opening folders and help
         v.addWidget(self._action_bar())
@@ -216,6 +237,13 @@ class MainWindow(QMainWindow):
                                    'the complete scan, never the folded view')
         self.act_export.triggered.connect(self._export_report)
 
+        # no button of its own: the tick in the review bar IS the button. The
+        # shortcut exists so a review pass can stay on the keyboard -- F8, tick,
+        # F8 -- without reaching for the mouse between every change.
+        self.act_reviewed = QAction('Mark this change reviewed', self)
+        self.act_reviewed.setShortcut('Ctrl+R')
+        self.act_reviewed.triggered.connect(self._toggle_reviewed)
+
         self.act_guide = QAction(icon('report'), 'User guide', self)
         self.act_guide.setShortcut('F1')
         self.act_guide.setToolTip('How to use the viewer (F1)')
@@ -233,7 +261,7 @@ class MainWindow(QMainWindow):
         # window must hold these actions for F7/F8/Ctrl+E to fire wherever the
         # focus happens to be
         for act in (self.act_first, self.act_prev, self.act_next,
-                    self.act_last, self.act_export):
+                    self.act_last, self.act_export, self.act_reviewed):
             self.addAction(act)
 
     def _build_toolbar(self):
@@ -275,6 +303,147 @@ class MainWindow(QMainWindow):
         h.addStretch(1)
         h.addWidget(self._tool_button(self.act_export, primary=True))
         return bar
+
+    # --- review: one note and one sign-off per change ---
+
+    def _review_bar(self):
+        """Note box for the change under the cursor, plus its Reviewed tick."""
+        bar = QFrame()
+        bar.setObjectName('reviewbar')
+        self.note_edit = _NoteEdit()
+        self.note_edit.setFixedHeight(58)
+        self.note_edit.setTabChangesFocus(True)
+        self.note_edit.left.connect(self._commit_review)
+        # a debounce as well as the focus-out: text typed and never left behind
+        # (the window closed, the app killed) still reaches the file
+        self._note_timer = QTimer(self)
+        self._note_timer.setSingleShot(True)
+        self._note_timer.setInterval(800)
+        self._note_timer.timeout.connect(self._commit_review)
+        self.note_edit.textChanged.connect(self._note_timer.start)
+
+        self.cb_reviewed = QCheckBox('Reviewed')
+        self.cb_reviewed.setToolTip('Sign this change off. The exported report '
+                                    'can then hide it, leaving only what is '
+                                    'still to review.')
+        self.cb_reviewed.toggled.connect(self._commit_review)
+        self.review_where = QLabel('')
+        self.review_where.setStyleSheet('color:#8a8f98; font-size:11px;')
+        self.review_file = QLabel('')
+        self.review_file.setStyleSheet('color:#6f757e; font-size:11px;')
+
+        side = QVBoxLayout()
+        side.setContentsMargins(0, 0, 0, 0)
+        side.setSpacing(2)
+        side.addWidget(self.cb_reviewed)
+        side.addWidget(self.review_where)
+        side.addWidget(self.review_file)
+        side.addStretch(1)
+
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 6, 8, 6)
+        h.setSpacing(10)
+        h.addWidget(self.note_edit, 1)
+        h.addLayout(side)
+        self._load_review()
+        return bar
+
+    def _toggle_reviewed(self):
+        if self.cb_reviewed.isEnabled():
+            self.cb_reviewed.toggle()  # its toggled signal commits the change
+
+    def _load_reviews(self):
+        """Open the review that belongs to this pair of folders. Kept BESIDE
+        the NEW folder, not in it: a codegen output folder gets wiped and
+        regenerated, and the review has to outlive that."""
+        self._review_unit = None
+        self._reviews = review.ReviewStore.load(review.default_path(self.new))
+        self._load_review()
+
+    def _on_unit_changed(self):
+        """The cursor moved to another change (or another file opened). The
+        note box still holds the PREVIOUS unit, so write it back before
+        loading the new one -- this single seam covers every way the current
+        change can move: F7/F8, a click in the diff, a new file, a rescan."""
+        self._commit_review()
+        self._load_review()
+
+    def _load_review(self):
+        unit = self.diff.current_unit()
+        self._review_unit = unit
+        broken = bool(self._reviews.error)
+        editable = unit is not None and not broken
+        if broken:
+            hint = 'The review file could not be read — editing is off.'
+        elif unit is None:
+            hint = 'No change to review on this file.'
+        else:
+            hint = 'Why this change? — purpose, decision, ticket…'
+        self.note_edit.setPlaceholderText(hint)
+        self.note_edit.setEnabled(editable)
+        self.cb_reviewed.setEnabled(editable)
+        self.note_edit.blockSignals(True)
+        self.cb_reviewed.blockSignals(True)
+        if unit:
+            rel, key, label = unit
+            self.note_edit.setPlainText(self._reviews.note(rel, key))
+            self.cb_reviewed.setChecked(self._reviews.is_reviewed(rel, key))
+            self.review_where.setText(label)
+        else:
+            self.note_edit.setPlainText('')
+            self.cb_reviewed.setChecked(False)
+            self.review_where.setText('')
+        self.note_edit.blockSignals(False)
+        self.cb_reviewed.blockSignals(False)
+        self._show_review_file()
+
+    def _show_review_file(self):
+        path = self._reviews.path
+        if path is None:
+            self.review_file.setText('')
+            return
+        if self._reviews.error:
+            self.review_file.setText('⚠ {}'.format(path.name))
+            self.review_file.setStyleSheet('color:#ff9d9d; font-size:11px;')
+            self.review_file.setToolTip('{}\n\n{}\n\nNothing is loaded from it '
+                                        'and nothing will be written over it. '
+                                        'Fix or remove the file, then rescan.'
+                                        .format(path, self._reviews.error))
+        else:
+            self.review_file.setText(path.name)
+            self.review_file.setStyleSheet('color:#6f757e; font-size:11px;')
+            self.review_file.setToolTip('Notes and sign-offs are saved to\n{}'
+                                        .format(path))
+
+    def _commit_review(self):
+        """Write what is in the box back to the store, then to disk.
+
+        Nothing is written when the text and the tick already match what is
+        stored: the file's timestamp is a signal to whoever shares it, and a
+        pass that changed nothing should not move it."""
+        self._note_timer.stop()
+        unit = self._review_unit
+        if unit is None or self._reviews.error:
+            return
+        rel, key, label = unit
+        note = self.note_edit.toPlainText()
+        reviewed = self.cb_reviewed.isChecked()
+        if (note.strip() == self._reviews.note(rel, key)
+                and reviewed == self._reviews.is_reviewed(rel, key)):
+            return
+        self._reviews.set(rel, key, note, reviewed, label)
+        try:
+            self._reviews.save()
+        except Exception as e:
+            # losing the reviewer's own words silently is not acceptable; the
+            # in-memory store keeps them for this session either way
+            self.statusBar().showMessage(
+                'Review NOT saved to {}: {}: {}'.format(
+                    self._reviews.path, type(e).__name__, e), 12000)
+
+    def closeEvent(self, event):
+        self._commit_review()
+        super().closeEvent(event)
 
     # navigation goes through the window so the position readout stays in step
     def _first_change(self):
@@ -351,6 +520,12 @@ class MainWindow(QMainWindow):
 
     # --- scan lifecycle ---
 
+    # a folded category disappears from BOTH places it shows: the file's verdict
+    # (status -> Identical/Modified) and the lines in the diff panes. Leaving a
+    # wall of yellow in the code after saying those differences do not count was
+    # the worst of both.
+    _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
+
     def _fold(self):
         """Change categories the current rules do NOT report separately; those
         files come back Identical (or Modified when real changes remain)."""
@@ -366,6 +541,7 @@ class MainWindow(QMainWindow):
             return
         if self.worker and self.worker.isRunning():
             return
+        self._commit_review()  # anything typed against the outgoing pair
         self.banner.setVisible(False)
         self.tree.clear()
         self.summary.set_results({})
@@ -377,6 +553,7 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)  # busy/indeterminate until first tick
         self.setWindowTitle('AUTOSAR CodeGen Compare — {}  →  {}'.format(self.old, self.new))
+        self._load_reviews()
         self.counts_label.setText('')
         self._set_state('busy', 'Scanning…')
         # the scan itself is rule-free; the rules are applied to its results,
@@ -417,7 +594,9 @@ class MainWindow(QMainWindow):
         if not self._raw_results:
             return
         keep = self._selected_rel()
-        self.results = apply_fold(self._raw_results, self._fold())
+        fold = self._fold()
+        self.results = apply_fold(self._raw_results, fold)
+        self.diff.set_fold_modes([self._FOLD_MODE[f] for f in fold])
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
         counts = summarize(self.results)
@@ -453,9 +632,14 @@ class MainWindow(QMainWindow):
         verdict. Otherwise an exported report could show a file as Identical
         when it was not -- the silent miss this tool exists to prevent. The
         report's own badges still let the reader hide categories while looking
-        at it."""
+        at it.
+
+        The review travels with it: every note the reviewer wrote appears next
+        to its change, and a Reviewed badge lets the reader fold away what is
+        already signed off."""
         if not self._raw_results:
             return
+        self._commit_review()  # the box may hold a note never left
         default = str(Path(self.new).parent / default_report_name(self.arxml_only))
         out, _sel = QFileDialog.getSaveFileName(
             self, 'Export HTML report', default, 'HTML report (*.html)')
@@ -463,9 +647,18 @@ class MainWindow(QMainWindow):
         if not out:
             return
         try:
-            build = build_arxml_report if self.arxml_only else build_report
-            Path(out).write_text(build(self._raw_results, self.old, self.new),
-                                 encoding='utf-8')
+            if self.arxml_only:
+                # the ARXML/A2L report lists files, not individual changes, so
+                # there is nothing for a per-change note to attach to
+                page = build_arxml_report(self._raw_results, self.old, self.new)
+            else:
+                # only pass the store when it holds something: an untouched
+                # review would otherwise add a "0 of N Reviewed" badge to every
+                # report, for a feature that run never used
+                store = self._reviews if (self._reviews.any_entries()
+                                          or self._reviews.error) else None
+                page = build_report(self._raw_results, self.old, self.new, store)
+            Path(out).write_text(page, encoding='utf-8')
         except Exception as e:
             QMessageBox.critical(self, 'Export failed',
                                  '{}: {}'.format(type(e).__name__, e))
@@ -549,6 +742,12 @@ QFrame#actionbar QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d
 QFrame#actionbar QToolButton:hover { background:#34363c; }
 QFrame#actionbar QToolButton:pressed { background:#3d404a; }
 QFrame#actionbar QToolButton:disabled { color:#6a6a6a; }
+QFrame#reviewbar { background:#212226; border-top:1px solid #34363c; }
+QFrame#reviewbar QPlainTextEdit { background:#232427; border:1px solid #3a3c42;
+            border-radius:6px; padding:4px 6px; color:#d4d4d4; }
+QFrame#reviewbar QPlainTextEdit:focus { border:1px solid #7c8cf8; }
+QFrame#reviewbar QPlainTextEdit:disabled { background:#1f2023; color:#6a6a6a;
+            border:1px solid #2f3136; }
 QToolButton#primary { background:#343a63; }
 QToolButton#primary:hover { background:#454c80; }
 QToolButton#primary:disabled { background:#2b2d33; }

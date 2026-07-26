@@ -177,16 +177,32 @@ class TestCleanDefaults(unittest.TestCase):
         results = scan(FIX / 'old', FIX / 'new')
         cls.page = build_report(results, FIX / 'old', FIX / 'new')
 
-    def test_noise_categories_and_identical_hidden_by_default(self):
-        self.assertIn('<body class="hide-id hide-ign hide-cmt">', self.page)
-        self.assertIn('class="badge b-ign off"', self.page)
-        self.assertIn('class="badge b-cmt off"', self.page)
-        self.assertIn('class="badge b-id off"', self.page)
-
-    def test_comment_and_unimportant_are_separate_badges(self):
-        # comment-only files get their own verdict, apart from UUID/rename noise
-        self.assertRegex(self.page, r'badge b-cmt off[^>]*>\d+ Comment<')
+    def test_unimportant_hidden_by_default(self):
+        self.assertIn('<body class="hide-ign">', self.page)
         self.assertRegex(self.page, r'badge b-ign off[^>]*>\d+ Unimportant<')
+
+    def test_added_and_deleted_share_one_badge(self):
+        self.assertRegex(self.page,
+                         r'badge b-adddel[^>]*>\d+ Added / \d+ Deleted<')
+        self.assertIn("tg2(this,'add','del')", self.page)
+        self.assertNotIn('class="badge b-add"', self.page)
+        self.assertNotIn('class="badge b-del"', self.page)
+
+    def test_comment_and_identical_are_not_reported_categories(self):
+        # no badge, no toggle, no detail section -- but the files keep their row
+        # and verdict mark in the folder tree, so nothing goes unaccounted for
+        self.assertNotIn('b-cmt', self.page)
+        self.assertNotIn('badge b-id', self.page)
+        self.assertNotIn('<h2>Identical files</h2>', self.page)
+        self.assertNotIn('<details class="file sec-cmt"', self.page)
+        self.assertIn('<div class="tf tc-cmt"', self.page)
+        self.assertIn('<div class="tf tc-id"', self.page)
+
+    def test_comment_rows_stay_in_the_record_though_never_shown(self):
+        # the report is the record: the lines are in the file, CSS hides them,
+        # and the placeholder says how many were folded
+        self.assertIn('tr.comment, .grp-cmt { display: none; }', self.page)
+        self.assertRegex(self.page, r'class="gap commentph"')
 
     def test_modified_files_expanded_by_default(self):
         self.assertRegex(self.page, r'<details class="file sec-real" id="f0"[^>]* open>')
