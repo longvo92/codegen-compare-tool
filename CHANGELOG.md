@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.0] — 2026-07-26
 
 The side-by-side viewer is now the main way to use the tool, with
 per-change review notes.
@@ -42,6 +42,18 @@ per-change review notes.
 ### Removed
 
 - The old separate panel (`--gui`) — fully replaced by the viewer.
+
+### If you script this tool
+
+Two things to check before upgrading. Pipelines that name both folders are
+unaffected: `--report`, `--arxml-only`, `--exclude`, `--exit-zero` and the
+`0` / `1` / `2` exit codes all behave exactly as before.
+
+- `--gui` no longer exists. An old call now fails with exit code `2`, which
+  in this tool means *compare incomplete* — so it looks like a compare error,
+  not a typo. Use `--qt` (or `--viewer`) instead.
+- Running with no folders used to be a usage error; it now opens the viewer.
+  A script that passes an empty path will wait on a window instead of exiting.
 
 ## [1.0.0] — 2026-07-24
 
