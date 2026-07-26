@@ -63,14 +63,27 @@ otherwise an exported report could show a file as Identical when it is not.
 Same principle for the quick-changes rollup: it reports the scan, never the
 folded view.
 
-## 5. Keep the compare core stdlib-only
+## 5. Dependencies are fine — the compare core is the exception
 
-The tool has to run on locked-down build servers. PySide6 lives **only** under
-`compare_tool/qtviewer/` and is imported lazily, when the viewer opens.
+Add libraries where they help. The viewer, the packaging spec, the tests and
+any dev script take whatever they need; no need to ask first.
 
-Viewer logic that can be Qt-free must be Qt-free — `tree.py`, `summary_model.py`
-and `compare_tool/resources.py` have no PySide6 import, so the suite runs
-headless on a box with no Qt. Widgets stay dumb: they walk a model and paint it.
+The exception is **what ships in `compare_tool.pyz`**: the scan, the rules, the
+diff, the report, the review store and `gitsource` import stdlib only. That
+zipapp is 78 KB, needs nothing installed, and is the documented fallback for
+the machines where antivirus blocks the `.exe` — one third-party import in
+`scanner.py` and it stops running there, which is a shipped promise broken by
+an import nobody reviewed.
+
+PySide6 therefore lives **only** under `compare_tool/qtviewer/` and is imported
+lazily, when the viewer opens. Viewer logic that can be Qt-free must be Qt-free
+— `tree.py`, `summary_model.py` and `compare_tool/resources.py` have no PySide6
+import, so the suite runs headless on a box with no Qt. Widgets stay dumb: they
+walk a model and paint it.
+
+Wanting a library in the core is a legitimate answer — it just costs the `.pyz`
+and the "zero dependencies" line in the README. Say that out loud and let the
+call be made; do not smuggle the import in and leave the claim standing.
 
 ## 6. Verify UI by rendering it, not by reasoning about it
 
