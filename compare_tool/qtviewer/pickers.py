@@ -38,7 +38,7 @@ class _PathRow(QHBoxLayout):
     def __init__(self, label, path, on_browse):
         super().__init__()
         tag = QLabel(label)
-        tag.setMinimumWidth(42)
+        tag.setMinimumWidth(64)  # fits 'BASELINE', the longest row label
         tag.setStyleSheet('color:#9aa1ad;')
         self.edit = QLineEdit(str(path) if path else '')
         self.edit.setPlaceholderText('Choose a folder…')
@@ -56,7 +56,7 @@ class _PathRow(QHBoxLayout):
 
 
 class FolderPicker(QDialog):
-    """OLD and NEW side by side, both prefilled and both editable.
+    """BASELINE and CURRENT side by side, both prefilled and both editable.
 
     Two native folder dialogs in a row forced the reviewer to re-pick the side
     they were happy with just to change the other one. Here each side is one
@@ -70,13 +70,15 @@ class FolderPicker(QDialog):
         self.setWindowIcon(app_icon())
         self.resize(680, 200)
 
-        self.old_row = _PathRow('OLD', old, lambda: self._browse(self.old_row, 'OLD'))
-        self.new_row = _PathRow('NEW', new, lambda: self._browse(self.new_row, 'NEW'))
+        self.old_row = _PathRow('BASELINE', old,
+                                lambda: self._browse(self.old_row, 'BASELINE'))
+        self.new_row = _PathRow('CURRENT', new,
+                                lambda: self._browse(self.new_row, 'CURRENT'))
         for row in (self.old_row, self.new_row):
             row.edit.textChanged.connect(self._sync_ok)
 
-        hint = QLabel('OLD is the previous generation, NEW is the one being '
-                      'reviewed.')
+        hint = QLabel('BASELINE is the previous generation, CURRENT is the one '
+                      'being reviewed.')
         hint.setStyleSheet('color:#8a8f98; font-size:11px;')
 
         self.error = QLabel('')
@@ -113,7 +115,7 @@ class FolderPicker(QDialog):
 
     def _accept(self):
         old, new = self.old_row.text(), self.new_row.text()
-        for path, label in ((old, 'OLD'), (new, 'NEW')):
+        for path, label in ((old, 'BASELINE'), (new, 'CURRENT')):
             if not Path(path).is_dir():
                 # said here rather than as a popup on top of this dialog, and
                 # said before the scan so a typo is not reported as a compare
@@ -126,7 +128,7 @@ class FolderPicker(QDialog):
 
 
 class CommitPicker(QDialog):
-    """Which folder, and which of its commits, becomes the OLD side.
+    """Which folder, and which of its commits, becomes the BASELINE side.
 
     The folder lives in this dialog too. Commits are listed for that folder
     only -- that is what keeps the list short enough to read -- so changing the
@@ -153,7 +155,9 @@ class CommitPicker(QDialog):
         self.folder_row = _PathRow('Folder', self.folder, self._change_folder)
         self.folder_row.edit.setReadOnly(True)  # Browse is the only way in
         self.where = QLabel('')
-        self.where.setStyleSheet('color:#9aa1ad; font-size:11px; padding-left:46px;')
+        # lines up under the path text, not the tag: the tag column is now
+        # sized for 'BASELINE' in the other dialog, wider than 'Folder' here
+        self.where.setStyleSheet('color:#9aa1ad; font-size:11px; padding-left:68px;')
 
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText('Filter commits…')

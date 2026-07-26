@@ -22,20 +22,25 @@ All notable changes to this project are documented here. Versions follow
 
 ### Changed
 
+- **`OLD`/`NEW` renamed to `BASELINE`/`CURRENT`** everywhere the viewer and the
+  report show it. The CLI's own `old_dir`/`new_dir` are unchanged.
 - **One colour language for the diff.** Comment and Unimportant changes use the
   same red/green as a real change, one shade dimmer — no more purple and
   yellow, in the viewer *and* the report. The syntax colours avoid red and
   green, so code colour and change colour are never mistaken for each other.
 - **Both dialogs show what they are about to use, and let you change it.**
-  `Open folders…` holds OLD and NEW together; `Git compare…` switches to
-  another repository without a restart.
+  `Open folders…` holds BASELINE and CURRENT together; `Git compare…` switches
+  to another repository without a restart.
 - **Review mode is off by default** — the note box no longer takes height on
   every run. Anything already signed off still reaches the exported report.
-- The OLD pane and the exported report name the commit, not the temp folder.
+- The BASELINE pane and the exported report name the commit, not the temp
+  folder.
 - **A tidier frame around the diff**: `User guide`, `Release notes` and `About`
-  now sit under one `Help` menu, the landing screen is two lines, the status
-  chip says `Ready`, and the window title carries the NEW folder's name
-  instead of two absolute paths.
+  now sit under one `Help` menu, `Export report` moved up next to `Review
+  mode` in the toolbar, and per-file navigation moved into the diff header,
+  next to the file name, instead of a bar of its own at the bottom. The
+  landing screen is two lines, the status chip says `Ready`, and the window
+  title carries the CURRENT folder's name instead of two absolute paths.
 
 ## [1.1.0] — 2026-07-26
 

@@ -109,6 +109,7 @@ _NEW_ACCENT = '#8ec69a'
 _FILLER_BG = '#26272b'   # the absent side of an insert/delete
 _ADD_BG = '#1f3a24'
 _DEL_BG = '#3a2222'
+_ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
 _BASE_BG = '#232427'
 
 
@@ -129,7 +130,20 @@ class _Gutter(QWidget):
 class DiffEditor(QPlainTextEdit):
     """Read-only monospace pane with a per-side line-number gutter. The gutter
     shows each row's ORIGINAL file line number (blank on padded rows), not the
-    visual row index."""
+    visual row index.
+
+    Ctrl+wheel is deliberately NOT left to QPlainTextEdit's own handling: its
+    built-in zoom stamps an explicit point size onto the document's char
+    format, which changes what is on screen without changing ``self.font()`` --
+    so the gutter (sized off ``fontMetrics()``) stops matching the code, and
+    the two panes drift apart since each one zooms itself alone. Here the
+    wheel only reports a step; :class:`DiffPane` applies it to both editors
+    through :meth:`set_point_size`, which sets the widget's real font.
+    """
+
+    # +1 / -1 per Ctrl+wheel notch; DiffPane applies it to both editors so a
+    # zoom on either pane can never leave the other one behind
+    zoomStep = Signal(int)
 
     def __init__(self):
         super().__init__()
@@ -146,6 +160,23 @@ class DiffEditor(QPlainTextEdit):
         self.blockCountChanged.connect(lambda _n: self._update_gutter_width())
         self.updateRequest.connect(self._on_update_request)
         self._update_gutter_width()
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.ControlModifier:
+            self.zoomStep.emit(1 if event.angleDelta().y() > 0 else -1)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def set_point_size(self, pt):
+        """Change the actual widget font -- not a char-format overlay -- so
+        the gutter's own ``fontMetrics()`` (used for its width and the row
+        height it paints text at) tracks the code exactly."""
+        f = self.font()
+        f.setPointSize(pt)
+        self.setFont(f)
+        self._update_gutter_width()
+        self._gutter.update()
 
     def set_numbers(self, nos):
         self._nos = nos
@@ -224,13 +255,32 @@ class DiffPane(QStackedWidget):
         ml.addStretch(1)
 
         self._header = QLabel('')
-        self._header.setStyleSheet('color:#e8e8e8; padding:6px 10px 0; font-weight:bold;')
+        self._header.setStyleSheet('color:#e8e8e8; font-weight:bold;')
+        # navigation lives in THIS row, beside the file name it steps through --
+        # not in a bar of its own at the bottom, which repeated the same
+        # "change k of N" this header already carries for four small buttons'
+        # worth of height. MainWindow fills this layout with its nav actions
+        # once the pane exists; empty here so the pane works standalone.
+        self.nav_actions = QHBoxLayout()
+        self.nav_actions.setContentsMargins(0, 0, 0, 0)
+        self.nav_actions.setSpacing(0)
+        head_row = QHBoxLayout()
+        head_row.setContentsMargins(10, 6, 6, 0)
+        head_row.setSpacing(6)
+        head_row.addWidget(self._header, 1)
+        head_row.addLayout(self.nav_actions)
         self._sem = QLabel('')
         self._sem.setWordWrap(True)
         self._sem.setStyleSheet('color:#9a9a9a; padding:0 10px 6px; font-size:12px;')
         self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
+        self._zoom_pt = self.old_edit.font().pointSize()
+        # either pane can be the one under the mouse; both zoom together, or a
+        # reviewer scrolling one side larger to read it would silently leave
+        # the other side's font behind
+        self.old_edit.zoomStep.connect(self._zoom_by)
+        self.new_edit.zoomStep.connect(self._zoom_by)
         # a folder-name banner sits over each editor: OLD on the left, NEW on
         # the right, so which side is which is unmistakable at a glance. Each
         # banner is wrapped INTO the splitter pane, so it tracks the split when
@@ -256,7 +306,7 @@ class DiffPane(QStackedWidget):
         # editor body takes ALL remaining vertical space (stretch=1), so the
         # two-pane diff fills the pane from just under the header instead of
         # being pushed to the bottom by an oversized header gap
-        dl.addWidget(self._header)
+        dl.addLayout(head_row)
         dl.addWidget(self._sem)
         dl.addWidget(body, 1)
 
@@ -276,7 +326,7 @@ class DiffPane(QStackedWidget):
         self._old_label = None     # (text, tooltip) when OLD is not a folder
         self._cur_idx = 0          # which change (index into _stops / _units)
         self._head_base = ''       # header without the "change k of N" suffix
-        self._pos_text = ''        # "change k of N", mirrored on the action bar
+        self._pos_text = ''        # "change k of N", folded into the header text
         self._syncing = False
         self._link_scrolls()
 
@@ -302,7 +352,7 @@ class DiffPane(QStackedWidget):
         return w
 
     def set_old_label(self, text=None, tip=None):
-        """Name the OLD pane something other than its folder.
+        """Name the BASELINE pane something other than its folder.
 
         A commit is checked out to a temp folder whose name is the codegen
         folder's own -- both banners would then read the same word. The banner
@@ -312,15 +362,15 @@ class DiffPane(QStackedWidget):
         self._old_label = (text, tip) if text else None
 
     def _set_pane_names(self, old_root, new_root):
-        """Name each pane by its folder: a coloured OLD/NEW tag then the folder
-        name, bright, with the full path as a tooltip. Called wherever a file
-        is shown, so the two roots are in hand."""
+        """Name each pane by its folder: a coloured BASELINE/CURRENT tag then
+        the folder name, bright, with the full path as a tooltip. Called
+        wherever a file is shown, so the two roots are in hand."""
         for lbl, root, tag, accent in (
-                (self._old_name, old_root, 'OLD', _OLD_ACCENT),
-                (self._new_name, new_root, 'NEW', _NEW_ACCENT)):
+                (self._old_name, old_root, 'BASELINE', _OLD_ACCENT),
+                (self._new_name, new_root, 'CURRENT', _NEW_ACCENT)):
             p = Path(root)
             name, tip = p.name or str(p), str(p)
-            if tag == 'OLD' and self._old_label:
+            if tag == 'BASELINE' and self._old_label:
                 name, tip = self._old_label[0], self._old_label[1] or str(p)
             lbl.setText('<span style="color:{}">{}</span>'
                         '<span style="color:#e8e8e8">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
@@ -343,6 +393,20 @@ class DiffPane(QStackedWidget):
         self._syncing = True
         bar.setValue(value)
         self._syncing = False
+
+    # --- zoom: both editors always share one size ---
+
+    def _zoom_by(self, step):
+        pt = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom_pt + step))
+        if pt == self._zoom_pt:
+            return
+        self._zoom_pt = pt
+        self.old_edit.set_point_size(pt)
+        self.new_edit.set_point_size(pt)
+        # block heights just changed under it; its viewport rectangle and
+        # visible-row count are computed fresh on every paint, so a repaint is
+        # all that is needed to bring the map back in step
+        self.minimap.update()
 
     # --- public seam ---
 
@@ -370,12 +434,12 @@ class DiffPane(QStackedWidget):
         splash, not documentation -- the toolbar buttons are right there, and
         the User guide holds the rest."""
         if old:
-            self._msg.setText('OLD: {}\n\nNow drop the NEW folder.'
+            self._msg.setText('BASELINE: {}\n\nNow drop the CURRENT folder.'
                               .format(Path(old).name or old))
         else:
             # the git way in gets a mention: a landing screen that only talks
             # about a pair of folders hides half the tool
-            self._msg.setText('Drop the OLD and NEW folders here.\n'
+            self._msg.setText('Drop the BASELINE and CURRENT folders here.\n'
                               'Or use "Open folders…" — or "Git compare…" for '
                               'one folder and its own history.')
         self._logo.setVisible(True)
@@ -652,11 +716,6 @@ class DiffPane(QStackedWidget):
         self._cur_idx = idx - 1
         self._pos_text = 'change {} of {}'.format(idx, len(self._stops))
         self._header.setText('{}   ·   {}'.format(self._head_base, self._pos_text))
-
-    def position_text(self):
-        """'change 3 of 7' for the action bar; '' when there is nothing to
-        step through (identical or noise-only file, or no file open)."""
-        return self._pos_text
 
     # --- change navigation (real/moved blocks; noise is skipped) ---
 

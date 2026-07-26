@@ -311,8 +311,8 @@ class TestOneColourLanguage(unittest.TestCase):
 
 class TestOldSideNaming(unittest.TestCase):
     """Comparing against a commit checks it out to a temp folder. The header
-    names the OLD side, and a temp folder name is not an answer anybody can
-    act on -- the record has to say which commit was compared."""
+    names the BASELINE side, and a temp folder name is not an answer anybody
+    can act on -- the record has to say which commit was compared."""
 
     @staticmethod
     def _results():
@@ -320,7 +320,7 @@ class TestOldSideNaming(unittest.TestCase):
 
     def test_without_a_label_the_folder_name_is_used(self):
         page = build_report(self._results(), FIX / 'old', FIX / 'new')
-        self.assertIn('OLD <code title=', page)
+        self.assertIn('BASELINE <code title=', page)
         self.assertIn('>old</code>', page)
 
     def test_a_label_replaces_the_folder_name_on_the_old_side_only(self):
@@ -328,7 +328,7 @@ class TestOldSideNaming(unittest.TestCase):
                             old_label='a1b2c3d  2026-07-20  raise the limit')
         self.assertIn('a1b2c3d  2026-07-20  raise the limit', page)
         self.assertNotIn('>old</code>', page)
-        self.assertIn('>new</code>', page)  # NEW is still its own folder
+        self.assertIn('>new</code>', page)  # CURRENT is still its own folder
 
     def test_the_real_path_stays_on_hover(self):
         # the temp folder is still where the files were read from: hiding it
@@ -516,8 +516,8 @@ class TestMovedRendering(unittest.TestCase):
         self.assertNotIn('class="add"', self.out)
 
     def test_moved_note_rows_cross_reference(self):
-        self.assertIn('block moved to NEW line 1', self.out)
-        self.assertIn('block moved from OLD line 6', self.out)
+        self.assertIn('block moved to CURRENT line 1', self.out)
+        self.assertIn('block moved from BASELINE line 6', self.out)
 
     def test_moved_group_not_hidden_by_unimportant_toggle(self):
         # moved is a real change shown in blue; grp-min would hide it

@@ -305,9 +305,10 @@ def _group_table(old_lines, new_lines, group):
                                                   '' if span == 1 else 's'))
         elif mode == 'moved':
             if 'moved_to' in h:
-                note = '⇄ block moved to NEW line {}'.format(h['moved_to'])
+                note = '⇄ block moved to CURRENT line {}'.format(h['moved_to'])
             else:
-                note = '⇄ block moved from OLD line {}'.format(h.get('moved_from', '?'))
+                note = '⇄ block moved from BASELINE line {}'.format(
+                    h.get('moved_from', '?'))
             rows.append('<tr class="mvnote"><td colspan="4">{}</td></tr>'.format(note))
         if idx + 1 < len(group):
             # equal lines between this hunk and the next of the group
@@ -978,7 +979,7 @@ def build_arxml_report(results, old_root, new_root, old_label=None):
                  '<body>'.format(_CSS))
     parts.append('<h1>ARXML / A2L Update Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('OLD', old_root, old_label), _root_html('NEW', new_root), now))
+        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
     parts.append('<div class="meta">{}</div>'.format(
         ' &middot; '.join('{} {} file(s) compared'.format(len(by_type[label]), label)
                           for label, _rs in types)))
@@ -1114,7 +1115,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None):
                  '<body class="hide-ign">'.format(_CSS))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('OLD', old_root, old_label), _root_html('NEW', new_root), now))
+        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
     parts.append(_error_banner(results))
     if reviews is not None and reviews.error:
         # the notes are missing, not merely absent -- say so, or the reader

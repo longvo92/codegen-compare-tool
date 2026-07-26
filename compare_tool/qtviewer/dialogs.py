@@ -20,13 +20,14 @@ GUIDE = """
 ## 1. Two folders
 
 - `Open folders…` -- both sides in one dialog, change either one, `Compare`
-- Or drag & drop OLD and NEW onto the window (together, or one after the other)
+- Or drag & drop BASELINE and CURRENT onto the window (together, or one after
+  the other)
 - Or start loaded: `compare-tool.exe <old> <new> --qt`
 
 ## 2. One folder, against its own history
 
-- `Git compare…` -- pick **one** folder in a git checkout; OLD comes from a
-  commit, so there is no second folder to find
+- `Git compare…` -- pick **one** folder in a git checkout; BASELINE comes from
+  a commit, so there is no second folder to find
 - Lists the commits that touched that folder; the box below takes any revision
   you type: sha, branch, tag, `HEAD~3`
 - `Browse…` at the top switches folder without leaving the dialog
@@ -45,8 +46,8 @@ GUIDE = """
 | `≠` | Modified | real changes |
 | `≉` | Comment | only comments differ |
 | `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
-| `+` | Added | file exists only in NEW |
-| `−` | Deleted | file exists only in OLD |
+| `+` | Added | file exists only in CURRENT |
+| `−` | Deleted | file exists only in BASELINE |
 | `=` | Identical | no difference |
 | `‼` | NOT compared | treat as changed |
 
@@ -59,7 +60,7 @@ GUIDE = """
 
 ## 5. Read the diff
 
-- Old on the left, new on the right, scrolled in lockstep
+- Baseline on the left, Current on the right, scrolled in lockstep
 - Minimap on the right edge -- click or drag to jump
 - C and ARXML are syntax-coloured; the code colours never use red or green
 
@@ -94,7 +95,7 @@ GUIDE = """
   to clear it. Notes you wrote are kept
 - Only real changes can be signed off; a note follows the change's content, not
   its line number
-- Saves automatically to `codegen-review.json`, next to the NEW folder
+- Saves automatically to `codegen-review.json`, next to the CURRENT folder
 - Export carries every note, plus a **Reviewed** badge to hide what's done
 
 The tree gains a `Review` column in this mode. A folder's count is everything

@@ -63,7 +63,7 @@ def _side(a, b):
 def _where(h):
     i1, i2 = h['old_range']
     j1, j2 = h['new_range']
-    return 'OLD {} · NEW {}'.format(_side(i1, i2), _side(j1, j2))
+    return 'BASELINE {} · CURRENT {}'.format(_side(i1, i2), _side(j1, j2))
 
 
 def blob_digest(path):

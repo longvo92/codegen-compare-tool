@@ -204,14 +204,12 @@ class MainWindow(QMainWindow):
         v.setSpacing(0)
         v.addWidget(self.banner)
         v.addWidget(split, 1)
-        # the review note sits directly under the diff it describes, above the
-        # navigation that moves off it -- hidden until Review mode is on
+        # the review note sits directly under the diff it describes -- hidden
+        # until Review mode is on. Navigation lives in the diff pane's own
+        # header now, and Export sits in the toolbar next to Review mode.
         self.review_box = self._review_bar()
         self.review_box.setVisible(False)
         v.addWidget(self.review_box)
-        # navigation and export live on a bar at the BOTTOM, next to the diff
-        # they act on -- the toolbar up top is for opening folders and help
-        v.addWidget(self._action_bar())
         self.setCentralWidget(central)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
@@ -262,8 +260,8 @@ class MainWindow(QMainWindow):
         shortcut can never drift apart."""
         self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon),
                                 'Open folders…', self)
-        self.act_open.setToolTip('Choose the OLD and NEW folders — or drop them '
-                                 'straight onto the window')
+        self.act_open.setToolTip('Choose the BASELINE and CURRENT folders — or '
+                                 'drop them straight onto the window')
         self.act_open.triggered.connect(self._pick_folders)
 
         # a way in of its own, not a follow-up to Open folders: this one asks
@@ -275,19 +273,24 @@ class MainWindow(QMainWindow):
         self.act_git.triggered.connect(self._pick_commit)
 
         nav = (('act_first', 'nav-first-change', 'First change', 'Ctrl+Home',
-                self._first_change),
+                self.diff.first_change),
                ('act_prev', 'nav-prev-change', 'Previous change', 'F7',
-                self._prev_change),
+                self.diff.prev_change),
                ('act_next', 'nav-next-change', 'Next change', 'F8',
-                self._next_change),
+                self.diff.next_change),
                ('act_last', 'nav-last-change', 'Last change', 'Ctrl+End',
-                self._last_change))
+                self.diff.last_change))
         for attr, glyph, text, key, slot in nav:
             act = QAction(icon(glyph), text, self)
             act.setShortcut(key)
             act.setToolTip('{} ({}) — noise is skipped'.format(text, key))
             act.triggered.connect(slot)
             setattr(self, attr, act)
+        # these four live in the diff pane's own header, beside the file name
+        # they step through -- a bar of their own at the bottom repeated the
+        # same "change k of N" the header already shows
+        for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
+            self.diff.nav_actions.addWidget(self._nav_button(act))
 
         self.act_export = QAction(icon('export', ACCENT), 'Export report…', self)
         self.act_export.setShortcut('Ctrl+E')
@@ -349,6 +352,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_git)
         tb.addSeparator()
         tb.addAction(self.act_review_mode)
+        tb.addWidget(self._tool_button(self.act_export, primary=True))
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -381,20 +385,18 @@ class MainWindow(QMainWindow):
             b.setObjectName('primary')
         return b
 
-    def _action_bar(self):
-        bar = QFrame()
-        bar.setObjectName('actionbar')
-        h = QHBoxLayout(bar)
-        h.setContentsMargins(8, 5, 8, 5)
-        h.setSpacing(4)
-        for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
-            h.addWidget(self._tool_button(act))
-        self.pos_label = QLabel('')
-        self.pos_label.setStyleSheet('color:#9a9a9a; padding:0 10px;')
-        h.addWidget(self.pos_label)
-        h.addStretch(1)
-        h.addWidget(self._tool_button(self.act_export, primary=True))
-        return bar
+    @staticmethod
+    def _nav_button(action):
+        """Small, icon-only: these sit inside the diff pane's own header, next
+        to the file name, so they read as part of that row rather than as
+        another toolbar competing for attention."""
+        b = QToolButton()
+        b.setDefaultAction(action)
+        b.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        b.setIconSize(QSize(14, 14))
+        b.setCursor(Qt.PointingHandCursor)
+        b.setAutoRaise(True)  # flat until hovered -- no button chrome at rest
+        return b
 
     # --- review: one note and one sign-off per change ---
 
@@ -613,25 +615,6 @@ class MainWindow(QMainWindow):
             self._git_temp = None
         super().closeEvent(event)
 
-    # navigation goes through the window so the position readout stays in step
-    def _first_change(self):
-        self.diff.first_change()
-        self._sync_position()
-
-    def _prev_change(self):
-        self.diff.prev_change()
-        self._sync_position()
-
-    def _next_change(self):
-        self.diff.next_change()
-        self._sync_position()
-
-    def _last_change(self):
-        self.diff.last_change()
-        self._sync_position()
-
-    def _sync_position(self):
-        self.pos_label.setText(self.diff.position_text())
 
     # --- folder selection ---
 
@@ -783,7 +766,6 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         self.summary.set_results({})
         self.diff.clear()
-        self.pos_label.setText('')
         self._raw_results = {}
         self.results = {}
         self._units = {}  # different folders, different content, different keys
@@ -1073,7 +1055,6 @@ class MainWindow(QMainWindow):
         rel = self._selected_rel()
         if rel and rel in self.results:
             self.diff.show_file(rel, self.results[rel], self.old, self.new)
-            self._sync_position()
 
 
 # chrome styling. Deliberately narrow: the diff editors, the minimap and the
@@ -1093,11 +1074,6 @@ QToolBar#main QToolButton:pressed { background:#3d404a; }
    on as off, and the note box appearing is the only clue it worked */
 QToolBar#main QToolButton:checked { background:#343a63; color:#e8e8ff; }
 QToolBar#main QToolButton:checked:hover { background:#454c80; }
-QFrame#actionbar { background:#25262a; border-top:1px solid #34363c; }
-QFrame#actionbar QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
-QFrame#actionbar QToolButton:hover { background:#34363c; }
-QFrame#actionbar QToolButton:pressed { background:#3d404a; }
-QFrame#actionbar QToolButton:disabled { color:#6a6a6a; }
 QFrame#reviewbar { background:#212226; border-top:1px solid #34363c; }
 QFrame#reviewbar QPlainTextEdit { background:#232427; border:1px solid #3a3c42;
             border-radius:6px; padding:4px 6px; color:#d4d4d4; }
