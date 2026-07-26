@@ -153,6 +153,59 @@ class TestStore(unittest.TestCase):
         self.assertTrue(review.ReviewStore.load(self.path).error)
 
 
+class TestMarkWholeFile(unittest.TestCase):
+    """Signing off a file at once. It has to sign off exactly the units the
+    per-change tick would, or the badge count and the report stop agreeing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = review.ReviewStore(Path(self.tmp.name) / 'r.json')
+        r = compare_pair(OLD_C, NEW_C, 'm.c')
+        self.units = review.units(r, OLD_C.split('\n'), NEW_C.split('\n'))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_every_unit_is_signed_off_and_counted(self):
+        n = review.mark_file(self.store, 'm.c', self.units)
+        self.assertEqual(n, len(self.units))
+        self.assertTrue(all(self.store.is_reviewed('m.c', u.key)
+                            for u in self.units))
+
+    def test_notes_already_written_survive(self):
+        self.store.set('m.c', self.units[0].key, 'calibration bump', False)
+        review.mark_file(self.store, 'm.c', self.units)
+        self.assertEqual(self.store.note('m.c', self.units[0].key),
+                         'calibration bump')
+        self.assertTrue(self.store.is_reviewed('m.c', self.units[0].key))
+
+    def test_marking_twice_changes_nothing_the_second_time(self):
+        # the file's timestamp is a signal to whoever shares it; a pass that
+        # changed nothing must not move it
+        review.mark_file(self.store, 'm.c', self.units)
+        self.assertEqual(review.mark_file(self.store, 'm.c', self.units), 0)
+
+    def test_unmarking_clears_the_flag_but_keeps_the_note(self):
+        self.store.set('m.c', self.units[0].key, 'why', True)
+        review.mark_file(self.store, 'm.c', self.units, reviewed=False)
+        self.assertFalse(self.store.is_reviewed('m.c', self.units[0].key))
+        self.assertEqual(self.store.note('m.c', self.units[0].key), 'why')
+
+    def test_unmarking_a_bare_signoff_removes_the_entry(self):
+        review.mark_file(self.store, 'm.c', self.units)
+        review.mark_file(self.store, 'm.c', self.units, reviewed=False)
+        self.assertFalse(self.store.any_entries())
+
+    def test_a_file_with_no_units_cannot_be_signed_off(self):
+        """The fail-safe edge: noise-only, identical and uncompared files
+        produce no units, so there is nothing for a whole-file tick to claim."""
+        noise = compare_pair('/* Mon */\nint a;\n', '/* Tue */\nint a;\n', 'c.c')
+        units = review.units(noise, ['/* Mon */', 'int a;'], ['/* Tue */', 'int a;'])
+        self.assertEqual(units, [])
+        self.assertEqual(review.mark_file(self.store, 'c.c', units), 0)
+        self.assertFalse(self.store.any_entries())
+
+
 class TestReportRendering(unittest.TestCase):
     def setUp(self):
         self.results = scan(FIX / 'old', FIX / 'new')

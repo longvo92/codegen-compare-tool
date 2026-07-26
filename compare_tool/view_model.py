@@ -20,8 +20,9 @@ consume them:
 from collections import namedtuple
 
 # mode: how a row is painted. 'ctx' = equal line (context), 'real' = real
-# change (red/green), 'comment' = comment-only noise (purple), 'minor' = the
-# other ignorable noise (yellow), 'moved' = moved block (blue). Comments get
+# change (red/green), 'comment' = comment-only noise, 'minor' = the other
+# ignorable noise (both painted in the same red/green, dimmer), 'moved' =
+# moved block (blue). Comments get
 # their own mode for the same reason they get their own file verdict: banner
 # churn reads very differently from a renamed identifier. kind = the
 # underlying hunk kind ('equal' for ctx rows, otherwise straight from the hunk).

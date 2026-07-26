@@ -88,7 +88,7 @@ Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was r
 
 ## Side-by-side viewer
 
-Desktop app (PySide6): folder tree, two-pane diff with a minimap, per-change review notes.
+Desktop app (PySide6): folder tree, two-pane diff with a minimap, per-change review notes, and a commit picker when the NEW folder is in a git checkout.
 
 ```bash
 pip install "codegen-compare-tool[viewer]"   # or: pip install PySide6
@@ -97,6 +97,12 @@ python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
 ```
 
 ![Side-by-side viewer](resources/pic/main_page.png)
+
+Two ways in: `Open folders…` for two folders you name yourself, and `Git compare…` for **one** folder in a git checkout — it lists the commits that touched that folder, checks the one you pick out to a temp folder (read-only — your working copy is never touched), and compares as usual.
+
+Review sign-off lives behind the `Review mode` toggle: write a note per change, or sign off a whole file at once with `Ctrl+Shift+R`.
+
+[insert picture]
 
 Full walkthrough is built into the app — `User guide` (`F1`) or `Release notes` in the toolbar, both work offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
 
@@ -114,7 +120,7 @@ Full walkthrough is built into the app — `User guide` (`F1`) or `Release notes
 
 Auto-generated name churn is recognised as a `rename`: Embedded Coder temporaries such as `rtb_*`, mangling suffixes and renumbered temporaries change between runs without changing behaviour.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary, its own tree marker and colour (purple vs yellow) in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
 
 ## Moved block detection
 

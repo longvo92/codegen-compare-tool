@@ -204,6 +204,28 @@ class ReviewStore:
         self._data.setdefault(rel, {})[key] = entry
 
 
+def mark_file(store, rel, file_units, reviewed=True):
+    """Sign off (or un-sign) every reviewable unit of one file at once.
+
+    A regenerated file often carries a dozen hunks that are all the same
+    decision; ticking them one at a time adds clicks without adding scrutiny.
+    Notes already written are kept -- this changes the flag, nothing else.
+
+    It signs off exactly what :func:`units` produced, so the guarantee does not
+    move: a noise-only file has no units and therefore cannot be marked at all,
+    and a file whose content could not be fingerprinted stays unreviewed.
+
+    Returns how many units actually changed.
+    """
+    n = 0
+    for u in file_units:
+        if store.is_reviewed(rel, u.key) == bool(reviewed):
+            continue
+        store.set(rel, u.key, store.note(rel, u.key), reviewed, u.label)
+        n += 1
+    return n
+
+
 def default_path(new_root):
     """Where the viewer keeps the review by default: beside the NEW folder, not
     inside it -- a codegen output folder gets wiped and regenerated, and the

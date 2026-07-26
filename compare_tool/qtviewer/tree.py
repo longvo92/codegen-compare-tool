@@ -12,8 +12,10 @@ from collections import namedtuple
 # Identical) and its colours so the viewer and the report read the same.
 STATUS = {
     'real-change':    ('≠', 'Modified',     '#ff7b7b'),   # not-equal sign
-    'comment-only':   ('≉', 'Comment',      '#9d92e0'),   # comments only
-    'ignorable-only': ('≈', 'Unimportant',  '#e6c85c'),   # almost-equal
+    # the two noise verdicts are grey on purpose: grey is what "this does not
+    # count" looks like, and it keeps red/green meaning removed/added only
+    'comment-only':   ('≉', 'Comment',      '#8f96a2'),   # comments only
+    'ignorable-only': ('≈', 'Unimportant',  '#9aa1ad'),   # almost-equal
     'added':          ('+',      'Added',        '#7bd88a'),
     'deleted':        ('−', 'Deleted',      '#c88ad8'),   # minus sign
     'identical':      ('=',      'Identical',    '#8a8a8a'),

@@ -20,17 +20,18 @@ _MAX_LINE_H = 4.0    # px per line at most; short files render small, VS Code-li
 _MAX_CHAR_W = 3.0    # px per char at most, so short lines don't stretch full width
 
 # dim token colour per mode (ctx = plain code grey); changed rows also get a
-# translucent full-width strip so diffs pop on the map
-_TOKEN = {'ctx': '#565b62', 'real': '#e8908d', 'comment': '#a99ce8',
-          'minor': '#d8c070', 'moved': '#7fb0d9', 'folded': '#4a4e55'}
+# translucent full-width strip so diffs pop on the map. Noise shares the change
+# colour, dimmer -- same one-colour-language rule as the panes (see _ROW_BG).
+_TOKEN = {'ctx': '#565b62', 'real': '#e8908d', 'comment': '#a4706e',
+          'minor': '#a4706e', 'moved': '#7fb0d9', 'folded': '#4a4e55'}
 # a folded placeholder is not a change on the map either: it stands for lines
 # the current compare rules say are not a difference, so it gets no strip and
 # collapses away with the context rows when the map is compressed
 _NOT_A_CHANGE = ('ctx', 'folded')
 _STRIP = {
     'real':    QColor(217, 82, 79, 70),
-    'comment': QColor(140, 120, 210, 70),
-    'minor':   QColor(200, 160, 48, 70),
+    'comment': QColor(217, 82, 79, 40),
+    'minor':   QColor(217, 82, 79, 40),
     'moved':   QColor(63, 127, 176, 70),
 }
 _VIEW_FILL = QColor(255, 255, 255, 26)

@@ -5,7 +5,9 @@ signals. Fail-safe stays first-class: a worker crash or any uncompared path
 raises a loud red banner -- an incomplete compare must never look clean.
 """
 
+import shutil
 import sys
+import tempfile
 import webbrowser
 from pathlib import Path
 
@@ -18,7 +20,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import review
+from .. import gitsource, review
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
@@ -26,6 +28,7 @@ from ..scanner import apply_fold, summarize
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
+from .pickers import pick_commit, pick_folders
 from .summary import SummaryPanel
 from .tree import STATUS, build_nodes, filter_nodes
 from .worker import ScanWorker
@@ -65,6 +68,8 @@ class MainWindow(QMainWindow):
         self.worker = None
         self._reviews = review.ReviewStore()  # replaced per scan, see _load_reviews
         self._review_unit = None  # (rel, key, label) the note box is editing
+        self._git_temp = None     # where commits are checked out, this session
+        self._old_label = None    # what OLD is, when its folder does not say
 
         self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
         self.setWindowIcon(app_icon())
@@ -157,8 +162,10 @@ class MainWindow(QMainWindow):
         v.addWidget(self.banner)
         v.addWidget(split, 1)
         # the review note sits directly under the diff it describes, above the
-        # navigation that moves off it
-        v.addWidget(self._review_bar())
+        # navigation that moves off it -- hidden until Review mode is on
+        self.review_box = self._review_bar()
+        self.review_box.setVisible(False)
+        v.addWidget(self.review_box)
         # navigation and export live on a bar at the BOTTOM, next to the diff
         # they act on -- the toolbar up top is for opening folders and help
         v.addWidget(self._action_bar())
@@ -215,6 +222,14 @@ class MainWindow(QMainWindow):
                                  'straight onto the window')
         self.act_open.triggered.connect(self._pick_folders)
 
+        # a way in of its own, not a follow-up to Open folders: this one asks
+        # for ONE folder -- the one being reviewed -- and takes the other side
+        # from the repository that folder already sits in
+        self.act_git = QAction(icon('git-commit'), 'Git compare…', self)
+        self.act_git.setToolTip('Compare a folder against one of its own '
+                                'commits — no second folder to choose')
+        self.act_git.triggered.connect(self._pick_commit)
+
         nav = (('act_first', 'nav-first-change', 'First change', 'Ctrl+Home',
                 self._first_change),
                ('act_prev', 'nav-prev-change', 'Previous change', 'F7',
@@ -237,12 +252,27 @@ class MainWindow(QMainWindow):
                                    'the complete scan, never the folded view')
         self.act_export.triggered.connect(self._export_report)
 
+        # signing off is a second pass, not part of reading a diff, so the note
+        # box stays out of the way until it is asked for -- it was taking a
+        # permanent strip of height from the diff for a mode most runs never use
+        self.act_review_mode = QAction(icon('review-comment'), 'Review mode', self)
+        self.act_review_mode.setCheckable(True)
+        self.act_review_mode.setToolTip('Show the note box and sign-off for the '
+                                        'current change')
+        self.act_review_mode.toggled.connect(self._set_review_mode)
+
         # no button of its own: the tick in the review bar IS the button. The
         # shortcut exists so a review pass can stay on the keyboard -- F8, tick,
         # F8 -- without reaching for the mouse between every change.
         self.act_reviewed = QAction('Mark this change reviewed', self)
         self.act_reviewed.setShortcut('Ctrl+R')
         self.act_reviewed.triggered.connect(self._toggle_reviewed)
+
+        # a regenerated file is usually one decision spread over a dozen hunks;
+        # ticking each one adds clicks without adding scrutiny
+        self.act_file_reviewed = QAction('Mark the whole file reviewed', self)
+        self.act_file_reviewed.setShortcut('Ctrl+Shift+R')
+        self.act_file_reviewed.triggered.connect(self._toggle_file_reviewed)
 
         self.act_guide = QAction(icon('report'), 'User guide', self)
         self.act_guide.setShortcut('F1')
@@ -261,7 +291,8 @@ class MainWindow(QMainWindow):
         # window must hold these actions for F7/F8/Ctrl+E to fire wherever the
         # focus happens to be
         for act in (self.act_first, self.act_prev, self.act_next,
-                    self.act_last, self.act_export, self.act_reviewed):
+                    self.act_last, self.act_export, self.act_reviewed,
+                    self.act_file_reviewed):
             self.addAction(act)
 
     def _build_toolbar(self):
@@ -271,6 +302,9 @@ class MainWindow(QMainWindow):
         tb.setIconSize(QSize(20, 20))
         tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         tb.addAction(self.act_open)
+        tb.addAction(self.act_git)
+        tb.addSeparator()
+        tb.addAction(self.act_review_mode)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)  # help actions sit on the right, away from Open
@@ -327,6 +361,10 @@ class MainWindow(QMainWindow):
                                     'can then hide it, leaving only what is '
                                     'still to review.')
         self.cb_reviewed.toggled.connect(self._commit_review)
+        self.btn_file_reviewed = QToolButton()
+        self.btn_file_reviewed.setText('Whole file')
+        self.btn_file_reviewed.setCursor(Qt.PointingHandCursor)
+        self.btn_file_reviewed.clicked.connect(self._toggle_file_reviewed)
         self.review_where = QLabel('')
         self.review_where.setStyleSheet('color:#8a8f98; font-size:11px;')
         self.review_file = QLabel('')
@@ -336,6 +374,7 @@ class MainWindow(QMainWindow):
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(2)
         side.addWidget(self.cb_reviewed)
+        side.addWidget(self.btn_file_reviewed)
         side.addWidget(self.review_where)
         side.addWidget(self.review_file)
         side.addStretch(1)
@@ -348,9 +387,64 @@ class MainWindow(QMainWindow):
         self._load_review()
         return bar
 
+    def _set_review_mode(self, on):
+        """Show or hide the note box. The store is loaded either way -- what is
+        already signed off still reaches the exported report, and hiding the
+        box never changes a verdict."""
+        if not on:
+            self._commit_review()  # a note typed and not yet left behind
+        self.review_box.setVisible(on)
+        if on:
+            self._load_review()
+            self.note_edit.setFocus()
+
     def _toggle_reviewed(self):
+        # the shortcut works before the mode is on; showing the bar is how the
+        # reviewer sees that the tick landed
+        self.act_review_mode.setChecked(True)
         if self.cb_reviewed.isEnabled():
             self.cb_reviewed.toggle()  # its toggled signal commits the change
+
+    def _file_state(self):
+        """``(rel, units, all_reviewed)`` for the file on screen.
+
+        ``rel`` is None when there is nothing to sign off: a noise-only or
+        identical file, a path that could not be compared, or an unreadable
+        review file. That is what stops a whole-file tick from claiming
+        something nobody could have read."""
+        unit = self.diff.current_unit()
+        units = self.diff.file_units()
+        if unit is None or not units or self._reviews.error:
+            return None, [], False
+        rel = unit[0]
+        return rel, units, all(self._reviews.is_reviewed(rel, u.key) for u in units)
+
+    def _toggle_file_reviewed(self):
+        self._commit_review()  # the box may hold a note for one of these units
+        rel, units, done = self._file_state()
+        if rel is None:
+            return
+        self.act_review_mode.setChecked(True)
+        changed = review.mark_file(self._reviews, rel, units, not done)
+        if changed:
+            self._save_reviews()
+        self._load_review()
+        self.statusBar().showMessage(
+            '{} change(s) in {} marked {}'.format(
+                changed, rel, 'not reviewed' if done else 'reviewed'), 6000)
+
+    def _sync_file_button(self):
+        rel, units, done = self._file_state()
+        self.btn_file_reviewed.setEnabled(rel is not None)
+        self.btn_file_reviewed.setText('Clear file' if done else 'Whole file')
+        if rel is None:
+            self.btn_file_reviewed.setToolTip('Nothing on this file can be '
+                                              'signed off.')
+        else:
+            self.btn_file_reviewed.setToolTip(
+                '{} all {} change(s) in this file (Ctrl+Shift+R). Notes you '
+                'wrote are kept.'.format('Un-sign' if done else 'Sign off',
+                                         len(units)))
 
     def _load_reviews(self):
         """Open the review that belongs to this pair of folders. Kept BESIDE
@@ -395,6 +489,7 @@ class MainWindow(QMainWindow):
             self.review_where.setText('')
         self.note_edit.blockSignals(False)
         self.cb_reviewed.blockSignals(False)
+        self._sync_file_button()
         self._show_review_file()
 
     def _show_review_file(self):
@@ -432,6 +527,9 @@ class MainWindow(QMainWindow):
                 and reviewed == self._reviews.is_reviewed(rel, key)):
             return
         self._reviews.set(rel, key, note, reviewed, label)
+        self._save_reviews()
+
+    def _save_reviews(self):
         try:
             self._reviews.save()
         except Exception as e:
@@ -443,6 +541,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._commit_review()
+        if self._git_temp:
+            # checkouts are scratch: they live as long as the session, so
+            # flipping between commits is instant, and go with it
+            shutil.rmtree(self._git_temp, ignore_errors=True)
+            self._git_temp = None
         super().closeEvent(event)
 
     # navigation goes through the window so the position readout stays in step
@@ -468,15 +571,15 @@ class MainWindow(QMainWindow):
     # --- folder selection ---
 
     def _pick_folders(self):
-        o = QFileDialog.getExistingDirectory(self, 'Select OLD folder', self.old or '')
-        if not o:
-            self._front()
-            return
-        n = QFileDialog.getExistingDirectory(self, 'Select NEW folder', self.new or o)
+        # both sides in one dialog, prefilled: changing only one of them was
+        # two native dialogs' worth of clicking, the second of which just
+        # re-picked the folder that was already right
+        picked = pick_folders(self, self.old, self.new)
         self._front()  # closing a native dialog can leave the window behind others
-        if not n:
+        if picked is None:
             return
-        self.old, self.new = o, n
+        self.old, self.new = picked
+        self._clear_git_old()
         self._start_scan()
 
     def _front(self):
@@ -515,14 +618,83 @@ class MainWindow(QMainWindow):
             return
         else:
             self.new = dirs[0]
+        self._clear_git_old()
         self._front()
+        self._start_scan()
+
+    # --- comparing against a commit ---
+    #
+    # A commit is not a second kind of compare: it only supplies the OLD
+    # folder, checked out read-only to a temp directory. Everything after that
+    # -- scan, verdicts, folding, notes, export -- is the ordinary path.
+
+    def _clear_git_old(self):
+        """Dropped or picked folders replace a commit as the OLD side."""
+        self._old_label = None
+        self.diff.set_old_label(None)
+
+    @staticmethod
+    def _git_load(folder):
+        """``(repo root, subpath, commits)`` for a folder, for the picker.
+
+        Raises :class:`gitsource.GitError` with something the reviewer can act
+        on; the dialog prints it inline and stays open, so a wrong folder costs
+        one more click instead of a closed window.
+        """
+        root = gitsource.repo_root(folder)
+        if root is None:
+            raise gitsource.GitError(
+                'Not inside a git checkout: {}\nPick a folder from your '
+                'repository, or use Open folders… to compare two folders by '
+                'hand.'.format(folder))
+        sub = gitsource.rel_in_repo(root, folder)
+        return root, sub, gitsource.log(root, sub)
+
+    def _pick_commit(self):
+        # the folder lives in the dialog, not out here: reusing whatever was
+        # loaded meant the second git compare of a session was stuck on the
+        # first one's repository until the app was restarted
+        start = self.new if (self.new and gitsource.repo_root(self.new)) else None
+        picked = pick_commit(self, start, self._git_load, gitsource.resolve)
+        self._front()
+        if picked is None:
+            return
+        folder, root, sub, commit = picked
+        self.new = folder
+        self._checkout(root, sub, commit)
+
+    def _checkout(self, root, sub, commit):
+        if self._git_temp is None:
+            self._git_temp = tempfile.mkdtemp(prefix='codegen-compare-git-')
+        self._set_state('busy', 'Checking out {}…'.format(commit.short))
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()  # let the status chip paint before the wait
+        try:
+            path = gitsource.export(root, commit.sha, sub, self._git_temp)
+        except gitsource.GitError as e:
+            # loud: a failed checkout must never fall through to a stale or
+            # empty OLD folder and produce a compare that looks finished
+            QMessageBox.critical(self, 'Checkout failed', str(e))
+            self._set_state('error', 'Checkout failed')
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self.old = str(path)
+        subject = commit.subject if len(commit.subject) <= 60 else \
+            commit.subject[:57] + '…'
+        self._old_label = '{}  {}  {}'.format(commit.short, commit.when, subject)
+        self.diff.set_old_label(
+            '{}  ·  {}'.format(commit.short, subject),
+            '{}\n{} — {}\n\nchecked out to {}'.format(
+                commit.subject, commit.when, commit.author, path))
         self._start_scan()
 
     # --- scan lifecycle ---
 
     # a folded category disappears from BOTH places it shows: the file's verdict
     # (status -> Identical/Modified) and the lines in the diff panes. Leaving a
-    # wall of yellow in the code after saying those differences do not count was
+    # wall of coloured rows in the code after saying those do not count was
     # the worst of both.
     _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
@@ -650,14 +822,16 @@ class MainWindow(QMainWindow):
             if self.arxml_only:
                 # the ARXML/A2L report lists files, not individual changes, so
                 # there is nothing for a per-change note to attach to
-                page = build_arxml_report(self._raw_results, self.old, self.new)
+                page = build_arxml_report(self._raw_results, self.old, self.new,
+                                          old_label=self._old_label)
             else:
                 # only pass the store when it holds something: an untouched
                 # review would otherwise add a "0 of N Reviewed" badge to every
                 # report, for a feature that run never used
                 store = self._reviews if (self._reviews.any_entries()
                                           or self._reviews.error) else None
-                page = build_report(self._raw_results, self.old, self.new, store)
+                page = build_report(self._raw_results, self.old, self.new, store,
+                                    old_label=self._old_label)
             Path(out).write_text(page, encoding='utf-8')
         except Exception as e:
             QMessageBox.critical(self, 'Export failed',
@@ -737,6 +911,10 @@ QToolBar#main { background:#25262a; border:0; border-bottom:1px solid #34363c;
 QToolBar#main QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
 QToolBar#main QToolButton:hover { background:#34363c; }
 QToolBar#main QToolButton:pressed { background:#3d404a; }
+/* Review mode is a MODE: without a lit checked state the button looks the same
+   on as off, and the note box appearing is the only clue it worked */
+QToolBar#main QToolButton:checked { background:#343a63; color:#e8e8ff; }
+QToolBar#main QToolButton:checked:hover { background:#454c80; }
 QFrame#actionbar { background:#25262a; border-top:1px solid #34363c; }
 QFrame#actionbar QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
 QFrame#actionbar QToolButton:hover { background:#34363c; }

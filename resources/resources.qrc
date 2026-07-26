@@ -1,6 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
   <qresource prefix="/icons">
     <file alias="export.svg">icons/svg/export.svg</file>
+    <file alias="git-commit.svg">icons/svg/git-commit.svg</file>
     <file alias="nav-first-change.svg">icons/svg/nav-first-change.svg</file>
     <file alias="nav-last-change.svg">icons/svg/nav-last-change.svg</file>
     <file alias="nav-next-change.svg">icons/svg/nav-next-change.svg</file>
