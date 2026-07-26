@@ -71,18 +71,18 @@ Exit codes:
 | `1` | Real changes found (useful as a CI gate) |
 | `2` | **Compare INCOMPLETE** — some path could not be listed, read or compared (permissions, file locked by another process, long paths, …) |
 
-Exit `2` is never silent: the terminal prints `!!`, the report gets a red banner plus an `Error` section, and files under a failed folder are **not** guessed to be added or deleted. `--exit-zero` does not suppress it — an incomplete compare must never look like success.
+Exit `2` always shows: `!!` in the terminal, a red banner in the report. `--exit-zero` does not suppress it.
 
 ## Command line
 
 | Flag | Meaning |
 |---|---|
-| `--report out.html` | Report output path (default `compare_report.html`). An existing report at that path is deleted **before** the scan, so a crashed run cannot leave a stale report behind pretending to be the new result |
+| `--report out.html` | Report output path (default `compare_report.html`). An existing file there is deleted before the scan starts |
 | `--exclude PATTERN` | Skip files matching a glob (relative path or bare file name), repeatable. Example: `--exclude compare_report.html` |
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
-| `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact report (default `arxml_update.html`): a **per-type verdict** (`ARXML updated: …` / `A2L updated: …`, or `no changes` / `no files found`), the updated files split per type, and the AUTOSAR/A2L changes. The report is **always written** — when nothing changed it says "No ARXML or A2L updates" rather than skipping the file, so a missing file is never confused with a crashed run |
-| `--review FILE` | Render the notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, and add a `Reviewed` badge that hides what is already signed off. Never picked up implicitly — a report must not inherit someone else's sign-off by accident. No effect with `--arxml-only`, which lists files rather than individual changes |
-| `--qt`, `--viewer` | Open the **side-by-side viewer** on folders named on the command line, instead of comparing them in the terminal. Without folders the viewer opens anyway, so the flag is only needed together with them. Needs the `viewer` extra (see below) |
+| `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact per-type report (default `arxml_update.html`) — always written, even when nothing changed |
+| `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, with a `Reviewed` badge. Must be named explicitly; no effect with `--arxml-only` |
+| `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra (see below) |
 
 Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was removed in 1.1.0.
 
@@ -96,20 +96,18 @@ python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
 
 A Beyond-Compare-style desktop app (PySide6) for reviewing changes interactively instead of scrolling an HTML report:
 
-- **Drag & drop to start**: drop the OLD and NEW folders onto the window (both at once, or one after the other) — no file dialog is forced on you when the app opens. `Open folders…` is still there if you prefer browsing, and the window comes back to the front once you are done picking.
-- **Folder tree** on the left, each file coloured by verdict (Modified / Comment / Unimportant / Added / Deleted / Identical / **NOT compared**). The tree **always shows the whole structure** — a verdict never removes a row, so the layout does not shift under you. A path box filters by name.
-- **Compare-rule toggles** (`Report: Comment / Unimportant`): unticking one re-judges every affected file as **Identical** (that was all there was) or **Modified** (real changes remain). It is instant — the folders are read once and the rules are applied to those results, never by rescanning. The **lines go with the verdict**: each run of folded noise collapses to a `⋯ 3 uuid lines hidden` marker in both panes, so a category you said does not count stops competing with the real change — with the count and the kind always stated, because this hides noise, it does not drop it. Real changes can never be folded away by a toggle.
-- **Two-pane diff** on the right: old and new aligned line-for-line and scrolled in lockstep, real changes in red/green, **comment changes in purple**, other generator noise in yellow, moved blocks in blue, with the exact changed characters highlighted inside each line — the same classification the report uses.
+- **Drag & drop to start**: drop the OLD and NEW folders onto the window (both at once, or one after the other). `Open folders…` in the toolbar does the same through a file dialog.
+- **Folder tree** on the left, each file coloured by verdict (Modified / Comment / Unimportant / Added / Deleted / Identical / **NOT compared**). The tree always lists every file, regardless of the filter or category toggles. A path box filters by name.
+- **Compare-rule toggles** (`Report: Comment / Unimportant`): unticking one re-judges every affected file as **Identical** or **Modified**, instantly and without rescanning. The lines go with the verdict — each run of folded noise collapses to a `⋯ 3 uuid lines hidden` marker in both panes. Real changes can never be folded away.
+- **Two-pane diff** on the right: old and new aligned line-for-line and scrolled in lockstep, real changes in red/green, comment changes in purple, other noise in yellow, moved blocks in blue, with the exact changed characters highlighted inside each line.
 - **Change minimap** down the right edge, VS Code style: the file's code shape in miniature with the changed lines striped in their colour and a viewport box; click or drag to jump.
-- **Change navigation on the bar along the bottom** — `First change`, `Previous change` (`F7`), `Next change` (`F8`), `Last change` — stepping over the real changes only, noise skipped. The current block is highlighted on both sides and both the header and the bar count `change 3 of 7`, so navigation is visible even in a file that fits on one screen. For `.arxml`/`.a2l` files the header also shows the AUTOSAR / A2L rollup (`+1 port · ~1 event`, …).
-- **Quick-changes panel** at the bottom left: the same rollup `--arxml-only` gives, live — which ARXML/A2L files were updated, plus the port interfaces, software components, ports, runnables, events, RTE access points and A2L objects added (`+`), removed (`−`) or changed (`~`). Click a row to jump to that file. It always reports the scan itself, never the folded view.
-- **Review sign-off** on the bar under the diff: write what the change you are on is *for* — the decision, the ticket, what the next reader would otherwise have to work out — and tick `Reviewed` (`Ctrl+R`), so a pass stays on the keyboard: `F8`, tick, `F8`. Notes save themselves on leaving the box, on moving to another change and on closing the window, into **`codegen-review.json`** kept *beside* the NEW folder — regenerating the code does not take the review with it. Only real changes can be signed off (noise has no tick, since the tool's claim is that you can ignore it); an added, deleted or binary file is signed off as a whole.
-  A sign-off is anchored to the **content** of its change, not to a line number: an edit elsewhere in the file keeps the note attached, and a change that comes back generated differently reads as **not reviewed** again. A stale signature can never hide something nobody has read — and nothing you wrote is discarded, the old text stays in the file with the line range it applied to.
-- **`Export report…`** (`Ctrl+E`) writes the same self-contained HTML report the CLI produces and offers to open it. It is built from the **full scan**, not the on-screen view: a category you collapsed here still appears in the file with its real verdict, so an exported report can never show a file as Identical when it is not. (The report's own badges still let the reader hide categories while reading it.) The review travels with it: each note sits next to its change, and a `Reviewed` badge folds away what is signed off — starting *shown*, because the report is the record of what the compare found.
+- **Change navigation on the bar along the bottom** — `First change`, `Previous change` (`F7`), `Next change` (`F8`), `Last change` — stepping over real changes only, noise skipped. Both the header and the bar count `change 3 of 7`. For `.arxml`/`.a2l` files the header also shows the AUTOSAR / A2L rollup (`+1 port · ~1 event`, …).
+- **Quick-changes panel** at the bottom left: the same rollup `--arxml-only` gives, live — port interfaces, software components, ports, runnables, events, RTE access points and A2L objects added (`+`), removed (`−`) or changed (`~`). Click a row to jump to that file.
+- **Review sign-off** on the bar under the diff: write a note on the change you're on and tick `Reviewed` (`Ctrl+R`) — a pass stays on the keyboard: `F8`, tick, `F8`. Notes save on leaving the box, moving to another change, or closing the window, into **`codegen-review.json`** kept beside the NEW folder. Only real changes can be signed off; an added, deleted or binary file is signed off as a whole. A note follows the change's content — an edit elsewhere in the file keeps it attached, but a change that regenerates differently goes back to **not reviewed**.
+- **`Export report…`** (`Ctrl+E`) writes the same self-contained HTML report the CLI produces and offers to open it, built from the full scan (not the on-screen view) so a category collapsed here still shows in the file. The review travels with it: notes sit next to their changes, and a `Reviewed` badge folds away what's signed off.
+- **`User guide` (`F1`), `Release notes` and `About`** in the toolbar: shipped inside the app, so they work offline.
 
-- **`User guide` (`F1`), `Release notes` and `About`** in the toolbar: the walkthrough and the changelog are shipped inside the app, so they work on a machine with no internet — nothing here calls out to the network.
-
-PySide6 is imported only when the viewer opens, so the CLI and the HTML report keep working on a headless box with no Qt installed. Fail-safe is unchanged: an uncompared path raises a red **COMPARE INCOMPLETE** banner and a scan crash shows a loud failure — never an empty, clean-looking tree.
+PySide6 is imported only when the viewer opens, so the CLI and HTML report keep working on a machine with no Qt installed.
 
 **Standalone `.exe`** — colleagues without Python get the viewer from the same single binary the CLI ships in: run `.\build.ps1` and hand them `dist\compare-tool.exe`. Double-click opens the viewer; see [Single-file build](#single-file-build).
 
@@ -118,7 +116,7 @@ PySide6 is imported only when the viewer opens, so the CLI and the HTML report k
 | Kind | Rule | Files |
 |---|---|---|
 | `comment` | C comments (`//`, `/* */`), XML comments (`<!-- -->`) | .c .h .arxml .a2l |
-| `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated). Accepted only when the map is bijective, the old name disappears completely from the new file, and the new name never existed in the old file (blocks an `a`↔`b` swap). Any line the map cannot explain stays REAL | .c .h |
+| `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated names). Anything the mapping can't fully explain stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
 | `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
@@ -127,21 +125,19 @@ PySide6 is imported only when the viewer opens, so the CLI and the HTML report k
 
 Auto-generated name churn is recognised as a `rename`: Embedded Coder temporaries such as `rtb_*`, mangling suffixes and renumbered temporaries change between runs without changing behaviour.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — regenerating a model rewrites comment banners constantly, and "only the comment banner moved" triages very differently from "an identifier was renamed". The split runs all the way down: separate counts in the CLI summary, its own tree marker, and its own colour (**purple**, vs yellow for other noise) on the changed *lines* in the viewer. A file mixing comments *with* other noise stays Unimportant: the narrower claim has to be exact. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
-
-Fail-safe principle throughout: **if it cannot be proven to be noise, it is marked REAL.**
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary, its own tree marker and colour (purple vs yellow) in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
 
 ## Moved block detection
 
 A block deleted in one place and reappearing intact somewhere else (Embedded Coder reorders functions and declarations when the model changes) is labelled `moved` and coloured **blue** instead of red/green, with a `block moved to NEW line N` / `block moved from OLD line N` note for quick cross-checking.
 
-Acceptance rules (fail-safe):
+Acceptance rules:
 
-- Contents match **exactly** on the shadow text (comments and whitespace stripped, rename map applied) — differing comments inside the block are still accepted.
+- Contents match exactly on the shadow text (comments and whitespace stripped, rename map applied) — differing comments inside the block are still accepted.
 - The block is at least 2 non-blank lines (single lines like `break;` or `}` match by coincidence too often).
-- The pairing is **unique 1-to-1**: the content appears in exactly one delete hunk and one insert hunk. Duplicate or ambiguous matches stay REAL.
+- The pairing is unique 1-to-1: the content appears in exactly one delete hunk and one insert hunk. Duplicate or ambiguous matches stay a real change.
 
-A file containing only moved blocks still counts as **Modified** — reordering statements can change behaviour. `moved` is a display aid so the reviewer does not have to compare two large red/green blocks by hand, not an ignorable category, and the Unimportant badge does not hide it.
+A file containing only moved blocks still counts as **Modified** — reordering statements can change behaviour. `moved` is a display aid so you don't have to compare two large red/green blocks by hand; the Unimportant badge does not hide it.
 
 ## AUTOSAR semantic summary
 
@@ -161,7 +157,7 @@ How it is shown:
 - **HTML report**: an **AUTOSAR changes** section at the top of the page, grouped by kind (port interfaces / software components / ports / runnables / events / RTE access points / A2L characteristics & measurements). Clicking a file name jumps to its detailed diff, and each file in Detailed changes carries its own `Interfaces:` / `Behavior:` / `RTE:` / `A2L:` note.
 - Whole files added or deleted contribute every interface / SWC / RTE call / A2L object inside them as added or removed.
 
-Fail-safe: a file whose XML does not parse is skipped from the summary rather than guessed (its text diff is still shown in full). An unknown `Rte_` verb outside the standard API list is not counted, but still appears in the diff.
+A file whose XML fails to parse is skipped from this summary (its text diff still shows in full). An unknown `Rte_` call isn't counted here but still appears in the diff.
 
 ## Grouping by model / SWC
 
@@ -169,15 +165,15 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR blockse
 
 - **Model overview** at the top of the report: one row per model with the Modified/Added/Deleted/Unimportant file counts (colour-coded) plus an AUTOSAR rollup (`+1 port · ~1 event · +2 RTE`). Clicking the model name jumps to its detail group. Meant for a reviewer or lead who wants the shape of the change before reading diffs.
 - **Detailed changes** grouped by model: one collapsible block per model, groups with real changes **expanded by default**, noise-only groups collapsed. Files belonging to no model (`rtwtypes.h`, shared utilities, …) land in a final **Shared / other** group.
-- Fail-safe detection: a name `X` only becomes a model when it collects at least 3 files or owns an `.arxml` file, so a stray utility pair like `rt_nonfinite.c/.h` does not create a phantom model. If no model is detected, the report keeps the old flat layout.
+- A name `X` only becomes a model when it collects at least 3 files or owns an `.arxml` file, so a stray utility pair like `rt_nonfinite.c/.h` doesn't create a phantom model. If no model is detected, the report keeps the flat layout.
 
 ## HTML report
 
-- **Header**: `OLD <folder> → NEW <folder>` by folder name only, full path on hover — the absolute path is a fact about the machine that ran the compare, not about the change, and spelled out it wrapped the header over the result.
-- **Badge summary** at the top, in two groups: what the compare found — **Modified**, **Unimportant**, **Added / Deleted** (one badge: both are "a whole file appeared or vanished") — then, past a divider, **Reviewed**, how far a human has got through it. Click a badge to show or hide that category.
-- **Real changes only by default**: `Unimportant` starts off, and minor (yellow) lines inside a Modified file collapse into a `⋯ N minor lines hidden` placeholder. Turn it on when you want to inspect the noise.
-- **Comment churn and identical files are not reported categories here**: no badge, no detail section — a regenerated banner is the noisiest and least informative thing a codegen diff produces, and the report is what you send to someone else. Comment lines inside a Modified file stay *in* the file (the report is the record) but are never displayed; the `⋯ N comment lines hidden` placeholder always states how many were folded. Both verdicts keep their row and mark in the folder tree, so nothing goes unaccounted for. **The viewer still shows all of it** — it is the reading surface, this is the record.
-- **Folder tree** in Beyond Compare style: `≠` Modified, `≉` Comment (only comments changed), `≈` Unimportant (other noise only), `+` Added, `−` Deleted, `=` Identical (each symbol has a tooltip), plus a `✓` on files whose every change is reviewed. Folders expand and collapse, and a folder takes the heaviest status inside it. Clicking a file jumps to its detail entry. The tree **always lists every file** — badges only hide entries in Detailed changes.
+- **Header**: `OLD <folder> → NEW <folder>` by folder name only, full path on hover.
+- **Badge summary** at the top, in two groups: what the compare found — **Modified**, **Unimportant**, **Added / Deleted** (one badge for both) — then, past a divider, **Reviewed**. Click a badge to show or hide that category.
+- **Real changes only by default**: `Unimportant` starts off, and minor (yellow) lines inside a Modified file collapse into a `⋯ N minor lines hidden` placeholder. Turn it on to inspect the noise.
+- **Comment churn and identical files get no badge or section here** — a regenerated comment banner is the noisiest and least useful thing a codegen diff produces, and this report is what you send to someone else. Comment lines inside a Modified file stay in the HTML but are never displayed; the `⋯ N comment lines hidden` placeholder states how many were folded. Both verdicts keep their row and mark in the folder tree. **The viewer still shows all of it.**
+- **Folder tree** in Beyond Compare style: `≠` Modified, `≉` Comment, `≈` Unimportant, `+` Added, `−` Deleted, `=` Identical, plus a `✓` on files whose every change is reviewed. Folders expand and collapse; a folder takes the heaviest status inside it. Clicking a file jumps to its detail entry. The tree always lists every file — badges only hide entries in Detailed changes.
 - **Filter box** in the toolbar: type to filter by file name or model name across both the tree and the detailed changes — essential on reports with hundreds of files.
 - **Detailed changes** (grouped by model when detected): Modified files are **expanded by default**, other kinds expand on click, each tagged by colour. Expand all / Collapse all buttons cover whole model groups.
   - Modified: two-column split diff (red/green), real hunks only; noise hunks are summarised by count; moved blocks are blue with their moved to/from reference line.
@@ -213,7 +209,7 @@ The YAML comments list the one-time setup: repo name and codegen paths, plus **C
 | `compare-tool.exe --qt <old> <new>` | side-by-side viewer, folders already loaded |
 | double-click (no arguments) | side-by-side viewer, waiting for the two folders |
 
-It is deliberately built as a **console** application: a terminal run keeps its stdout *and its exit code*, so the CI gate (`1` = real changes, `2` = compare incomplete) keeps working. The viewer hides the console window at runtime instead — a windowed build would make the shell stop waiting for the process and throw the exit code away. The trade-off is a brief console flash when you double-click. A crash in the viewer un-hides the console so the traceback is never swallowed.
+Built as a **console** application so terminal runs keep their exit code (`1` = real changes, `2` = compare incomplete) for the CI gate. The viewer hides the console window at runtime — you'll see a brief flash on double-click. A crash un-hides the console so the error is visible.
 
 - **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~26 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
 - **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target. Building needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs them), and the binary only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` there.
