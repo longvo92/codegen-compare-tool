@@ -7,7 +7,7 @@
 
 Diff two AUTOSAR code-generation output folders (MATLAB/Simulink Embedded Coder) and show **only the changes that matter**.
 
-Regenerating a Simulink model rewrites timestamps, UUIDs, comment banners and auto-generated variable names even when the behaviour is identical. A plain `git diff` or Beyond Compare run drowns the reviewer in that noise. This tool classifies every hunk as *real* or *ignorable*, then gives you two ways to review the result: a self-contained **HTML report** with an AUTOSAR-level summary on top of the text diff, and a **side-by-side desktop viewer** with a change minimap.
+Regenerating a Simulink model rewrites timestamps, UUIDs, comment banners and auto-generated variable names even when the behaviour is identical. This tool classifies every hunk as *real* or *ignorable*, then gives you two ways to review the result: a self-contained **HTML report** with an AUTOSAR-level summary on top of the text diff, and a **side-by-side desktop viewer** with a change minimap.
 
 Two front ends over one compare core, so a verdict never depends on how you look at it:
 
@@ -88,28 +88,17 @@ Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was r
 
 ## Side-by-side viewer
 
+Desktop app (PySide6): folder tree, two-pane diff with a minimap, per-change review notes.
+
 ```bash
 pip install "codegen-compare-tool[viewer]"   # or: pip install PySide6
 python -m compare_tool                                        # then drop the folders in
 python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
 ```
 
-A Beyond-Compare-style desktop app (PySide6) for reviewing changes interactively instead of scrolling an HTML report:
+![Side-by-side viewer](resources/pic/main_page.png)
 
-- **Drag & drop to start**: drop the OLD and NEW folders onto the window (both at once, or one after the other). `Open folders…` in the toolbar does the same through a file dialog.
-- **Folder tree** on the left, each file coloured by verdict (Modified / Comment / Unimportant / Added / Deleted / Identical / **NOT compared**). The tree always lists every file, regardless of the filter or category toggles. A path box filters by name.
-- **Compare-rule toggles** (`Report: Comment / Unimportant`): unticking one re-judges every affected file as **Identical** or **Modified**, instantly and without rescanning. The lines go with the verdict — each run of folded noise collapses to a `⋯ 3 uuid lines hidden` marker in both panes. Real changes can never be folded away.
-- **Two-pane diff** on the right: old and new aligned line-for-line and scrolled in lockstep, real changes in red/green, comment changes in purple, other noise in yellow, moved blocks in blue, with the exact changed characters highlighted inside each line.
-- **Change minimap** down the right edge, VS Code style: the file's code shape in miniature with the changed lines striped in their colour and a viewport box; click or drag to jump.
-- **Change navigation on the bar along the bottom** — `First change`, `Previous change` (`F7`), `Next change` (`F8`), `Last change` — stepping over real changes only, noise skipped. Both the header and the bar count `change 3 of 7`. For `.arxml`/`.a2l` files the header also shows the AUTOSAR / A2L rollup (`+1 port · ~1 event`, …).
-- **Quick-changes panel** at the bottom left: the same rollup `--arxml-only` gives, live — port interfaces, software components, ports, runnables, events, RTE access points and A2L objects added (`+`), removed (`−`) or changed (`~`). Click a row to jump to that file.
-- **Review sign-off** on the bar under the diff: write a note on the change you're on and tick `Reviewed` (`Ctrl+R`) — a pass stays on the keyboard: `F8`, tick, `F8`. Notes save on leaving the box, moving to another change, or closing the window, into **`codegen-review.json`** kept beside the NEW folder. Only real changes can be signed off; an added, deleted or binary file is signed off as a whole. A note follows the change's content — an edit elsewhere in the file keeps it attached, but a change that regenerates differently goes back to **not reviewed**.
-- **`Export report…`** (`Ctrl+E`) writes the same self-contained HTML report the CLI produces and offers to open it, built from the full scan (not the on-screen view) so a category collapsed here still shows in the file. The review travels with it: notes sit next to their changes, and a `Reviewed` badge folds away what's signed off.
-- **`User guide` (`F1`), `Release notes` and `About`** in the toolbar: shipped inside the app, so they work offline.
-
-PySide6 is imported only when the viewer opens, so the CLI and HTML report keep working on a machine with no Qt installed.
-
-**Standalone `.exe`** — colleagues without Python get the viewer from the same single binary the CLI ships in: run `.\build.ps1` and hand them `dist\compare-tool.exe`. Double-click opens the viewer; see [Single-file build](#single-file-build).
+Full walkthrough is built into the app — `User guide` (`F1`) or `Release notes` in the toolbar, both work offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
 
 ## What counts as noise
 
@@ -129,15 +118,7 @@ Auto-generated name churn is recognised as a `rename`: Embedded Coder temporarie
 
 ## Moved block detection
 
-A block deleted in one place and reappearing intact somewhere else (Embedded Coder reorders functions and declarations when the model changes) is labelled `moved` and coloured **blue** instead of red/green, with a `block moved to NEW line N` / `block moved from OLD line N` note for quick cross-checking.
-
-Acceptance rules:
-
-- Contents match exactly on the shadow text (comments and whitespace stripped, rename map applied) — differing comments inside the block are still accepted.
-- The block is at least 2 non-blank lines (single lines like `break;` or `}` match by coincidence too often).
-- The pairing is unique 1-to-1: the content appears in exactly one delete hunk and one insert hunk. Duplicate or ambiguous matches stay a real change.
-
-A file containing only moved blocks still counts as **Modified** — reordering statements can change behaviour. `moved` is a display aid so you don't have to compare two large red/green blocks by hand; the Unimportant badge does not hide it.
+A block deleted in one place and reappearing intact elsewhere (Embedded Coder reorders functions and declarations when a model changes) is labelled `moved` and coloured **blue** instead of red/green. Still counts as **Modified** — reordering can change behaviour — it's just easier to see than two large red/green blocks.
 
 ## AUTOSAR semantic summary
 
@@ -161,37 +142,26 @@ A file whose XML fails to parse is skipped from this summary (its text diff stil
 
 ## Grouping by model / SWC
 
-Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR blockset naming convention: `X.c`, `X.h`, `X_types.h`, `X_private.h`, `X_data.c`, `Rte_X.h`, `X.arxml` and the modular ARXML set (`X_component.arxml`, `X_interface.arxml`, …) all belong to model `X`.
+Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, the modular ARXML set, …). Files that match no model land in a final **Shared / other** group.
 
-- **Model overview** at the top of the report: one row per model with the Modified/Added/Deleted/Unimportant file counts (colour-coded) plus an AUTOSAR rollup (`+1 port · ~1 event · +2 RTE`). Clicking the model name jumps to its detail group. Meant for a reviewer or lead who wants the shape of the change before reading diffs.
-- **Detailed changes** grouped by model: one collapsible block per model, groups with real changes **expanded by default**, noise-only groups collapsed. Files belonging to no model (`rtwtypes.h`, shared utilities, …) land in a final **Shared / other** group.
-- A name `X` only becomes a model when it collects at least 3 files or owns an `.arxml` file, so a stray utility pair like `rt_nonfinite.c/.h` doesn't create a phantom model. If no model is detected, the report keeps the flat layout.
 
 ## HTML report
 
-- **Header**: `OLD <folder> → NEW <folder>` by folder name only, full path on hover.
-- **Badge summary** at the top, in two groups: what the compare found — **Modified**, **Unimportant**, **Added / Deleted** (one badge for both) — then, past a divider, **Reviewed**. Click a badge to show or hide that category.
-- **Real changes only by default**: `Unimportant` starts off, and minor (yellow) lines inside a Modified file collapse into a `⋯ N minor lines hidden` placeholder. Turn it on to inspect the noise.
-- **Comment churn and identical files get no badge or section here** — a regenerated comment banner is the noisiest and least useful thing a codegen diff produces, and this report is what you send to someone else. Comment lines inside a Modified file stay in the HTML but are never displayed; the `⋯ N comment lines hidden` placeholder states how many were folded. Both verdicts keep their row and mark in the folder tree. **The viewer still shows all of it.**
-- **Folder tree** in Beyond Compare style: `≠` Modified, `≉` Comment, `≈` Unimportant, `+` Added, `−` Deleted, `=` Identical, plus a `✓` on files whose every change is reviewed. Folders expand and collapse; a folder takes the heaviest status inside it. Clicking a file jumps to its detail entry. The tree always lists every file — badges only hide entries in Detailed changes.
-- **Filter box** in the toolbar: type to filter by file name or model name across both the tree and the detailed changes — essential on reports with hundreds of files.
-- **Detailed changes** (grouped by model when detected): Modified files are **expanded by default**, other kinds expand on click, each tagged by colour. Expand all / Collapse all buttons cover whole model groups.
-  - Modified: two-column split diff (red/green), real hunks only; noise hunks are summarised by count; moved blocks are blue with their moved to/from reference line.
-  - Unimportant: every hunk shown with its noise-kind label (comment/rename/uuid/timestamp/whitespace).
-  - Added/Deleted: file contents (up to 400 lines; binary files show only their size).
+Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden and `Modified` expanded, so it opens on what matters.
+
+![Report viewer](resources/pic/report_page.png)
 
 ## CI integration
 
-Any pipeline can run the tool as a gate — one command, meaningful exit codes. Two things usually need setting up: where the OLD tree comes from, and excluding the previous report from the scan.
+Run as a pipeline gate — one command, meaningful exit codes:
 
-[azure-pipelines.yml](azure-pipelines.yml) is a working example for a repo where generated code is committed over the previous version:
+```bash
+python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
+```
 
-1. **OLD** comes from git: on a PR build, the merge base with the target branch; on a CI build, the previous commit (`HEAD~1`). It is checked out with `git worktree`, so no snapshot artifact needs to be stored.
-2. **NEW** is the current working tree.
-3. The tool runs with `--exit-zero` (regenerated code changing is normal, the pipeline should not fail on it) and `--exclude compare_report.html` (the previous build's report must not count as a diff).
-4. The report is published as part of the `codegen` artifact; CI builds also commit it back to the repo with `[skip ci]`.
+`--exit-zero` keeps the build green on regenerated code; `--exclude` keeps the previous run's report from counting as a diff. Publish `compare_report.html` as a build artifact.
 
-The YAML comments list the one-time setup: repo name and codegen paths, plus **Contribute** permission for the build service if you want the report committed back.
+See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checked out via `git worktree`, NEW is the working tree).
 
 ## Single-file build
 
@@ -236,8 +206,6 @@ compare_tool/
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
 └── report.py        # self-contained HTML report (badge toggles, model overview, grouping, filter, collapsible diffs)
 ```
-
-The viewer's icons and logo live in `resources/` (SVG plus rasterised fallbacks); `build.ps1` bundles them into the `.exe`, and a missing asset degrades a button to its text label rather than failing.
 
 To add a rule: write the strip function in `c_rules.py` / `arxml_rules.py`, then register it in the shadow builder and `_build_variants` in `diff_engine.py`.
 
