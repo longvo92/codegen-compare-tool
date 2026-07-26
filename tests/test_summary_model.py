@@ -15,20 +15,10 @@ class TestSummarySections(unittest.TestCase):
         cls.sections = dict(summary_sections(scan(FIX / 'old', FIX / 'new')))
         cls.model = dict(summary_sections(scan(FIX / 'model_old', FIX / 'model_new')))
 
-    def test_updated_arxml_and_a2l_files_listed(self):
-        rows = self.sections['Updated ARXML / A2L files']
-        names = {r.name for r in rows}
-        self.assertIn('arxml/real_change.arxml', names)
-        self.assertIn('a2l/cal.a2l', names)
-
-    def test_noise_only_files_are_not_listed_as_updates(self):
-        names = {r.name for r in self.sections['Updated ARXML / A2L files']}
-        self.assertNotIn('arxml/uuid_only.arxml', names)
-        self.assertNotIn('a2l/comment_only.a2l', names)
-
-    def test_c_files_stay_out_of_the_file_list(self):
-        names = {r.name for r in self.sections['Updated ARXML / A2L files']}
-        self.assertFalse(any(n.endswith('.c') for n in names))
+    def test_updated_files_section_is_gone(self):
+        # the folder tree already lists every changed file, so the panel no
+        # longer restates them -- it opens straight at the semantic changes
+        self.assertNotIn('Updated ARXML / A2L files', self.sections)
 
     def test_port_interfaces_carry_sign_kind_and_file(self):
         rows = self.sections['Port interfaces']

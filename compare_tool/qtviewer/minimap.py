@@ -22,7 +22,11 @@ _MAX_CHAR_W = 3.0    # px per char at most, so short lines don't stretch full wi
 # dim token colour per mode (ctx = plain code grey); changed rows also get a
 # translucent full-width strip so diffs pop on the map
 _TOKEN = {'ctx': '#565b62', 'real': '#e8908d', 'comment': '#a99ce8',
-          'minor': '#d8c070', 'moved': '#7fb0d9'}
+          'minor': '#d8c070', 'moved': '#7fb0d9', 'folded': '#4a4e55'}
+# a folded placeholder is not a change on the map either: it stands for lines
+# the current compare rules say are not a difference, so it gets no strip and
+# collapses away with the context rows when the map is compressed
+_NOT_A_CHANGE = ('ctx', 'folded')
 _STRIP = {
     'real':    QColor(217, 82, 79, 70),
     'comment': QColor(140, 120, 210, 70),
@@ -82,7 +86,7 @@ class Minimap(QWidget):
         prev_y = -10
         for i, r in enumerate(rows):
             y = int(i * lh)
-            is_change = r.mode != 'ctx'
+            is_change = r.mode not in _NOT_A_CHANGE
             # when compressed (<1px/line), collapse overlapping context rows but
             # never drop a change row
             if not is_change and y == prev_y:

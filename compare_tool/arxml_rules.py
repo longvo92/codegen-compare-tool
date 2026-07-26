@@ -1,4 +1,4 @@
-"""ARXML normalization rules: UUID, XML comments, ADMIN-DATA, dates.
+"""ARXML normalization rules: UUID, XML comments, ADMIN-DATA, dates, SW-VERSION.
 
 Text-based (not DOM) so line mapping to the original file is preserved:
 every replacement keeps newlines and never changes the line count.
@@ -17,6 +17,10 @@ XML_COMMENT_RE = re.compile(r'<!--.*?-->', re.S)
 ADMIN_DATA_RE = re.compile(r'<ADMIN-DATA(?:\s[^>]*)?>.*?</ADMIN-DATA>|<ADMIN-DATA\s*/>', re.S)
 UUID_RE = re.compile(r'\bUUID\s*=\s*"[^"]*"')
 DATE_RE = re.compile(r'<DATE(?:\s[^>]*)?>[^<]*</DATE>', re.S)
+# <SW-VERSION>1.2.3</SW-VERSION> -- a version stamp bumped on every regenerate,
+# not a behaviour change. Anchored so <SW-VERSIONx> and <SW-MAJOR-VERSION> do
+# NOT match (the tag must end right after SW-VERSION).
+SW_VERSION_RE = re.compile(r'<SW-VERSION(?:\s[^>]*)?>[^<]*</SW-VERSION>', re.S)
 
 
 def _blank_keep_newlines(match):
@@ -42,13 +46,18 @@ def strip_uuids(text):
     return UUID_RE.sub('UUID=""', text)
 
 
+def strip_sw_version(text):
+    return SW_VERSION_RE.sub(_blank_keep_newlines, text)
+
+
 def arxml_shadow(text):
-    """Full normalized shadow: comments, ADMIN-DATA, dates, UUIDs stripped,
-    whitespace collapsed."""
+    """Full normalized shadow: comments, ADMIN-DATA, dates, UUIDs and
+    SW-VERSION stripped, whitespace collapsed."""
     text = strip_xml_comments(text)
     text = strip_admin_data(text)
     text = strip_dates(text)
     text = strip_uuids(text)
+    text = strip_sw_version(text)
     return collapse_ws(text)
 
 

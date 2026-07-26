@@ -5,8 +5,8 @@ underneath. Activating a row jumps the folder tree to that file.
 """
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont
-from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
+from PySide6.QtGui import QBrush, QColor
+from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
 
 from .summary_model import summary_sections
 
@@ -24,7 +24,12 @@ class SummaryPanel(QTreeWidget):
         self.setHeaderLabels(['Change', 'Detail'])
         self.setUniformRowHeights(True)
         self.setRootIsDecorated(True)
-        self.header().setStretchLastSection(True)
+        # AUTOSAR paths are long and the panel is narrow: let the name column
+        # take the width it needs and scroll, rather than eliding every row to
+        # 'arxml/…' where nothing is identifiable
+        header = self.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setStretchLastSection(True)
         self.itemClicked.connect(self._on_click)
 
     def set_results(self, results):

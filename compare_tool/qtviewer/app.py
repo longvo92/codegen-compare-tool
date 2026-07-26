@@ -9,19 +9,23 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QPalette
-from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QMainWindow, QMessageBox, QProgressBar,
-                               QSplitter, QTreeWidget, QTreeWidgetItem,
+                               QMainWindow, QMessageBox, QPlainTextEdit,
+                               QProgressBar, QSizePolicy, QSplitter, QStyle,
+                               QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
+from .. import review
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
 from ..scanner import apply_fold, summarize
+from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
+from .icons import ACCENT, app_icon, icon, std_icon
 from .summary import SummaryPanel
 from .tree import STATUS, build_nodes, filter_nodes
 from .worker import ScanWorker
@@ -32,6 +36,20 @@ REL_ROLE = Qt.UserRole  # QTreeWidgetItem data slot holding a file's rel path
 def _arxml_include():
     """Same include globs run_compare uses for --arxml-only."""
     return tuple('*' + ext for ext, rs in RULES.items() if rs in ('arxml', 'a2l'))
+
+
+class _NoteEdit(QPlainTextEdit):
+    """Review note box that says when the reviewer leaves it.
+
+    Clicking a diff line moves to another change, so the text has to be written
+    back on the way out -- before the cursor lands somewhere else. QPlainTextEdit
+    has no editingFinished of its own, hence this."""
+
+    left = Signal()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.left.emit()
 
 
 class MainWindow(QMainWindow):
@@ -45,8 +63,11 @@ class MainWindow(QMainWindow):
         self._raw_results = {}  # verdicts straight from the scan
         self.results = {}       # ... after the current compare rules
         self.worker = None
+        self._reviews = review.ReviewStore()  # replaced per scan, see _load_reviews
+        self._review_unit = None  # (rel, key, label) the note box is editing
 
         self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
+        self.setWindowIcon(app_icon())
         self.resize(1200, 800)
         self.setAcceptDrops(True)  # drop the two folders straight onto the window
 
@@ -118,6 +139,7 @@ class MainWindow(QMainWindow):
         left.setSizes([560, 240])
 
         self.diff = DiffPane()
+        self.diff.unitChanged.connect(self._on_unit_changed)
 
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left)
@@ -126,52 +148,322 @@ class MainWindow(QMainWindow):
         split.setStretchFactor(1, 1)
         split.setSizes([400, 800])
 
+        self._make_actions()
+
         central = QWidget()
         v = QVBoxLayout(central)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self.banner)
-        v.addWidget(split)
+        v.addWidget(split, 1)
+        # the review note sits directly under the diff it describes, above the
+        # navigation that moves off it
+        v.addWidget(self._review_bar())
+        # navigation and export live on a bar at the BOTTOM, next to the diff
+        # they act on -- the toolbar up top is for opening folders and help
+        v.addWidget(self._action_bar())
         self.setCentralWidget(central)
 
+        # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
+        # incomplete), the verdict counts as a permanent widget on the right so
+        # a transient message can never wipe them, and the progress bar.
+        self.state_label = QLabel()
+        self.state_label.setTextFormat(Qt.RichText)
+        self.state_label.setStyleSheet('padding:0 8px;')
+        self.statusBar().addWidget(self.state_label)
+        self.counts_label = QLabel('')
+        self.counts_label.setStyleSheet('color:#9aa1ad; padding:0 8px;')
+        self.statusBar().addPermanentWidget(self.counts_label)
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(240)
         self.progress.setVisible(False)
         self.statusBar().addPermanentWidget(self.progress)
+        self._set_state('idle', 'Ready')
 
-        tb = self.addToolBar('main')
-        tb.setMovable(False)
-        act_open = QAction('Open folders…', self)
-        act_open.triggered.connect(self._pick_folders)
-        tb.addAction(act_open)
-        tb.addSeparator()
-        act_prev = QAction('◀ Prev change', self)
-        act_prev.setShortcut('F7')
-        act_prev.triggered.connect(lambda: self.diff.prev_change())
-        act_next = QAction('Next change ▶', self)
-        act_next.setShortcut('F8')
-        act_next.triggered.connect(lambda: self.diff.next_change())
-        tb.addAction(act_prev)
-        tb.addAction(act_next)
-        tb.addSeparator()
-        self.act_export = QAction('Export report…', self)
-        self.act_export.setShortcut('Ctrl+E')
-        self.act_export.setEnabled(False)
-        self.act_export.triggered.connect(self._export_report)
-        tb.addAction(self.act_export)
-        # both shortcuts must fire wherever the focus is inside the window
-        for act in (act_prev, act_next, self.act_export):
-            self.addAction(act)
+        self._build_toolbar()
 
         if self.old and self.new:
             self._start_scan()
         else:
             # no folders yet: invite a drag & drop instead of forcing a modal
-            # file dialog on the reviewer the moment the app opens
-            self.diff.show_drop_hint()
+            # file dialog on the reviewer the moment the app opens. One folder
+            # on the command line counts as OLD and waits for its NEW.
+            self.diff.show_drop_hint(self.old)
+            self._set_state('idle', 'Waiting for the NEW folder' if self.old else
+                            'Ready — drop the OLD and NEW folders')
+
+    # tool-state chip on the status bar: a coloured dot plus a word, so the
+    # reviewer can tell at a glance whether a result is final or still coming
+    _STATE_DOT = {'idle': '#8a8f98', 'busy': '#e2c16b',
+                  'ready': '#7bd88a', 'error': '#ff7b7b'}
+
+    def _set_state(self, kind, text):
+        dot = self._STATE_DOT.get(kind, '#8a8f98')
+        self.state_label.setText(
+            '<span style="color:{}; font-size:15px;">●</span>&nbsp; {}'
+            .format(dot, text))
+
+    # --- actions, toolbar, bottom action bar ---
+
+    def _make_actions(self):
+        """Every command the window offers, in one place. The bottom bar and
+        the toolbar are just two views of these actions, so a button and its
+        shortcut can never drift apart."""
+        self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon),
+                                'Open folders…', self)
+        self.act_open.setToolTip('Choose the OLD and NEW folders — or drop them '
+                                 'straight onto the window')
+        self.act_open.triggered.connect(self._pick_folders)
+
+        nav = (('act_first', 'nav-first-change', 'First change', 'Ctrl+Home',
+                self._first_change),
+               ('act_prev', 'nav-prev-change', 'Previous change', 'F7',
+                self._prev_change),
+               ('act_next', 'nav-next-change', 'Next change', 'F8',
+                self._next_change),
+               ('act_last', 'nav-last-change', 'Last change', 'Ctrl+End',
+                self._last_change))
+        for attr, glyph, text, key, slot in nav:
+            act = QAction(icon(glyph), text, self)
+            act.setShortcut(key)
+            act.setToolTip('{} ({}) — noise is skipped'.format(text, key))
+            act.triggered.connect(slot)
+            setattr(self, attr, act)
+
+        self.act_export = QAction(icon('export', ACCENT), 'Export report…', self)
+        self.act_export.setShortcut('Ctrl+E')
+        self.act_export.setEnabled(False)
+        self.act_export.setToolTip('Write the full HTML report (Ctrl+E) — always '
+                                   'the complete scan, never the folded view')
+        self.act_export.triggered.connect(self._export_report)
+
+        # no button of its own: the tick in the review bar IS the button. The
+        # shortcut exists so a review pass can stay on the keyboard -- F8, tick,
+        # F8 -- without reaching for the mouse between every change.
+        self.act_reviewed = QAction('Mark this change reviewed', self)
+        self.act_reviewed.setShortcut('Ctrl+R')
+        self.act_reviewed.triggered.connect(self._toggle_reviewed)
+
+        self.act_guide = QAction(icon('report'), 'User guide', self)
+        self.act_guide.setShortcut('F1')
+        self.act_guide.setToolTip('How to use the viewer (F1)')
+        self.act_guide.triggered.connect(lambda: show_user_guide(self))
+
+        self.act_notes = QAction(icon('review-resolved'), 'Release notes', self)
+        self.act_notes.setToolTip("What changed in this and earlier versions")
+        self.act_notes.triggered.connect(lambda: show_release_notes(self))
+
+        self.act_about = QAction(app_icon(), 'About', self)
+        self.act_about.setToolTip('Version, author and license')
+        self.act_about.triggered.connect(lambda: show_about(self))
+
+        # the bottom-bar buttons do not register shortcuts themselves, so the
+        # window must hold these actions for F7/F8/Ctrl+E to fire wherever the
+        # focus happens to be
+        for act in (self.act_first, self.act_prev, self.act_next,
+                    self.act_last, self.act_export, self.act_reviewed):
+            self.addAction(act)
+
+    def _build_toolbar(self):
+        tb = self.addToolBar('main')
+        tb.setObjectName('main')
+        tb.setMovable(False)
+        tb.setIconSize(QSize(20, 20))
+        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tb.addAction(self.act_open)
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        tb.addWidget(spacer)  # help actions sit on the right, away from Open
+        tb.addAction(self.act_guide)
+        tb.addAction(self.act_notes)
+        tb.addAction(self.act_about)
+
+    @staticmethod
+    def _tool_button(action, primary=False):
+        b = QToolButton()
+        b.setDefaultAction(action)  # icon, text, tooltip and enabled state
+        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        b.setIconSize(QSize(20, 20))
+        b.setCursor(Qt.PointingHandCursor)
+        if primary:
+            b.setObjectName('primary')
+        return b
+
+    def _action_bar(self):
+        bar = QFrame()
+        bar.setObjectName('actionbar')
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 5, 8, 5)
+        h.setSpacing(4)
+        for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
+            h.addWidget(self._tool_button(act))
+        self.pos_label = QLabel('')
+        self.pos_label.setStyleSheet('color:#9a9a9a; padding:0 10px;')
+        h.addWidget(self.pos_label)
+        h.addStretch(1)
+        h.addWidget(self._tool_button(self.act_export, primary=True))
+        return bar
+
+    # --- review: one note and one sign-off per change ---
+
+    def _review_bar(self):
+        """Note box for the change under the cursor, plus its Reviewed tick."""
+        bar = QFrame()
+        bar.setObjectName('reviewbar')
+        self.note_edit = _NoteEdit()
+        self.note_edit.setFixedHeight(58)
+        self.note_edit.setTabChangesFocus(True)
+        self.note_edit.left.connect(self._commit_review)
+        # a debounce as well as the focus-out: text typed and never left behind
+        # (the window closed, the app killed) still reaches the file
+        self._note_timer = QTimer(self)
+        self._note_timer.setSingleShot(True)
+        self._note_timer.setInterval(800)
+        self._note_timer.timeout.connect(self._commit_review)
+        self.note_edit.textChanged.connect(self._note_timer.start)
+
+        self.cb_reviewed = QCheckBox('Reviewed')
+        self.cb_reviewed.setToolTip('Sign this change off. The exported report '
+                                    'can then hide it, leaving only what is '
+                                    'still to review.')
+        self.cb_reviewed.toggled.connect(self._commit_review)
+        self.review_where = QLabel('')
+        self.review_where.setStyleSheet('color:#8a8f98; font-size:11px;')
+        self.review_file = QLabel('')
+        self.review_file.setStyleSheet('color:#6f757e; font-size:11px;')
+
+        side = QVBoxLayout()
+        side.setContentsMargins(0, 0, 0, 0)
+        side.setSpacing(2)
+        side.addWidget(self.cb_reviewed)
+        side.addWidget(self.review_where)
+        side.addWidget(self.review_file)
+        side.addStretch(1)
+
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 6, 8, 6)
+        h.setSpacing(10)
+        h.addWidget(self.note_edit, 1)
+        h.addLayout(side)
+        self._load_review()
+        return bar
+
+    def _toggle_reviewed(self):
+        if self.cb_reviewed.isEnabled():
+            self.cb_reviewed.toggle()  # its toggled signal commits the change
+
+    def _load_reviews(self):
+        """Open the review that belongs to this pair of folders. Kept BESIDE
+        the NEW folder, not in it: a codegen output folder gets wiped and
+        regenerated, and the review has to outlive that."""
+        self._review_unit = None
+        self._reviews = review.ReviewStore.load(review.default_path(self.new))
+        self._load_review()
+
+    def _on_unit_changed(self):
+        """The cursor moved to another change (or another file opened). The
+        note box still holds the PREVIOUS unit, so write it back before
+        loading the new one -- this single seam covers every way the current
+        change can move: F7/F8, a click in the diff, a new file, a rescan."""
+        self._commit_review()
+        self._load_review()
+
+    def _load_review(self):
+        unit = self.diff.current_unit()
+        self._review_unit = unit
+        broken = bool(self._reviews.error)
+        editable = unit is not None and not broken
+        if broken:
+            hint = 'The review file could not be read — editing is off.'
+        elif unit is None:
+            hint = 'No change to review on this file.'
+        else:
+            hint = 'Why this change? — purpose, decision, ticket…'
+        self.note_edit.setPlaceholderText(hint)
+        self.note_edit.setEnabled(editable)
+        self.cb_reviewed.setEnabled(editable)
+        self.note_edit.blockSignals(True)
+        self.cb_reviewed.blockSignals(True)
+        if unit:
+            rel, key, label = unit
+            self.note_edit.setPlainText(self._reviews.note(rel, key))
+            self.cb_reviewed.setChecked(self._reviews.is_reviewed(rel, key))
+            self.review_where.setText(label)
+        else:
+            self.note_edit.setPlainText('')
+            self.cb_reviewed.setChecked(False)
+            self.review_where.setText('')
+        self.note_edit.blockSignals(False)
+        self.cb_reviewed.blockSignals(False)
+        self._show_review_file()
+
+    def _show_review_file(self):
+        path = self._reviews.path
+        if path is None:
+            self.review_file.setText('')
+            return
+        if self._reviews.error:
+            self.review_file.setText('⚠ {}'.format(path.name))
+            self.review_file.setStyleSheet('color:#ff9d9d; font-size:11px;')
+            self.review_file.setToolTip('{}\n\n{}\n\nNothing is loaded from it '
+                                        'and nothing will be written over it. '
+                                        'Fix or remove the file, then rescan.'
+                                        .format(path, self._reviews.error))
+        else:
+            self.review_file.setText(path.name)
+            self.review_file.setStyleSheet('color:#6f757e; font-size:11px;')
+            self.review_file.setToolTip('Notes and sign-offs are saved to\n{}'
+                                        .format(path))
+
+    def _commit_review(self):
+        """Write what is in the box back to the store, then to disk.
+
+        Nothing is written when the text and the tick already match what is
+        stored: the file's timestamp is a signal to whoever shares it, and a
+        pass that changed nothing should not move it."""
+        self._note_timer.stop()
+        unit = self._review_unit
+        if unit is None or self._reviews.error:
+            return
+        rel, key, label = unit
+        note = self.note_edit.toPlainText()
+        reviewed = self.cb_reviewed.isChecked()
+        if (note.strip() == self._reviews.note(rel, key)
+                and reviewed == self._reviews.is_reviewed(rel, key)):
+            return
+        self._reviews.set(rel, key, note, reviewed, label)
+        try:
+            self._reviews.save()
+        except Exception as e:
+            # losing the reviewer's own words silently is not acceptable; the
+            # in-memory store keeps them for this session either way
             self.statusBar().showMessage(
-                'Drag the OLD and NEW folders onto this window, or use '
-                '"Open folders…".')
+                'Review NOT saved to {}: {}: {}'.format(
+                    self._reviews.path, type(e).__name__, e), 12000)
+
+    def closeEvent(self, event):
+        self._commit_review()
+        super().closeEvent(event)
+
+    # navigation goes through the window so the position readout stays in step
+    def _first_change(self):
+        self.diff.first_change()
+        self._sync_position()
+
+    def _prev_change(self):
+        self.diff.prev_change()
+        self._sync_position()
+
+    def _next_change(self):
+        self.diff.next_change()
+        self._sync_position()
+
+    def _last_change(self):
+        self.diff.last_change()
+        self._sync_position()
+
+    def _sync_position(self):
+        self.pos_label.setText(self.diff.position_text())
 
     # --- folder selection ---
 
@@ -218,8 +510,7 @@ class MainWindow(QMainWindow):
             # first drop of a pair: OLD, and wait for the second
             self.old, self.new = dirs[0], None
             self.diff.show_drop_hint(self.old)
-            self.statusBar().showMessage(
-                'OLD = {} — now drop the NEW folder.'.format(self.old))
+            self._set_state('idle', 'OLD set — now drop the NEW folder')
             self._front()
             return
         else:
@@ -228,6 +519,12 @@ class MainWindow(QMainWindow):
         self._start_scan()
 
     # --- scan lifecycle ---
+
+    # a folded category disappears from BOTH places it shows: the file's verdict
+    # (status -> Identical/Modified) and the lines in the diff panes. Leaving a
+    # wall of yellow in the code after saying those differences do not count was
+    # the worst of both.
+    _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
     def _fold(self):
         """Change categories the current rules do NOT report separately; those
@@ -244,17 +541,21 @@ class MainWindow(QMainWindow):
             return
         if self.worker and self.worker.isRunning():
             return
+        self._commit_review()  # anything typed against the outgoing pair
         self.banner.setVisible(False)
         self.tree.clear()
         self.summary.set_results({})
         self.diff.clear()
+        self.pos_label.setText('')
         self._raw_results = {}
         self.results = {}
         self.act_export.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)  # busy/indeterminate until first tick
         self.setWindowTitle('AUTOSAR CodeGen Compare — {}  →  {}'.format(self.old, self.new))
-        self.statusBar().showMessage('Scanning…')
+        self._load_reviews()
+        self.counts_label.setText('')
+        self._set_state('busy', 'Scanning…')
         # the scan itself is rule-free; the rules are applied to its results,
         # so flipping a category never costs a second walk of the disk
         self.worker = ScanWorker(self.old, self.new, self.exclude, self.include)
@@ -266,7 +567,8 @@ class MainWindow(QMainWindow):
     def _on_progress(self, done, total, rel):
         self.progress.setRange(0, max(total, 1))
         self.progress.setValue(done)
-        self.statusBar().showMessage('Scanning {}/{}: {}'.format(done, total, rel))
+        # update the state chip itself, not showMessage, so the dot stays lit
+        self._set_state('busy', 'Scanning {}/{}: {}'.format(done, total, rel))
 
     def _on_done(self, results):
         self._raw_results = results
@@ -292,21 +594,32 @@ class MainWindow(QMainWindow):
         if not self._raw_results:
             return
         keep = self._selected_rel()
-        self.results = apply_fold(self._raw_results, self._fold())
+        fold = self._fold()
+        self.results = apply_fold(self._raw_results, fold)
+        self.diff.set_fold_modes([self._FOLD_MODE[f] for f in fold])
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
         counts = summarize(self.results)
-        self.statusBar().showMessage(
+        self.counts_label.setText(
             '{real-change} modified · {comment-only} comment-only · '
             '{ignorable-only} unimportant · {added} added · {deleted} deleted · '
             '{identical} identical · {error} error(s)'.format(**counts))
+        # a compare with an uncompared path is NOT a clean result: the chip
+        # says so in red, matching the banner, so the state is never green when
+        # something could be hiding a change
+        if counts['error']:
+            self._set_state('error', 'Compare incomplete — {} not compared'
+                            .format(counts['error']))
+        else:
+            self._set_state('ready', 'Ready')
 
     def _on_fail(self, msg):
         self.progress.setVisible(False)
+        self.counts_label.setText('')
         self.banner.setText('‼ SCAN FAILED — no results (treat everything as '
                             'potentially changed): {}'.format(msg))
         self.banner.setVisible(True)
-        self.statusBar().showMessage('SCAN FAILED')
+        self._set_state('error', 'Scan failed')
 
     # --- report export ---
 
@@ -319,9 +632,14 @@ class MainWindow(QMainWindow):
         verdict. Otherwise an exported report could show a file as Identical
         when it was not -- the silent miss this tool exists to prevent. The
         report's own badges still let the reader hide categories while looking
-        at it."""
+        at it.
+
+        The review travels with it: every note the reviewer wrote appears next
+        to its change, and a Reviewed badge lets the reader fold away what is
+        already signed off."""
         if not self._raw_results:
             return
+        self._commit_review()  # the box may hold a note never left
         default = str(Path(self.new).parent / default_report_name(self.arxml_only))
         out, _sel = QFileDialog.getSaveFileName(
             self, 'Export HTML report', default, 'HTML report (*.html)')
@@ -329,14 +647,24 @@ class MainWindow(QMainWindow):
         if not out:
             return
         try:
-            build = build_arxml_report if self.arxml_only else build_report
-            Path(out).write_text(build(self._raw_results, self.old, self.new),
-                                 encoding='utf-8')
+            if self.arxml_only:
+                # the ARXML/A2L report lists files, not individual changes, so
+                # there is nothing for a per-change note to attach to
+                page = build_arxml_report(self._raw_results, self.old, self.new)
+            else:
+                # only pass the store when it holds something: an untouched
+                # review would otherwise add a "0 of N Reviewed" badge to every
+                # report, for a feature that run never used
+                store = self._reviews if (self._reviews.any_entries()
+                                          or self._reviews.error) else None
+                page = build_report(self._raw_results, self.old, self.new, store)
+            Path(out).write_text(page, encoding='utf-8')
         except Exception as e:
             QMessageBox.critical(self, 'Export failed',
                                  '{}: {}'.format(type(e).__name__, e))
             return
-        self.statusBar().showMessage('Report written (full scan): {}'.format(out))
+        # transient, with a timeout, so the state chip returns after it clears
+        self.statusBar().showMessage('Report written (full scan): {}'.format(out), 8000)
         if QMessageBox.question(
                 self, 'Report exported',
                 'Written to:\n{}\n\nIt contains the full compare, including any '
@@ -397,6 +725,49 @@ class MainWindow(QMainWindow):
         rel = self._selected_rel()
         if rel and rel in self.results:
             self.diff.show_file(rel, self.results[rel], self.old, self.new)
+            self._sync_position()
+
+
+# chrome styling. Deliberately narrow: the diff editors, the minimap and the
+# per-file tree colours are painted in code, and a stylesheet rule on their
+# items would override those verdict colours.
+_QSS = """
+QToolBar#main { background:#25262a; border:0; border-bottom:1px solid #34363c;
+                padding:4px 6px; spacing:2px; }
+QToolBar#main QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
+QToolBar#main QToolButton:hover { background:#34363c; }
+QToolBar#main QToolButton:pressed { background:#3d404a; }
+QFrame#actionbar { background:#25262a; border-top:1px solid #34363c; }
+QFrame#actionbar QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
+QFrame#actionbar QToolButton:hover { background:#34363c; }
+QFrame#actionbar QToolButton:pressed { background:#3d404a; }
+QFrame#actionbar QToolButton:disabled { color:#6a6a6a; }
+QFrame#reviewbar { background:#212226; border-top:1px solid #34363c; }
+QFrame#reviewbar QPlainTextEdit { background:#232427; border:1px solid #3a3c42;
+            border-radius:6px; padding:4px 6px; color:#d4d4d4; }
+QFrame#reviewbar QPlainTextEdit:focus { border:1px solid #7c8cf8; }
+QFrame#reviewbar QPlainTextEdit:disabled { background:#1f2023; color:#6a6a6a;
+            border:1px solid #2f3136; }
+QToolButton#primary { background:#343a63; }
+QToolButton#primary:hover { background:#454c80; }
+QToolButton#primary:disabled { background:#2b2d33; }
+QTreeWidget { border:1px solid #34363c; border-radius:6px; }
+QTreeWidget::item { padding:2px 0; }
+QTreeWidget::item:selected { background:#3a4a7a; }
+QHeaderView::section { background:#2a2c31; color:#b9b9b9; border:0;
+                       border-right:1px solid #34363c; padding:4px 6px; }
+QLineEdit { background:#232427; border:1px solid #3a3c42; border-radius:6px;
+            padding:5px 8px; }
+QLineEdit:focus { border:1px solid #7c8cf8; }
+QSplitter::handle { background:#34363c; }
+QSplitter::handle:horizontal { width:3px; }
+QSplitter::handle:vertical { height:3px; }
+QStatusBar { background:#25262a; color:#b0b0b0; border-top:1px solid #34363c; }
+QProgressBar { background:#232427; border:1px solid #3a3c42; border-radius:6px;
+               text-align:center; color:#d0d0d0; }
+QProgressBar::chunk { background:#4F46E5; border-radius:5px; }
+QCheckBox { spacing:6px; }
+"""
 
 
 def _apply_dark(app):
@@ -413,15 +784,33 @@ def _apply_dark(app):
     p.setColor(QPalette.ButtonText, text)
     p.setColor(QPalette.Highlight, QColor('#3a5a7a'))
     p.setColor(QPalette.HighlightedText, QColor('#ffffff'))
+    # the filter box's "Filter by path…" placeholder: Fusion fades it so far it
+    # is barely legible on the dark field, so set an explicit, readable grey
+    p.setColor(QPalette.PlaceholderText, QColor('#9aa1ad'))
     app.setPalette(p)
+    app.setStyleSheet(_QSS)
+
+
+def _taskbar_identity():
+    """Windows groups taskbar buttons by AppUserModelID; without our own the
+    frozen exe inherits the host python's and shows its icon instead."""
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            'LongVoThien.CodeGenCompareTool')
+    except Exception:
+        pass  # not Windows, or the call is unavailable: cosmetic either way
 
 
 def run_viewer(old=None, new=None, exclude=(), arxml_only=False):
     app = QApplication.instance()
     owns = app is None
     if owns:
+        _taskbar_identity()
         app = QApplication(sys.argv[:1])
     _apply_dark(app)
+    app.setApplicationName('CodeGen Compare')
+    app.setWindowIcon(app_icon())
     win = MainWindow(old, new, exclude, arxml_only)
     win.show()
     return app.exec() if owns else 0

@@ -95,6 +95,20 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r['status'], 'ignorable-only')
         self.assertEqual(set(kinds(r)), {'timestamp'})
 
+    def test_arxml_sw_version_only(self):
+        old = '<A>\n<SW-VERSION>1.0.0</SW-VERSION>\n<B>x</B>\n</A>\n'
+        new = '<A>\n<SW-VERSION>1.1.0</SW-VERSION>\n<B>x</B>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'sw-version'})
+
+    def test_arxml_sw_version_bump_beside_real_change_stays_real(self):
+        # fail-safe: a version bump does not launder a real change next to it
+        old = '<A>\n<SW-VERSION>1.0.0</SW-VERSION>\n<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n'
+        new = '<A>\n<SW-VERSION>1.1.0</SW-VERSION>\n<SHORT-NAME>Velocity</SHORT-NAME>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'real-change')
+
     def test_arxml_real(self):
         old = '<A UUID="1">\n<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n'
         new = '<A UUID="2">\n<SHORT-NAME>Velocity</SHORT-NAME>\n</A>\n'

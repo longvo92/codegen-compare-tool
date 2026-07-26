@@ -3,54 +3,75 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
-## [1.0.0] — 2026-07-24
+## [1.1.0] — 2026-07-26
 
-First stable release. The tool grew from "write an HTML report" into three
-front ends over one compare core, and the classification vocabulary settled,
-so the API and the verdicts are now considered stable.
+The side-by-side viewer is now the main way to use the tool, with
+per-change review notes.
 
 ### Added
 
-- **Side-by-side viewer** (`--qt`, PySide6): folder tree plus a two-pane
-  old/new diff aligned line-for-line and scrolled in lockstep, with the exact
-  changed characters highlighted inside each line.
-  - **VS Code-style minimap**: the file's code shape in miniature, changed
-    lines striped in their colour, draggable viewport slider.
-  - **Quick-changes panel**: the `--arxml-only` rollup live in the app —
-    updated ARXML/A2L files, port interfaces, software components, ports,
-    runnables, events, RTE access points, A2L objects. Click a row to jump.
-  - **Change navigation** (`F7` / `F8`) skipping noise, with the current block
-    highlighted on both sides and a `change 3 of 7` counter.
-  - **Drag & drop** the OLD/NEW folders onto the window; **Export report…**
-    (`Ctrl+E`) writes the CLI's HTML report.
-  - **Category rules**: unticking `Comment` / `Unimportant` re-judges each
-    affected file as Identical or Modified, instantly and without rescanning.
-    Real changes can never be folded away.
-- **Comment as its own change category**, separate from the other ignorable
-  kinds (UUIDs, timestamps, renames, whitespace). Counted separately in the
-  CLI, with its own report badge, tree marker and line colour (purple).
-- **One packaged binary** — `.\build.ps1` produces `dist\compare-tool.exe`
-  carrying the CLI, the tkinter panel and the viewer together.
-- Shared `view_model` (whole-file alignment + intra-line spans) so the report
-  and the viewer can never disagree about what changed.
+- Branded window, taskbar icon and splash screen.
+- Built-in `User guide` (`F1`), `Release notes` and `About` — all work
+  offline.
+- `First change` / `Last change` buttons alongside `F7` / `F8`, plus a
+  `change 3 of 7` counter.
+- A folder-name banner over each diff pane, so which side is OLD and
+  which is NEW is never in doubt.
+- A status indicator (`Ready` / `Scanning…` / `Compare incomplete`).
+- `SW-VERSION` bumps are now treated as noise and ignored.
+- **Review sign-off** — write a note on any change and mark it `Reviewed`
+  (`Ctrl+R`) right from the diff pane.
+- Notes and sign-offs carry into the exported report, next to the change
+  they describe, with a badge to hide what's already reviewed.
+- Reviews save automatically to a file next to your NEW folder, so
+  regenerating the code doesn't lose them.
 
 ### Changed
 
-- The folder tree always shows the whole structure; a verdict never removes a
-  row, so the layout does not shift while reviewing.
-- Exported reports are built from the raw scan, never from the folded
-  on-screen view: a category hidden in the viewer still appears in the file
-  with its real verdict.
-- Packaging is a single script and spec (replacing the separate CLI and viewer
-  builds). The binary is a console build on purpose so terminal runs keep
-  stdout and the exit code the CI gate depends on.
+- The viewer is now what opens by default — just run the tool with no
+  folders.
+- Navigation and export moved to a bar at the bottom, next to the diff.
+- Unticking `Comment` or `Unimportant` in the viewer now hides those lines
+  in the diff itself, not just the file's status.
+- Report header is simpler: **Modified / Unimportant / Added / Deleted**,
+  plus **Reviewed**.
+- Comment-only and identical files no longer clutter the HTML report
+  (still visible in the viewer, still marked in the folder tree).
+- Report header shows folder names instead of long file paths.
 
-### Fail-safe behaviour (unchanged, restated)
+### Removed
 
-- Anything that cannot be *proven* to be noise is reported as a real change.
-- A path that could not be listed, read or compared is a loud `error`: exit
-  code `2`, a red banner in the report and in the viewer, never a silent
-  omission — and `--exit-zero` does not suppress it.
+- The old separate panel (`--gui`) — fully replaced by the viewer.
+
+### If you script this tool
+
+Two things to check before upgrading. Pipelines that name both folders are
+unaffected: `--report`, `--arxml-only`, `--exclude`, `--exit-zero` and the
+`0` / `1` / `2` exit codes all behave exactly as before.
+
+- `--gui` no longer exists. An old call now fails with exit code `2`, which
+  in this tool means *compare incomplete* — so it looks like a compare error,
+  not a typo. Use `--qt` (or `--viewer`) instead.
+- Running with no folders used to be a usage error; it now opens the viewer.
+  A script that passes an empty path will wait on a window instead of exiting.
+
+## [1.0.0] — 2026-07-24
+
+First stable release.
+
+### Added
+
+- **Side-by-side viewer**: folder tree, two-pane diff with a minimap,
+  drag-and-drop folders, and one-click export to HTML.
+- Comment-only changes get their own category, separate from other noise.
+- One packaged `.exe` with everything included — nothing to install.
+
+### Changed
+
+- Folder tree always shows every file, so nothing goes missing from view.
+- Exported reports always show the full picture, even if something was
+  hidden on screen.
+- Packaging simplified to a single build step.
 
 ## [0.4.0] and earlier
 

@@ -155,9 +155,26 @@ class TestArxml(unittest.TestCase):
         s = arxml_rules.strip_dates('<DATE>2026-01-05</DATE>')
         self.assertNotIn('2026', s)
 
+    def test_sw_version_blanked_keeping_line_count(self):
+        src = "<x>\n<SW-VERSION>1.2.3</SW-VERSION>\n<y/></x>"
+        s = arxml_rules.strip_sw_version(src)
+        self.assertEqual(s.count('\n'), src.count('\n'))
+        self.assertNotIn('1.2.3', s)
+        self.assertIn('<y/>', s)
+
+    def test_sw_version_does_not_touch_similarly_named_tags(self):
+        # anchored: SW-MAJOR-VERSION and SW-VERSIONING must survive untouched
+        src = '<SW-MAJOR-VERSION>4</SW-MAJOR-VERSION><SW-VERSIONING>on</SW-VERSIONING>'
+        self.assertEqual(arxml_rules.strip_sw_version(src), src)
+
     def test_shadow_equal_for_uuid_only(self):
         a = '<E UUID="1"><SHORT-NAME>X</SHORT-NAME></E>'
         b = '<E UUID="2"><SHORT-NAME>X</SHORT-NAME></E>'
+        self.assertEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
+
+    def test_shadow_equal_for_sw_version_only(self):
+        a = '<E><SW-VERSION>1.0.0</SW-VERSION><SHORT-NAME>X</SHORT-NAME></E>'
+        b = '<E><SW-VERSION>1.1.0</SW-VERSION><SHORT-NAME>X</SHORT-NAME></E>'
         self.assertEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
 
     def test_shadow_differs_for_real_change(self):
