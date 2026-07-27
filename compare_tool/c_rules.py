@@ -142,8 +142,13 @@ def _collect_line_pair_renames(old_line, new_line, mapping, accept=None):
     return True
 
 
-def detect_renames(old_shadow, new_shadow):
+def detect_renames(old_shadow, new_shadow, hunks=None):
     """Build a best-effort 1-1 identifier rename map between two shadows.
+
+    ``hunks`` is the caller's already-computed list of changed
+    ``(i1, i2, j1, j2)`` ranges over the same two shadows. Passing it skips a
+    second line diff, which on a large generated file costs as much as the
+    whole rest of the compare. Omit it and the diff is done here.
 
     Candidate pairs are collected line-by-line from changed line pairs.
     Lines containing any non-rename difference are skipped: they simply
@@ -165,12 +170,13 @@ def detect_renames(old_shadow, new_shadow):
     """
     old_lines = old_shadow.split('\n')
     new_lines = new_shadow.split('\n')
-    sm = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    if hunks is None:
+        sm = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+        hunks = [(i1, i2, j1, j2) for tag, i1, i2, j1, j2 in sm.get_opcodes()
+                 if tag != 'equal']
     fwd = {}  # old name -> set of new names seen
     rev = {}  # new name -> set of old names seen
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == 'equal':
-            continue
+    for i1, i2, j1, j2 in hunks:
         a = [l for l in old_lines[i1:i2] if l.strip()]
         b = [l for l in new_lines[j1:j2] if l.strip()]
         for la, lb in zip(a, b):
@@ -214,24 +220,61 @@ MANGLE_SUFFIX_RE = re.compile(r'_[a-z]\d{0,2}$')
 # temp is inserted or removed (tmp_1 -> tmp_2, i_0 -> i_1, loop_ub_2 ...).
 TEMP_NAME_RE = re.compile(r'^(tmp|idx|loop_ub|[ijk])(?:_\d+)?$')
 
+# Prefixes Embedded Coder emits itself: block-output buffers, reusable
+# subsystem argument/local copies, model data pointers. Nobody types these,
+# so a mangle tail on one of them is regeneration churn. Names outside the
+# list keep their tail as meaning — SIG_TORQUE_MIN and SIG_TORQUE_MAX are
+# not the same signal, and an allowlist is the only way to tell them apart
+# from rtb_AND_c4nxjoom3d and rtb_AND_j2kqp1wxab.
+GEN_PREFIX_RE = re.compile(
+    r'^(?:rtb|rtu|rty|rtDW|rtP|rtC|rtZC|rtPrevZC'
+    r'|localB|localDW|localP|localX|localZCE)_')
+
+# DWork/state fields carry no generated prefix (they are
+# <BlockName>_DSTATE_<mangle>), so the field kind is what identifies them.
+DWORK_FIELD_RE = re.compile(
+    r'_(?:DSTATE|PreviousInput|ELAPS_T|MODE|SubsysRanBC|AlreadyDone'
+    r'|Buffer|BufferPtr|Index|FirstOutput|RandSeed|SEED)(?=_|$)')
+
+# What the generator appends to break a name collision: a short mangle
+# (_c, _o4) or a block-path checksum (_c4nxjoom3d). The checksum form
+# requires a digit, so a lowercase word tail is not mistaken for one.
+# A block's own digits are attached WITHOUT an underscore (rtb_Switch1), so
+# the underscore is what separates the chosen name from the generated tail.
+MANGLE_TAIL_RE = re.compile(r'_(?:[a-z]\d{0,2}|(?=[a-z0-9]*\d)[a-z0-9]{8,12})$')
+
+
+def generated_root(name):
+    """Root of a generator-owned name with its mangle tail removed, or None
+    when the generator does not own the name."""
+    if GEN_PREFIX_RE.match(name) or DWORK_FIELD_RE.search(name):
+        return MANGLE_TAIL_RE.sub('', name)
+    return None
+
 
 def is_autogen_name_pair(a, b, old_ids=None, new_ids=None):
     """True when replacing identifier a with b is Simulink codegen naming
     noise rather than a semantic change:
 
-    - both are rtb_* block-output buffer names (rtb_Switch -> rtb_Switch_h,
-      rtb_Sum1 -> rtb_SumOfElements)
+    - both are generator-owned names (rtb_*, rtu_*, localB_*, *_DSTATE, ...)
+      sharing a root once the mangle tail is stripped: rtb_AND_c4nxjoom3d ->
+      rtb_AND_j2kqp1wxab, rtb_Switch -> rtb_Switch_h. The root has to match:
+      rtb_AND_x -> rtb_OR_y is a different block feeding the same buffer,
+      which is exactly the rewiring this tool must not hide.
     - both are the same Coder temp/loop base with a different number
       (tmp -> tmp_0, i_1 -> i_3)
     - same root under a single-letter mangle suffix (Gain_Gain_c ->
       Gain_Gain_o4). This generic case additionally requires — when the
       old_ids/new_ids identifier sets are given — that the old name vanished
       from NEW and the new name did not exist in OLD, so a rewiring like
-      pos_x -> pos_y (both real signals) stays a real change.
+      pos_x -> pos_y (both real signals) stays a real change. The generated
+      case does not need that guard: mangle tails are function-scoped and
+      get reused across functions in the same file.
     """
     if a == b or not (is_identifier(a) and is_identifier(b)):
         return False
-    if a.startswith('rtb_') and b.startswith('rtb_'):
+    gen_a = generated_root(a)
+    if gen_a is not None and gen_a == generated_root(b):
         return True
     ta, tb = TEMP_NAME_RE.match(a), TEMP_NAME_RE.match(b)
     if ta and tb:

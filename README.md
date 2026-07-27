@@ -116,7 +116,9 @@ Full walkthrough is built into the app — `Help` → `User guide` (`F1`), which
 | `whitespace` | Indentation, trailing spaces, blank lines | all |
 | `line-endings` | CRLF vs LF, BOM | all |
 
-Auto-generated name churn is recognised as a `rename`: Embedded Coder temporaries such as `rtb_*`, mangling suffixes and renumbered temporaries change between runs without changing behaviour.
+Auto-generated name churn is recognised as a `rename`. Two identifiers count as the same name only when the code generator owns both — a generated prefix (`rtb_`, `rtu_`, `rty_`, `rtDW`, `rtP`, `rtC`, `rtZC`, `localB`, `localDW`, …) or a DWork field (`_DSTATE`, `_PreviousInput`, `_MODE`, `_SubsysRanBC`, …) — **and** they share a root once the generated tail is removed. The tail is a mangling suffix (`_c`, `_o4`) or a block-path checksum (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`); renumbered MATLAB Coder temporaries (`tmp`, `idx`, `loop_ub`, `i`) are covered too.
+
+Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` → `SIG_TORQUE_MAX` and `CFG_TIMEOUT_MS` → `CFG_TIMEOUT_US` are real changes, and so is `rtb_AND_…` → `rtb_OR_…`: the root changed, so a different block drives that buffer. Digits glued to a block name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
 
 **Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
 

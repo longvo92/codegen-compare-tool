@@ -191,6 +191,83 @@ class TestAutogenNoise(unittest.TestCase):
         self.assertEqual(len(real), 1)
         self.assertEqual(real[0]['old_range'], [12, 13])
 
+    # block-path checksums: every rtb_ buffer is renamed, nothing else moves
+    HASH_OLD = ("void step(void)\n{\n"
+                "  boolean_T rtb_AND_c4nxjoom3d;\n"
+                "  boolean_T rtb_OR_acr5fhzcjc;\n"
+                "  rtb_AND_c4nxjoom3d = (u > 5.0F);\n"
+                "  rtb_OR_acr5fhzcjc = (rtb_AND_c4nxjoom3d || ovr);\n"
+                "  y = rtb_OR_acr5fhzcjc;\n}\n")
+    HASH_NEW = ("void step(void)\n{\n"
+                "  boolean_T rtb_AND_j2kqp1wxab;\n"
+                "  boolean_T rtb_OR_h9vmz0trns;\n"
+                "  rtb_AND_j2kqp1wxab = (u > 5.0F);\n"
+                "  rtb_OR_h9vmz0trns = (rtb_AND_j2kqp1wxab || ovr);\n"
+                "  y = rtb_OR_h9vmz0trns;\n}\n")
+
+    def test_checksum_rename_ignorable(self):
+        r = compare_pair(self.HASH_OLD, self.HASH_NEW, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_checksum_rename_beside_real_change_stays_real(self):
+        old = self.HASH_OLD + "int lim = 5;\n"
+        new = self.HASH_NEW + "int lim = 10;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        real = [h for h in r['hunks'] if h['kind'] == 'real']
+        self.assertEqual(len(real), 1)
+        self.assertEqual(real[0]['old_range'], [8, 9])
+
+    def test_rtb_root_change_stays_real(self):
+        # the two buffers trade places, so the strict 1-1 map is rejected and
+        # the hunk-local autogen rule decides. rtb_AND -> rtb_OR is a
+        # different block driving the buffer, not a mangle tail reshuffle.
+        old = ("void f1(void)\n{\n  rtb_AND_c4nxjoom3d = a && b;\n"
+               "  y1 = rtb_AND_c4nxjoom3d;\n}\n"
+               "void f2(void)\n{\n  rtb_OR_acr5fhzcjc = c || d;\n"
+               "  y2 = rtb_OR_acr5fhzcjc;\n}\n")
+        new = ("void f1(void)\n{\n  rtb_OR_acr5fhzcjc = a && b;\n"
+               "  y1 = rtb_OR_acr5fhzcjc;\n}\n"
+               "void f2(void)\n{\n  rtb_AND_c4nxjoom3d = c || d;\n"
+               "  y2 = rtb_AND_c4nxjoom3d;\n}\n")
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_blank_shadow_lines_do_not_swallow_a_real_change(self):
+        # stripping a banner leaves an empty shadow line, so a generated file
+        # is ~40% blank shadow. Those blanks are junk to the line matcher --
+        # this pins that treating them as junk still isolates the one real
+        # change sitting among them.
+        def body(gain):
+            out = []
+            for i in range(60):
+                out += ['/* Block: <S1>/Gain{} */'.format(i),
+                        '/* banner line */',
+                        '  rtb_G{} = u * {}.0;'.format(i, gain if i == 30 else 2),
+                        '']
+            return '\n'.join(out) + '\n'
+
+        r = compare_pair(body(2), body(9), 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        real = [h for h in r['hunks'] if h['kind'] == 'real']
+        self.assertEqual(len(real), 1)
+        self.assertEqual(real[0]['old_range'], [122, 123])
+
+    def test_comment_heavy_file_does_not_go_quadratic(self):
+        # SequenceMatcher is quadratic on runs of identical lines, and blanked
+        # comments are exactly that. This shape takes 0.07s with blank shadow
+        # lines treated as junk and 4.7s without, so the bound catches a
+        # return to quadratic with room to spare in both directions.
+        import time
+        old = '\n'.join('/* banner {} */\n  rtb_S_{} = u{};\n'.format(i, i, i % 7)
+                        for i in range(2500))
+        new = old.replace('u3;', 'u4;', 1)
+        t0 = time.perf_counter()
+        r = compare_pair(old, new, 'f.c')
+        self.assertLess(time.perf_counter() - t0, 1.5)
+        self.assertEqual(r['status'], 'real-change')
+
     def test_signal_rewiring_stays_real(self):
         # pos_y already exists in OLD: pos_x -> pos_y is rewiring, not mangle
         old = "out = pos_x;\nchk = pos_y;\n"

@@ -45,10 +45,37 @@ def _lines(text):
     return text.split('\n')
 
 
-def _diff_hunks(old_lines, new_lines):
-    """Non-equal opcodes of a line diff as (i1, i2, j1, j2) tuples."""
-    sm = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
-    return [(i1, i2, j1, j2) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
+def _blank(line):
+    return not line.strip()
+
+
+def _trim_common(a, b):
+    """(head, a_middle, b_middle) with the identical leading and trailing
+    lines removed; head is how far the middles were shifted."""
+    n = min(len(a), len(b))
+    head = 0
+    while head < n and a[head] == b[head]:
+        head += 1
+    tail = 0
+    while tail < n - head and a[-1 - tail] == b[-1 - tail]:
+        tail += 1
+    return head, a[head:len(a) - tail], b[head:len(b) - tail]
+
+
+def _diff_hunks(old_lines, new_lines, isjunk=None):
+    """Non-equal opcodes of a line diff as (i1, i2, j1, j2) tuples.
+
+    SequenceMatcher is quadratic in the worst case and a regenerated file
+    shares most of its lines with the baseline, so the identical head and
+    tail are trimmed before difflib sees them. Both the trimmed and the
+    untrimmed run produce a valid diff of the same two files; trimming only
+    removes work, and the block-boundary ambiguity it can shift is the same
+    one _slide_down already normalises.
+    """
+    head, a, b = _trim_common(old_lines, new_lines)
+    sm = SequenceMatcher(isjunk, a, b, autojunk=False)
+    return [(i1 + head, i2 + head, j1 + head, j2 + head)
+            for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
 
 
 def _is_blank_hunk(h, old_shadow_lines, new_shadow_lines):
@@ -247,8 +274,16 @@ def compare_pair(old_text, new_text, path):
     new_shadow_lines = _lines(new_shadow)
 
     # candidate real hunks from shadow diff (blank-only hunks are pure
-    # comment/whitespace line insertions -> not real)
-    candidates = [h for h in _diff_hunks(old_shadow_lines, new_shadow_lines)
+    # comment/whitespace line insertions -> not real).
+    #
+    # Blank shadow lines are junk to the matcher. Stripping a comment leaves
+    # an empty line behind, so a comment-heavy generated file is ~40% empty
+    # shadow lines, and difflib spends quadratic time matching thousands of
+    # identical '' against each other (measured: 45s vs 0.3s on a 7k-line
+    # file). It is not a widening: a blank shadow line is by construction not
+    # a difference, which is what _is_blank_hunk below already asserts.
+    shadow_hunks = _diff_hunks(old_shadow_lines, new_shadow_lines, isjunk=_blank)
+    candidates = [h for h in shadow_hunks
                   if not _is_blank_hunk(h, old_shadow_lines, new_shadow_lines)]
 
     # rename detection (C only). The map is best-effort: it is verified by
@@ -257,10 +292,11 @@ def compare_pair(old_text, new_text, path):
     rename_map = None
     final_old_shadow_lines = old_shadow_lines
     if ruleset == 'c' and candidates:
-        rename_map = c_rules.detect_renames(old_shadow, new_shadow)
+        rename_map = c_rules.detect_renames(old_shadow, new_shadow, shadow_hunks)
         if rename_map:
             old_shadow2_lines = _lines(c_rules.apply_rename_map(old_shadow, rename_map))
-            remaining = [h for h in _diff_hunks(old_shadow2_lines, new_shadow_lines)
+            remaining = [h for h in _diff_hunks(old_shadow2_lines, new_shadow_lines,
+                                                isjunk=_blank)
                          if not _is_blank_hunk(h, old_shadow2_lines, new_shadow_lines)]
             if remaining == candidates:
                 rename_map = None  # map explained nothing

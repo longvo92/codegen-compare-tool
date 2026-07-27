@@ -78,8 +78,45 @@ class TestRename(unittest.TestCase):
 class TestAutogenNames(unittest.TestCase):
     def test_rtb_pair(self):
         self.assertTrue(c_rules.is_autogen_name_pair('rtb_Switch', 'rtb_Switch_h'))
-        # rtb-to-rtb counts even when the root changed (signal relabeled)
-        self.assertTrue(c_rules.is_autogen_name_pair('rtb_Sum1', 'rtb_SumOfElements'))
+        # the block-path checksum Embedded Coder appends on a name collision
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'rtb_AND_c4nxjoom3d', 'rtb_AND_j2kqp1wxab'))
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'rtb_RelationalOperator_flz3jd3buf',
+            'rtb_RelationalOperator_dq7ybe5cui'))
+
+    def test_rtb_pair_needs_matching_root(self):
+        # a different block feeding the buffer is a rewiring, not a mangle
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'rtb_AND_c4nxjoom3d', 'rtb_OR_acr5fhzcjc'))
+        self.assertFalse(c_rules.is_autogen_name_pair('rtb_Sum1', 'rtb_SumOfElements'))
+        # digits glued to the block name are the name, not a mangle tail
+        self.assertFalse(c_rules.is_autogen_name_pair('rtb_Switch1', 'rtb_Switch2'))
+
+    def test_other_generated_prefixes(self):
+        for a, b in (('rtu_In1_a', 'rtu_In1_p'),
+                     ('localB_Sub_c4nxjoom3d', 'localB_Sub_j2kqp1wxab'),
+                     ('localDW_Delay_e', 'localDW_Delay_h9vmz0trns')):
+            self.assertTrue(c_rules.is_autogen_name_pair(a, b), (a, b))
+
+    def test_dwork_field_pair(self):
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Delay_DSTATE_flz3jd3buf', 'Delay_DSTATE_dq7ybe5cui'))
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Sub_SubsysRanBC_a', 'Sub_SubsysRanBC_o4'))
+        # same field kind, different block: real
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'Delay_DSTATE_a', 'Memory_DSTATE_a'))
+
+    def test_hand_written_names_never_touched(self):
+        # no generated prefix -> the tail keeps its meaning, whatever it is
+        for a, b in (('SIG_TORQUE_MIN', 'SIG_TORQUE_MAX'),
+                     ('Timer_Start', 'Timer_Stop'),
+                     ('CFG_TIMEOUT_MS', 'CFG_TIMEOUT_US'),
+                     ('Brake_Pressure_Front', 'Brake_Pressure_Rear'),
+                     ('Rte_Write_PpOut_Speed', 'Rte_Write_PpOut_Torque'),
+                     ('ADC_CH_0', 'ADC_CH_7')):
+            self.assertFalse(c_rules.is_autogen_name_pair(a, b), (a, b))
 
     def test_mangle_suffix_pair(self):
         self.assertTrue(c_rules.is_autogen_name_pair('Gain_Gain_c', 'Gain_Gain_o4'))

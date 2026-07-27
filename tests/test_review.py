@@ -318,7 +318,7 @@ class TestReportRendering(unittest.TestCase):
         page = self._page()
         self.assertIn('Gain raised for the new plant.', page)
         self.assertIn('&#10003; Reviewed', page)
-        self.assertIn('1 of 7 Reviewed', page)
+        self.assertIn('1 of 8 Reviewed', page)
 
     def test_a_note_without_the_tick_still_shows_but_does_not_hide(self):
         self.store.set(self.rel, self.unit.key, 'Asking the integrator.', False,
@@ -327,7 +327,7 @@ class TestReportRendering(unittest.TestCase):
         self.assertIn('Asking the integrator.', page)
         self.assertIn('rvnote pending', page)
         self.assertNotIn(_GRP_REV, page)
-        self.assertIn('0 of 7 Reviewed', page)
+        self.assertIn('0 of 8 Reviewed', page)
 
     def test_reviewed_change_is_marked_hideable_but_stays_in_the_record(self):
         self.store.set(self.rel, self.unit.key, 'ok', True, self.unit.label)
@@ -348,7 +348,7 @@ class TestReportRendering(unittest.TestCase):
         page = self._page()
         self.assertNotIn('signed off long ago', page)
         self.assertNotIn(_GRP_REV, page)
-        self.assertIn('0 of 7 Reviewed', page)
+        self.assertIn('0 of 8 Reviewed', page)
 
     def test_unreadable_review_file_is_loud_in_the_report(self):
         broken = review.ReviewStore(path='x.json', error='ValueError: bad')

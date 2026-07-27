@@ -22,6 +22,13 @@ All notable changes to this project are documented here. Versions follow
 
 ### Changed
 
+- **Built for large folders.** Comment-heavy `.c` and `.arxml` files compare in
+  a fraction of the time they used to, and the cost now tracks file size
+  rather than its square. Verdicts are unchanged.
+- **Generated-name churn is matched against known Embedded Coder prefixes.**
+  Block-path checksums (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`) and DWork
+  fields (`Delay_DSTATE_…`) fold as renames. The root has to match, so
+  `rtb_AND_…` → `rtb_OR_…` is a real change.
 - **`OLD`/`NEW` renamed to `BASELINE`/`CURRENT`** everywhere the viewer and the
   report show it. The CLI's own `old_dir`/`new_dir` are unchanged.
 - **One colour language for the diff.** Comment and Unimportant changes use the
