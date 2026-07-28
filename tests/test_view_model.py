@@ -8,7 +8,7 @@ import unittest
 from compare_tool.diff_engine import compare_pair
 from compare_tool.report import _char_diff
 from compare_tool.view_model import (Row, aligned_rows, char_span,
-                                     collapse_rows, hunk_row_starts)
+                                     collapse_rows, hunk_row_starts, row_with)
 
 
 class TestCharSpan(unittest.TestCase):
@@ -214,3 +214,41 @@ class TestCollapseRows(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestRowWith(unittest.TestCase):
+    """Locating the line a quick-changes row is about."""
+
+    @staticmethod
+    def _rows(*specs):
+        return [Row(i + 1, o, i + 1, n, mode, mode)
+                for i, (o, n, mode) in enumerate(specs)]
+
+    def test_prefers_a_changed_row(self):
+        rows = self._rows(
+            ('  CHARACTERISTIC K_Gain 1', '  CHARACTERISTIC K_Gain 1', 'ctx'),
+            ('  K_Gain = 2', '  K_Gain = 3', 'real'))
+        self.assertEqual(row_with(rows, 'K_Gain'), 1)
+
+    def test_falls_back_to_context_when_the_name_line_is_untouched(self):
+        # an event whose period moved still declares its SHORT-NAME unchanged
+        rows = self._rows(
+            ('<SHORT-NAME>TE_Step</SHORT-NAME>', '<SHORT-NAME>TE_Step</SHORT-NAME>',
+             'ctx'),
+            ('<PERIOD>0.01</PERIOD>', '<PERIOD>0.02</PERIOD>', 'real'))
+        self.assertEqual(row_with(rows, 'TE_Step'), 0)
+
+    def test_does_not_match_a_longer_name(self):
+        rows = self._rows(('  x = In20;', '  x = In21;', 'real'))
+        self.assertIsNone(row_with(rows, 'In2'))
+        rows = self._rows(('  y = Prev_In2;', '  y = Next_In2;', 'real'))
+        self.assertIsNone(row_with(rows, 'In2'))
+
+    def test_matches_between_punctuation(self):
+        rows = self._rows(('<SHORT-NAME>In2</SHORT-NAME>', None, 'real'))
+        self.assertEqual(row_with(rows, 'In2'), 0)
+
+    def test_absent_name_and_empty_key(self):
+        rows = self._rows(('a', 'b', 'real'))
+        self.assertIsNone(row_with(rows, 'Nope'))
+        self.assertIsNone(row_with(rows, ''))

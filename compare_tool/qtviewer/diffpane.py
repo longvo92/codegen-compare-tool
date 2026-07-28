@@ -27,7 +27,7 @@ from .. import review
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
 from ..view_model import (aligned_rows, char_span, collapse_rows,
-                          hunk_row_starts)
+                          hunk_row_starts, row_with)
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
 from .minimap import Minimap
@@ -744,6 +744,22 @@ class DiffPane(QStackedWidget):
             return
         cur = self.old_edit.textCursor().blockNumber()
         self._reveal(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))
+
+    def goto_name(self, key):
+        """Jump to the first changed row naming `key`. True when it landed.
+
+        Used by the quick-changes panel: it knows *what* changed but not where,
+        and opening the file at change 1 makes a row about the eighth
+        CHARACTERISTIC look like it pointed at the wrong thing. False when the
+        name is not in a changed row -- the caller leaves the pane where the
+        file's own first change put it rather than scrolling somewhere
+        arbitrary.
+        """
+        i = row_with(self.rows, key)
+        if i is None:
+            return False
+        self._reveal(i)
+        return True
 
     def first_change(self):
         if self._stops:

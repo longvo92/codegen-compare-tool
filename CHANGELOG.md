@@ -51,6 +51,8 @@ All notable changes to this project are documented here. Versions follow
 
 ### Fixed
 
+- Quick-changes rows now open on the object they name — an A2L characteristic,
+  a port, an RTE access point — instead of on the file's first change.
 - Clicking inside a highlighted change no longer paints every file opened
   afterwards in that colour, on that pane.
 

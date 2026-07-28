@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
         # quick-changes rollup under the tree: the same "what changed in the
         # model / calibration" view --arxml-only gives, without leaving the app
         self.summary = SummaryPanel()
-        self.summary.fileActivated.connect(self._reselect)
+        self.summary.fileActivated.connect(self._jump_to_name)
         left = QSplitter(Qt.Vertical)
         left.addWidget(tree_box)
         left.addWidget(self.summary)
@@ -1038,6 +1038,19 @@ class MainWindow(QMainWindow):
     def _selected_rel(self):
         items = self.tree.selectedItems()
         return items[0].data(0, REL_ROLE) if items else None
+
+    def _jump_to_name(self, rel, key):
+        """Open `rel` from the quick-changes panel, on the hunk about `key`.
+
+        Selecting the tree item loads the file, which parks on its first
+        change; the second step moves to the object the clicked row is
+        actually about. A row whose name is not in a changed line (a fold is
+        hiding it, or the name only occurs in context) leaves the pane on that
+        first change rather than scrolling somewhere unrelated.
+        """
+        self._reselect(rel)
+        if key:
+            self.diff.goto_name(key)
 
     def _reselect(self, rel):
         """Re-open the file that was showing before a rescan."""

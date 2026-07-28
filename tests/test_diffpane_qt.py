@@ -107,5 +107,59 @@ class TestCaretDoesNotPaint(unittest.TestCase):
         self.assertEqual(_backgrounds(self.pane.old_edit), clean)
 
 
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestQuickChangesJump(unittest.TestCase):
+    """Activating a quick-changes row must land on that object's line.
+
+    The panel carries the name as spelled in the file for exactly this; before
+    it did, every row opened its file at change 1, so a row about the eighth
+    CHARACTERISTIC looked like it pointed at the wrong one.
+    """
+
+    def _window(self, old, new):
+        from compare_tool.qtviewer.app import MainWindow
+        self.app = _app()
+        win = MainWindow(str(old), str(new))
+        win.resize(1400, 800)
+        win.setAttribute(Qt.WA_DontShowOnScreen, True)
+        win.show()
+        for _ in range(60):
+            self.app.processEvents()
+        self.addCleanup(win.close)
+        return win
+
+    def _rows(self, win):
+        from compare_tool.qtviewer.summary import KEY_ROLE
+        panel = win.summary
+        out = []
+        for i in range(panel.topLevelItemCount()):
+            head = panel.topLevelItem(i)
+            for j in range(head.childCount()):
+                child = head.child(j)
+                out.append((child, child.data(0, KEY_ROLE)))
+        return panel, out
+
+    def _check(self, old, new):
+        win = self._window(old, new)
+        panel, rows = self._rows(win)
+        self.assertTrue(rows, 'fixture produced no quick-changes rows')
+        for item, key in rows:
+            self.assertTrue(key, 'row {!r} carries no name'.format(item.text(0)))
+            panel.itemClicked.emit(item, 0)
+            for _ in range(5):
+                self.app.processEvents()
+            landed = win.diff.old_edit.textCursor().blockNumber()
+            self.assertLess(landed, len(win.diff.rows))
+            row = win.diff.rows[landed]
+            self.assertIn(key, (row.new_txt or '') + (row.old_txt or ''),
+                          'row {!r} landed on line {}'.format(item.text(0), landed))
+
+    def test_every_row_lands_on_its_own_object(self):
+        self._check(FIX / 'old', FIX / 'new')
+
+    def test_every_row_lands_on_its_own_object_in_the_model_fixture(self):
+        self._check(FIX / 'model_old', FIX / 'model_new')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -74,7 +74,8 @@ GUIDE = """
 
 - Header shows `change 3 of 7`
 - Export writes the full HTML report -- folded categories still included
-- **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump
+- **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump straight
+  to the line that names that object
 
 | Shortcut | Action |
 |---|---|
