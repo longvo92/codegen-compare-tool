@@ -104,6 +104,10 @@ class MainWindow(QMainWindow):
         self._units = {}          # rel -> reviewable units, read once per scan
         self._git_temp = None     # where commits are checked out, this session
         self._old_label = None    # what OLD is, when its folder does not say
+        # one scan, one automatic jump to the first change. Flipping a compare
+        # rule re-judges the same scan and must NOT drag the reviewer off the
+        # file they are reading.
+        self._autoselect = False
 
         self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
         self.setWindowIcon(app_icon())
@@ -160,12 +164,24 @@ class MainWindow(QMainWindow):
             'timestamps, renames, whitespace): each such file is then reported '
             'as Identical or Modified.')
         self.cb_unimportant.toggled.connect(self._apply_rules)
+        # a display filter, NOT a compare rule: it removes rows from the tree
+        # without touching a verdict, which is why it sits apart from the two
+        # above. A regenerated tree is mostly untouched files, and scrolling
+        # past hundreds of '=' rows to reach five changed ones is its own way
+        # of hiding them.
+        self.cb_hide_identical = QCheckBox('Hide identical')
+        self.cb_hide_identical.setToolTip(
+            'Leave only the files with a difference in the tree. Nothing is '
+            're-judged: verdicts, counts and the exported report are unchanged. '
+            'Files folded to Identical by the two boxes on the left go too.')
+        self.cb_hide_identical.toggled.connect(self._refresh_tree_keep_selection)
         rules = QHBoxLayout()
         rules.setContentsMargins(0, 0, 0, 0)
         rules.addWidget(QLabel('Report:'))
         rules.addWidget(self.cb_comment)
         rules.addWidget(self.cb_unimportant)
         rules.addStretch(1)
+        rules.addWidget(self.cb_hide_identical)
 
         tree_box = QWidget()
         lv = QVBoxLayout(tree_box)
@@ -272,18 +288,21 @@ class MainWindow(QMainWindow):
                                 'commits — no second folder to choose')
         self.act_git.triggered.connect(self._pick_commit)
 
+        # First/Last stay inside the open file -- they mean "this file's ends".
+        # Previous/Next run off them into the next file with something to
+        # review, so a whole compare can be walked on F7/F8 alone.
         nav = (('act_first', 'nav-first-change', 'First change', 'Ctrl+Home',
-                self.diff.first_change),
+                self.diff.first_change, 'in this file'),
                ('act_prev', 'nav-prev-change', 'Previous change', 'F7',
-                self.diff.prev_change),
+                self._prev_change, 'crosses into the previous changed file'),
                ('act_next', 'nav-next-change', 'Next change', 'F8',
-                self.diff.next_change),
+                self._next_change, 'crosses into the next changed file'),
                ('act_last', 'nav-last-change', 'Last change', 'Ctrl+End',
-                self.diff.last_change))
-        for attr, glyph, text, key, slot in nav:
+                self.diff.last_change, 'in this file'))
+        for attr, glyph, text, key, slot, scope in nav:
             act = QAction(icon(glyph), text, self)
             act.setShortcut(key)
-            act.setToolTip('{} ({}) — noise is skipped'.format(text, key))
+            act.setToolTip('{} ({}) — noise is skipped, {}'.format(text, key, scope))
             act.triggered.connect(slot)
             setattr(self, attr, act)
         # these four live in the diff pane's own header, beside the file name
@@ -796,6 +815,7 @@ class MainWindow(QMainWindow):
 
     def _on_done(self, results):
         self._raw_results = results
+        self._autoselect = True  # consumed by _apply_rules, below
         # the rollup reports the scan itself, never the folded view: a hidden
         # category must not make the model look untouched
         self.summary.set_results(results)
@@ -823,6 +843,9 @@ class MainWindow(QMainWindow):
         self.diff.set_fold_modes([self._FOLD_MODE[f] for f in fold])
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
+        if self._autoselect:
+            self._autoselect = False
+            self._select_first_change()
         counts = summarize(self.results)
         self.counts_label.setText(
             '{real-change} modified · {comment-only} comment-only · '
@@ -907,8 +930,17 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         if not self.results:
             return
-        self._fill_tree(filter_nodes(build_nodes(self.results),
-                                     text=self.filter_edit.text()))
+        self._fill_tree(filter_nodes(
+            build_nodes(self.results), text=self.filter_edit.text(),
+            hide_identical=self.cb_hide_identical.isChecked()))
+
+    def _refresh_tree_keep_selection(self):
+        """Rebuild the tree and put the reviewer back on the file they were
+        reading. Toggling a display filter is not a reason to lose the diff on
+        screen -- unless that very file is what the filter just hid."""
+        keep = self._selected_rel()
+        self._refresh_tree()
+        self._reselect(keep)
 
     def _fill_tree(self, nodes):
         def add(parent, node, prefix):
@@ -1039,6 +1071,80 @@ class MainWindow(QMainWindow):
         items = self.tree.selectedItems()
         return items[0].data(0, REL_ROLE) if items else None
 
+    # --- walking the files, not just the changes inside one ---
+    #
+    # verdicts a review pass has to look at: everything that is not noise. A
+    # finished scan opens on the first of these, and F7/F8 step between them
+    # once the current file runs out of changes.
+    _NAV_STATUS = ('error', 'real-change', 'added', 'deleted')
+
+    def _tree_rels(self):
+        """Every file row, in the order the tree shows it.
+
+        Read from the TREE and not from the results dict on purpose: rows the
+        path filter or `Hide identical` took off screen must not be what F8
+        jumps to, and the tree is the only thing that knows what is visible.
+        """
+        out = []
+
+        def walk(item):
+            rel = item.data(0, REL_ROLE)
+            if rel is not None:
+                out.append(rel)
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+        return out
+
+    def _is_nav(self, rel):
+        r = self.results.get(rel)
+        return bool(r) and r['status'] in self._NAV_STATUS
+
+    def _select_first_change(self):
+        """Open the first file a reviewer would have to read. Called once per
+        scan: landing on an empty pane next to a tree full of results makes the
+        reviewer's first act a hunt for where the changes are, which the tool
+        already knows."""
+        rel = next((r for r in self._tree_rels() if self._is_nav(r)), None)
+        if rel:
+            self._reselect(rel)
+
+    def _step_file(self, delta, to_last=False):
+        """Move to the next (delta +1) or previous (-1) file with something to
+        review, wrapping round the whole compare. `to_last` parks on that
+        file's LAST change, so stepping backwards continues where the eye is."""
+        order = self._tree_rels()
+        nav = [r for r in order if self._is_nav(r)]
+        if not nav:
+            return
+        cur = self._selected_rel()
+        nxt = None
+        if cur in order:
+            i = order.index(cur)
+            after = order[i + 1:] if delta > 0 else list(reversed(order[:i]))
+            nxt = next((r for r in after if self._is_nav(r)), None)
+        wrapped = nxt is None
+        if wrapped:
+            nxt = nav[0] if delta > 0 else nav[-1]
+        self._reselect(nxt)  # loads the file and parks on its first change
+        if to_last:
+            self.diff.last_change()
+        self.statusBar().showMessage(
+            '{}{}'.format('Wrapped to ' if wrapped else '', nxt), 4000)
+
+    def _next_change(self):
+        """F8: the next change in this file, or the first change of the next
+        file with any. One key walks the whole compare instead of dead-ending
+        at the bottom of whichever file happens to be open."""
+        if not self.diff.next_change():
+            self._step_file(1)
+
+    def _prev_change(self):
+        if not self.diff.prev_change():
+            self._step_file(-1, to_last=True)
+
     def _jump_to_name(self, rel, key):
         """Open `rel` from the quick-changes panel, on the hunk about `key`.
 
@@ -1112,6 +1218,12 @@ QProgressBar { background:#232427; border:1px solid #3a3c42; border-radius:6px;
                text-align:center; color:#d0d0d0; }
 QProgressBar::chunk { background:#4F46E5; border-radius:5px; }
 QCheckBox { spacing:6px; }
+/* find strip: a band of its own between the header and the code, so it reads
+   as a tool over the diff rather than as part of the file being read */
+QWidget#findbar { background:#212226; border-top:1px solid #34363c;
+                  border-bottom:1px solid #34363c; }
+QWidget#findbar QToolButton { color:#9aa1ad; padding:2px 6px; border-radius:4px; }
+QWidget#findbar QToolButton:hover { background:#34363c; color:#e8e8e8; }
 """
 
 

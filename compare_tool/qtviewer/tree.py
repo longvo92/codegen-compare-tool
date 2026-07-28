@@ -91,24 +91,35 @@ def build_nodes(results):
     return walk(root)
 
 
-def filter_nodes(nodes, text=''):
+def filter_nodes(nodes, text='', hide_identical=False):
     """Narrow the tree to files whose path matches `text` (a directory
     survives only if a descendant matches, so empty folders collapse away).
 
-    Status is deliberately NOT a filter: the folder structure must stay stable
-    whatever the verdicts are, so a file never disappears from the tree just
-    because it is identical or noise-only. Hiding a change category folds it
-    into another verdict (see the compare rules) -- the row stays put and only
-    its label changes, so the tree never reshuffles under the reviewer."""
+    `hide_identical` additionally drops every file the compare found no
+    difference in. It is the one status-driven filter, and it is OFF by
+    default and asked for explicitly: a verdict never removes a row on its
+    own, because the folder structure has to stay stable while the reviewer
+    works. A regenerated tree is mostly untouched files, though, so scrolling
+    past hundreds of `=` rows to reach five changed ones is its own kind of
+    hiding -- the reviewer gets to make that call with a button they can undo.
+
+    Note this composes with the compare rules rather than fighting them: a
+    folded category re-judges its files as identical, so hiding identical
+    files hides those too. That is the point -- both say "this does not count".
+    """
     text = text.strip().lower()
-    if not text:
+    if not text and not hide_identical:
         return list(nodes)
     out = []
     for n in nodes:
         if n.is_dir:
-            kids = filter_nodes(n.children, text)
+            kids = filter_nodes(n.children, text, hide_identical)
             if kids:
                 out.append(n._replace(children=kids))
-        elif text in (n.rel or '').lower():
-            out.append(n)
+            continue
+        if hide_identical and n.status == 'identical':
+            continue
+        if text and text not in (n.rel or '').lower():
+            continue
+        out.append(n)
     return out

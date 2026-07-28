@@ -36,9 +36,11 @@ GUIDE = """
 
 ## 3. Read the tree
 
-- Every file always listed -- a verdict never removes a row
+- Every file listed -- a verdict never removes a row on its own
 - A folder shows its heaviest child verdict
 - Box above the tree filters by path
+- `Hide identical` leaves only the files with a difference. It is a view, not a
+  rule: verdicts, counts and the exported report do not change
 - Right-click a row: show it in Explorer, or copy its full path
 
 | Mark | Verdict | Meaning |
@@ -70,19 +72,29 @@ GUIDE = """
 | dim red / green | noise: comment, UUID, rename, whitespace |
 | blue | moved block |
 
-## 6. Navigate and export
+## 6. Navigate, find and export
 
+- The scan opens on the first change it found -- no hunting for it
 - Header shows `change 3 of 7`
+- `F8` past the last change of a file goes on to the **next file** with
+  something to review; `F7` goes back the same way. One key walks the whole
+  compare, and it wraps round at the end
+- `Ctrl+Home` / `Ctrl+End` stay inside the open file
+- `Ctrl+F` finds text in the open file -- either side counts, the match is
+  marked amber, and the search is kept when you move to another file
 - Export writes the full HTML report -- folded categories still included
 - **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump straight
   to the line that names that object
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+Home` | First change |
-| `F7` | Previous change |
-| `F8` | Next change |
-| `Ctrl+End` | Last change |
+| `Ctrl+Home` | First change (this file) |
+| `F7` | Previous change, crossing into the previous changed file |
+| `F8` | Next change, crossing into the next changed file |
+| `Ctrl+End` | Last change (this file) |
+| `Ctrl+F` | Find in this file |
+| `F3` / `Shift+F3` | Next / previous match |
+| `Esc` | Close the find bar |
 | `Ctrl+R` | Mark this change reviewed |
 | `Ctrl+Shift+R` | Mark the whole file reviewed |
 | `Ctrl+E` | Export report |
@@ -112,6 +124,8 @@ underneath it.
 ## Fail-safe
 
 - Unreadable or uncompared path -> red banner, `‼` mark, exit code `2`
+- A report that could not be written is exit `2` too: a run with no record must
+  not look like a clean one
 - Never silently skipped
 """
 

@@ -96,6 +96,32 @@ class TestFilterNodes(unittest.TestCase):
         kept = filter_nodes(nodes, text='x.c')
         self.assertEqual([n.name for n in kept], ['a'])
 
+    def test_hide_identical_drops_only_identical_files(self):
+        mapping = {'a.c': 'identical', 'b.c': 'real-change',
+                   'noise/c.c': 'ignorable-only', 'noise/d.c': 'comment-only',
+                   'x/added.c': 'added', 'x/gone.c': 'deleted', 'bad.c': 'error'}
+        kept = filter_nodes(self._nodes(mapping), hide_identical=True)
+        self.assertEqual(sorted(self._rels(kept)),
+                         sorted(r for r in mapping if mapping[r] != 'identical'))
+
+    def test_hide_identical_collapses_a_folder_with_nothing_left(self):
+        nodes = self._nodes({'quiet/a.c': 'identical', 'quiet/b.c': 'identical',
+                             'src/c.c': 'real-change'})
+        kept = filter_nodes(nodes, hide_identical=True)
+        self.assertEqual([n.name for n in kept], ['src'])
+
+    def test_hide_identical_and_the_text_filter_compose(self):
+        nodes = self._nodes({'src/ctrl.c': 'identical', 'src/ctrl_b.c': 'real-change',
+                             'other/ctrl.c': 'real-change'})
+        kept = filter_nodes(nodes, text='src/', hide_identical=True)
+        self.assertEqual(self._rels(kept), ['src/ctrl_b.c'])
+
+    def test_hide_identical_is_off_by_default(self):
+        # a verdict removing a row is opt-in: the folder structure has to stay
+        # stable unless the reviewer asked for it
+        nodes = self._nodes({'a.c': 'identical'})
+        self.assertEqual(self._rels(filter_nodes(nodes)), ['a.c'])
+
 
 class TestReviewState(unittest.TestCase):
     """The colour behind the tree's Review column. 'done' is a claim that
