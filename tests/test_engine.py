@@ -234,39 +234,55 @@ class TestAutogenNoise(unittest.TestCase):
         r = compare_pair(old, new, 'f.c')
         self.assertEqual(r['status'], 'real-change')
 
-    def test_blank_shadow_lines_do_not_swallow_a_real_change(self):
-        # stripping a banner leaves an empty shadow line, so a generated file
-        # is ~40% blank shadow. Those blanks are junk to the line matcher --
-        # this pins that treating them as junk still isolates the one real
-        # change sitting among them.
-        def body(gain):
-            out = []
-            for i in range(60):
-                out += ['/* Block: <S1>/Gain{} */'.format(i),
-                        '/* banner line */',
-                        '  rtb_G{} = u * {}.0;'.format(i, gain if i == 30 else 2),
-                        '']
-            return '\n'.join(out) + '\n'
+    # An AUTOSAR SWC file: the same five-line banner above every port, and one
+    # buffer renamed short enough that its argument stops wrapping onto a
+    # second line. Repeated banner lines are what makes difflib quadratic, and
+    # the unbalanced wrap change is what stops a naive per-line pairing.
+    @staticmethod
+    def _swc(new_side, n_ports=700):
+        out = ['/* File: SWC.c */', '#include "SWC.h"', '']
+        for i in range(n_ports):
+            out += ["  /* Outport generated from: '<Root>/Out Bus Element{}' */".format(i),
+                    '   *',
+                    "   * Block description for Outport generated from: '<Root>/Out Bus Element{}'".format(i),
+                    '   *   StorageClass', '   */']
+            if i % 10 != 0:
+                out.append('  (void)Rte_Write_Sig{}(rtb_UnitDelay[{}]);'.format(i, i))
+            elif new_side:
+                out.append('  (void)Rte_Write_Sig{}(rtb_AND[{}]);'.format(i, i))
+            else:
+                out.append('  (void)Rte_Write_Sig{}'.format(i))
+                out.append('    (rtb_RelationalOperator_m1mudlbmrs[{}]);'.format(i))
+            out.append('')
+        return '\n'.join(out) + '\n'
 
-        r = compare_pair(body(2), body(9), 'f.c')
-        self.assertEqual(r['status'], 'real-change')
-        real = [h for h in r['hunks'] if h['kind'] == 'real']
-        self.assertEqual(len(real), 1)
-        self.assertEqual(real[0]['old_range'], [122, 123])
-
-    def test_comment_heavy_file_does_not_go_quadratic(self):
-        # SequenceMatcher is quadratic on runs of identical lines, and blanked
-        # comments are exactly that. This shape takes 0.07s with blank shadow
-        # lines treated as junk and 4.7s without, so the bound catches a
-        # return to quadratic with room to spare in both directions.
+    def test_repeated_banners_do_not_go_quadratic(self):
+        # 0.16s with autojunk, 35s without: the bound catches a return to
+        # quadratic with room to spare in both directions.
         import time
-        old = '\n'.join('/* banner {} */\n  rtb_S_{} = u{};\n'.format(i, i, i % 7)
-                        for i in range(2500))
-        new = old.replace('u3;', 'u4;', 1)
         t0 = time.perf_counter()
-        r = compare_pair(old, new, 'f.c')
-        self.assertLess(time.perf_counter() - t0, 1.5)
+        r = compare_pair(self._swc(False), self._swc(True), 'SWC.c')
+        self.assertLess(time.perf_counter() - t0, 5.0)
         self.assertEqual(r['status'], 'real-change')
+
+    def test_repeated_banners_do_not_smear_the_diff(self):
+        # the symptom that matters: a bad alignment reports identical banner
+        # lines as changed, and the reviewer sees a wall of red and green.
+        # Only the 70 rewrapped ports may appear in a hunk.
+        old, new = self._swc(False), self._swc(True)
+        r = compare_pair(old, new, 'SWC.c')
+        ol, nl = old.split('\n'), new.split('\n')
+        smeared = 0
+        for h in r['hunks']:
+            a = ol[h['old_range'][0]:h['old_range'][1]]
+            b = nl[h['new_range'][0]:h['new_range'][1]]
+            common = set(a) & set(b)
+            smeared += sum(1 for x in a if x in common)
+            smeared += sum(1 for x in b if x in common)
+        self.assertEqual(smeared, 0)
+        covered = sum(h['old_range'][1] - h['old_range'][0]
+                      + h['new_range'][1] - h['new_range'][0] for h in r['hunks'])
+        self.assertEqual(covered, 210)   # 70 ports x (2 old lines + 1 new line)
 
     def test_signal_rewiring_stays_real(self):
         # pos_y already exists in OLD: pos_x -> pos_y is rewiring, not mangle
