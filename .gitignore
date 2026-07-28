@@ -5,3 +5,7 @@ compare_report.html
 arxml_update.html
 build/
 dist/
+
+# review files land beside the NEW folder; a run against tests/fixtures
+# drops one in the repo
+codegen-review.json

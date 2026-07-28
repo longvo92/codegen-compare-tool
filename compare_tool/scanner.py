@@ -9,6 +9,11 @@ from .diff_engine import compare_pair, ruleset_for
 
 SKIP_DIRS = {'.git', '__pycache__', '.svn'}
 
+# statuses a caller may fold away (noise-only verdicts). Real changes, added,
+# deleted and error can NEVER be folded -- hiding one would be exactly the
+# silent-miss this tool exists to prevent.
+FOLDABLE = ('comment-only', 'ignorable-only')
+
 
 def read_text(path):
     """Read file as text: UTF-8 (BOM tolerated) with latin-1 fallback,
@@ -136,20 +141,59 @@ def _error_result(msg):
             'binary': False}
 
 
-def scan(old_root, new_root, progress=None, exclude=(), include=()):
+def fold_status(result, fold):
+    """Apply the caller's compare rules to one result: a status listed in
+    `fold` is not reported as its own verdict, so the file counts as
+    'identical' instead.
+
+    Only noise verdicts may be folded -- a folded file genuinely has no
+    difference that matters under these rules. 'real-change', 'added',
+    'deleted' and 'error' are never foldable, so no real change can be
+    silenced. The hunks stay on the result, so a viewer can still show the
+    ignored differences; only the verdict changes."""
+    status = result['status']
+    if status in fold and status in FOLDABLE:
+        result['status'] = 'identical'
+        result['notes'].append('{} differences ignored by the current compare '
+                               'rules'.format(status))
+    return result
+
+
+def apply_fold(results, fold):
+    """Re-judge an ALREADY scanned tree under different compare rules, with no
+    disk access: the verdict a fold produces is a pure function of the hunks,
+    so re-reading every file to learn it would be pure waste. Returns a new
+    dict of (copied) results; the input is left untouched so the rules can be
+    changed back and forth without a rescan."""
+    fold = tuple(f for f in fold if f in FOLDABLE)
+    if not fold:
+        return dict(results)
+    out = {}
+    for rel, r in results.items():
+        if r['status'] in fold:
+            r = dict(r, notes=list(r['notes']))
+            fold_status(r, fold)
+        out[rel] = r
+    return out
+
+
+def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
     """Compare two trees. Returns {rel_path: result} sorted by path.
     result: {status, hunks, renames, notes, binary[, ifaces]}.
     status 'error' = the path could not be listed or compared (see notes).
     exclude: glob patterns (relative path or file name) to skip entirely.
     include: when non-empty, only paths matching one of these globs are
-    compared (exclude still applies on top)."""
+    compared (exclude still applies on top).
+    fold: noise statuses that should not be reported separately -- those files
+    come back as 'identical' (see fold_status)."""
+    fold = tuple(fold)
     old_errors, new_errors = [], []
     old_files = list_files(old_root, old_errors)
     new_files = list_files(new_root, new_errors)
     results = {}
     # listing errors are NEVER filtered by include/exclude: an unlisted
     # folder could hide files of any type, so it must always surface
-    for side, errs in (('OLD', old_errors), ('NEW', new_errors)):
+    for side, errs in (('BASELINE', old_errors), ('CURRENT', new_errors)):
         for rel, msg in errs:
             note = 'folder listing failed on {} side: {}'.format(side, msg)
             if rel in results:
@@ -192,13 +236,15 @@ def scan(old_root, new_root, progress=None, exclude=(), include=()):
             # run NOR disappear -- it becomes a loud 'error' entry instead
             results[rel] = _error_result(
                 'compare failed: {}: {}'.format(type(e).__name__, e))
+        if fold:
+            fold_status(results[rel], fold)
         if progress:
             progress(idx + 1, len(all_paths), rel)
     return results
 
 
 def summarize(results):
-    counts = {'identical': 0, 'ignorable-only': 0, 'real-change': 0,
+    counts = {'identical': 0, 'comment-only': 0, 'ignorable-only': 0, 'real-change': 0,
               'added': 0, 'deleted': 0, 'error': 0}
     for r in results.values():
         counts[r['status']] += 1

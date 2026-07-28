@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.scanner import scan, summarize_a2l, summarize_ifaces
+from compare_tool.scanner import (scan, summarize, summarize_a2l,
+                                  summarize_ifaces)
 
 FIX = Path(__file__).parent / 'fixtures'
 
@@ -18,14 +19,14 @@ class TestComparePair(unittest.TestCase):
         old = "/* v1 gen Mon */\nint x = 1; // a\n"
         new = "/* v2 gen Tue */\nint x = 1; // b\n"
         r = compare_pair(old, new, 'f.c')
-        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(r['status'], 'comment-only')
         self.assertEqual(set(kinds(r)), {'comment'})
 
     def test_comment_line_inserted(self):
         old = "int x = 1;\nint y = 2;\n"
         new = "int x = 1;\n/* new comment line */\nint y = 2;\n"
         r = compare_pair(old, new, 'f.c')
-        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(r['status'], 'comment-only')
 
     def test_whitespace_only(self):
         old = "int x = 1;\n"
@@ -94,6 +95,20 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r['status'], 'ignorable-only')
         self.assertEqual(set(kinds(r)), {'timestamp'})
 
+    def test_arxml_sw_version_only(self):
+        old = '<A>\n<SW-VERSION>1.0.0</SW-VERSION>\n<B>x</B>\n</A>\n'
+        new = '<A>\n<SW-VERSION>1.1.0</SW-VERSION>\n<B>x</B>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'sw-version'})
+
+    def test_arxml_sw_version_bump_beside_real_change_stays_real(self):
+        # fail-safe: a version bump does not launder a real change next to it
+        old = '<A>\n<SW-VERSION>1.0.0</SW-VERSION>\n<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n'
+        new = '<A>\n<SW-VERSION>1.1.0</SW-VERSION>\n<SHORT-NAME>Velocity</SHORT-NAME>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'real-change')
+
     def test_arxml_real(self):
         old = '<A UUID="1">\n<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n'
         new = '<A UUID="2">\n<SHORT-NAME>Velocity</SHORT-NAME>\n</A>\n'
@@ -104,7 +119,7 @@ class TestComparePair(unittest.TestCase):
         old = '/* gen Mon */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
         new = '/* gen Tue */\n/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n'
         r = compare_pair(old, new, 'f.a2l')
-        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(r['status'], 'comment-only')
         self.assertEqual(set(kinds(r)), {'comment'})
 
     def test_a2l_real(self):
@@ -120,7 +135,7 @@ class TestComparePair(unittest.TestCase):
                '/begin MEASUREMENT M "d" UWORD CM 1 100 0 1\n/end MEASUREMENT\n')
         new = old.replace('Mon', 'Tue')
         r = compare_pair(old, new, 'f.a2l')
-        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(r['status'], 'comment-only')
         self.assertEqual(set(kinds(r)), {'comment'})
 
     def test_identical(self):
@@ -175,6 +190,152 @@ class TestAutogenNoise(unittest.TestCase):
         real = [h for h in r['hunks'] if h['kind'] == 'real']
         self.assertEqual(len(real), 1)
         self.assertEqual(real[0]['old_range'], [12, 13])
+
+    # block-path checksums: every rtb_ buffer is renamed, nothing else moves
+    HASH_OLD = ("void step(void)\n{\n"
+                "  boolean_T rtb_AND_c4nxjoom3d;\n"
+                "  boolean_T rtb_OR_acr5fhzcjc;\n"
+                "  rtb_AND_c4nxjoom3d = (u > 5.0F);\n"
+                "  rtb_OR_acr5fhzcjc = (rtb_AND_c4nxjoom3d || ovr);\n"
+                "  y = rtb_OR_acr5fhzcjc;\n}\n")
+    HASH_NEW = ("void step(void)\n{\n"
+                "  boolean_T rtb_AND_j2kqp1wxab;\n"
+                "  boolean_T rtb_OR_h9vmz0trns;\n"
+                "  rtb_AND_j2kqp1wxab = (u > 5.0F);\n"
+                "  rtb_OR_h9vmz0trns = (rtb_AND_j2kqp1wxab || ovr);\n"
+                "  y = rtb_OR_h9vmz0trns;\n}\n")
+
+    def test_checksum_rename_ignorable(self):
+        r = compare_pair(self.HASH_OLD, self.HASH_NEW, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_checksum_rename_beside_real_change_stays_real(self):
+        old = self.HASH_OLD + "int lim = 5;\n"
+        new = self.HASH_NEW + "int lim = 10;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+        real = [h for h in r['hunks'] if h['kind'] == 'real']
+        self.assertEqual(len(real), 1)
+        self.assertEqual(real[0]['old_range'], [8, 9])
+
+    def test_rtb_root_change_stays_real(self):
+        # the two buffers trade places, so the strict 1-1 map is rejected and
+        # the hunk-local autogen rule decides. rtb_AND -> rtb_OR is a
+        # different block driving the buffer, not a mangle tail reshuffle.
+        old = ("void f1(void)\n{\n  rtb_AND_c4nxjoom3d = a && b;\n"
+               "  y1 = rtb_AND_c4nxjoom3d;\n}\n"
+               "void f2(void)\n{\n  rtb_OR_acr5fhzcjc = c || d;\n"
+               "  y2 = rtb_OR_acr5fhzcjc;\n}\n")
+        new = ("void f1(void)\n{\n  rtb_OR_acr5fhzcjc = a && b;\n"
+               "  y1 = rtb_OR_acr5fhzcjc;\n}\n"
+               "void f2(void)\n{\n  rtb_AND_c4nxjoom3d = c || d;\n"
+               "  y2 = rtb_AND_c4nxjoom3d;\n}\n")
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    # An AUTOSAR SWC file: the same five-line banner above every port, and one
+    # buffer renamed short enough that its argument stops wrapping onto a
+    # second line. Repeated banner lines are what makes difflib quadratic, and
+    # the unbalanced wrap change is what stops a naive per-line pairing.
+    @staticmethod
+    def _swc(new_side, n_ports=700):
+        out = ['/* File: SWC.c */', '#include "SWC.h"', '']
+        for i in range(n_ports):
+            out += ["  /* Outport generated from: '<Root>/Out Bus Element{}' */".format(i),
+                    '   *',
+                    "   * Block description for Outport generated from: '<Root>/Out Bus Element{}'".format(i),
+                    '   *   StorageClass', '   */']
+            if i % 10 != 0:
+                out.append('  (void)Rte_Write_Sig{}(rtb_UnitDelay[{}]);'.format(i, i))
+            elif new_side:
+                out.append('  (void)Rte_Write_Sig{}(rtb_AND[{}]);'.format(i, i))
+            else:
+                out.append('  (void)Rte_Write_Sig{}'.format(i))
+                out.append('    (rtb_RelationalOperator_m1mudlbmrs[{}]);'.format(i))
+            out.append('')
+        return '\n'.join(out) + '\n'
+
+    def test_repeated_banners_do_not_go_quadratic(self):
+        # 0.16s with autojunk, 35s without: the bound catches a return to
+        # quadratic with room to spare in both directions.
+        import time
+        t0 = time.perf_counter()
+        r = compare_pair(self._swc(False), self._swc(True), 'SWC.c')
+        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_repeated_banners_do_not_smear_the_diff(self):
+        # the symptom that matters: a bad alignment reports identical banner
+        # lines as changed, and the reviewer sees a wall of red and green.
+        # Only the 70 rewrapped ports may appear in a hunk.
+        old, new = self._swc(False), self._swc(True)
+        r = compare_pair(old, new, 'SWC.c')
+        ol, nl = old.split('\n'), new.split('\n')
+        smeared = 0
+        for h in r['hunks']:
+            a = ol[h['old_range'][0]:h['old_range'][1]]
+            b = nl[h['new_range'][0]:h['new_range'][1]]
+            common = set(a) & set(b)
+            smeared += sum(1 for x in a if x in common)
+            smeared += sum(1 for x in b if x in common)
+        self.assertEqual(smeared, 0)
+        covered = sum(h['old_range'][1] - h['old_range'][0]
+                      + h['new_range'][1] - h['new_range'][0] for h in r['hunks'])
+        self.assertEqual(covered, 210)   # 70 ports x (2 old lines + 1 new line)
+
+    def test_checksummed_function_name_is_ignorable(self):
+        def body(h):
+            return ('void Sub_{0}_step(void)\n{{\n  y = u * 2.0F;\n}}\n'
+                    'void step(void)\n{{\n  Sub_{0}_step();\n  Sub_{0}_step();\n}}\n'
+                    .format(h))
+        r = compare_pair(body('c4nxjoom3d'), body('j2kqp1wxab'), 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_a_different_entry_point_stays_real(self):
+        # consistent 1-1, but _step and _Init are not the same function
+        old = 'void step(void)\n{\n  Sub_c4nxjoom3d_step();\n}\n'
+        new = 'void step(void)\n{\n  Sub_j2kqp1wxab_Init();\n}\n'
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_rewrapped_statement_is_ignorable(self):
+        # the shorter checksum let the argument fit on one line
+        old = ('void step(void)\n{\n  Rte_Write_Out1\n'
+               '    (rtb_AND_c4nxjoom3d[65]);\n'
+               '  Rte_Write_Out2(rtb_OR_acr5fhzcjc[7]);\n}\n')
+        new = ('void step(void)\n{\n  Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);\n'
+               '  Rte_Write_Out2(rtb_OR_h9vmz0trns[7]);\n}\n')
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_rewrap_does_not_launder_a_real_change(self):
+        head = 'void step(void)\n{\n  Rte_Write_Out1\n    (rtb_AND_c4nxjoom3d[65]);\n}\n'
+        for new in (
+                # the index moved
+                'void step(void)\n{\n  Rte_Write_Out1(rtb_AND_j2kqp1wxab[66]);\n}\n',
+                # a call appeared
+                'void step(void)\n{\n  Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);\n'
+                '  Rte_Write_Extra(rtb_AND_j2kqp1wxab[66]);\n}\n'):
+            r = compare_pair(head, new, 'f.c')
+            self.assertEqual(r['status'], 'real-change', new)
+
+    def test_block_moved_with_new_checksums_reads_as_moved(self):
+        def sub(h1, h2):
+            return ('void a(void)\n{{\n  rtb_Sum_{0} = u + 1.0F;\n'
+                    '  rtb_Gain_{1} = rtb_Sum_{0} * 2.0F;\n'
+                    '  y = rtb_Gain_{1};\n}}\n'.format(h1, h2))
+        keep = 'void keep(void)\n{\n  z = 1;\n}\n'
+        r = compare_pair(sub('c4nxjoom3d', 'acr5fhzcjc') + '\n' + keep,
+                         keep + '\n' + sub('j2kqp1wxab', 'h9vmz0trns'), 'f.c')
+        # reordering can be a semantic change, so the verdict stays real; what
+        # improves is the label -- one blue "moved" note instead of two walls
+        # of red and green
+        self.assertEqual(r['status'], 'real-change')
+        self.assertIn('moved', kinds(r))
+        self.assertNotIn('real', kinds(r))
 
     def test_signal_rewiring_stays_real(self):
         # pos_y already exists in OLD: pos_x -> pos_y is rewiring, not mangle
@@ -251,7 +412,7 @@ class TestFixtureTree(unittest.TestCase):
                          '{}: {}'.format(rel, self.results[rel]))
 
     def test_statuses(self):
-        self.expect('src/comment_only.c', 'ignorable-only')
+        self.expect('src/comment_only.c', 'comment-only')
         self.expect('src/rename_only.c', 'ignorable-only')
         self.expect('src/rename_conflict.c', 'real-change')
         self.expect('src/real_change.c', 'real-change')
@@ -262,7 +423,7 @@ class TestFixtureTree(unittest.TestCase):
         self.expect('arxml/admindata.arxml', 'ignorable-only')
         self.expect('arxml/real_change.arxml', 'real-change')
         self.expect('arxml/iface.arxml', 'real-change')
-        self.expect('a2l/comment_only.a2l', 'ignorable-only')
+        self.expect('a2l/comment_only.a2l', 'comment-only')
         self.expect('a2l/cal.a2l', 'real-change')
 
     def test_a2l_diff_recorded(self):
@@ -309,6 +470,81 @@ class TestFixtureTree(unittest.TestCase):
         ign = [h for h in r['hunks'] if h['kind'] != 'real']
         self.assertEqual(len(real), 1)
         self.assertTrue(all(h['kind'] == 'comment' for h in ign))
+
+
+class TestCommentSplit(unittest.TestCase):
+    """Comment-only differences are their own verdict, separate from the other
+    ignorable kinds (UUID / timestamp / rename / whitespace)."""
+
+    def test_comment_only_across_all_rulesets(self):
+        cases = [('f.c', '/* Mon */\nint x = 1;\n', '/* Tue */\nint x = 1;\n'),
+                 ('f.arxml', '<!-- Mon -->\n<A>x</A>\n', '<!-- Tue -->\n<A>x</A>\n'),
+                 ('f.a2l', '/* Mon */\nVAL 1\n', '/* Tue */\nVAL 1\n')]
+        for path, old, new in cases:
+            self.assertEqual(compare_pair(old, new, path)['status'],
+                             'comment-only', path)
+
+    def test_other_noise_stays_unimportant(self):
+        old = '<A UUID="1">\n<B>x</B>\n</A>\n'
+        new = '<A UUID="9">\n<B>x</B>\n</A>\n'
+        self.assertEqual(compare_pair(old, new, 'f.arxml')['status'],
+                         'ignorable-only')
+
+    def test_comment_mixed_with_other_noise_is_unimportant(self):
+        # the narrower "only the comments moved" claim must be exact
+        old = '<!-- Mon -->\n<A UUID="1">\n<B>x</B>\n</A>\n'
+        new = '<!-- Tue -->\n<A UUID="9">\n<B>x</B>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(set(kinds(r)), {'comment', 'uuid'})
+        self.assertEqual(r['status'], 'ignorable-only')
+
+    def test_comment_next_to_a_real_change_is_still_modified(self):
+        old = '/* Mon */\nint lim = 5;\n'
+        new = '/* Tue */\nint lim = 10;\n'
+        self.assertEqual(compare_pair(old, new, 'f.c')['status'], 'real-change')
+
+    def test_counts_are_separate(self):
+        counts = summarize(scan(FIX / 'old', FIX / 'new'))
+        self.assertTrue(counts['comment-only'])
+        self.assertTrue(counts['ignorable-only'])
+
+
+class TestFoldRules(unittest.TestCase):
+    """Folding a noise category: those files are reported as identical
+    instead, and nothing that matters can ever be folded away."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.plain = scan(FIX / 'old', FIX / 'new')
+        cls.folded = scan(FIX / 'old', FIX / 'new', fold=('ignorable-only',))
+
+    def test_noise_only_files_become_identical(self):
+        noisy = [p for p, r in self.plain.items() if r['status'] == 'ignorable-only']
+        self.assertTrue(noisy)  # fixtures must actually cover this
+        for p in noisy:
+            self.assertEqual(self.folded[p]['status'], 'identical', p)
+
+    def test_no_unimportant_verdict_survives_the_fold(self):
+        self.assertEqual(summarize(self.folded)['ignorable-only'], 0)
+
+    def test_real_added_deleted_untouched(self):
+        before, after = summarize(self.plain), summarize(self.folded)
+        for key in ('real-change', 'added', 'deleted', 'error'):
+            self.assertEqual(before[key], after[key], key)
+
+    def test_folded_file_says_why(self):
+        p = next(p for p, r in self.plain.items() if r['status'] == 'ignorable-only')
+        self.assertTrue(any('ignored by the current compare rules' in n
+                            for n in self.folded[p]['notes']))
+
+    def test_hunks_kept_so_the_diff_is_still_viewable(self):
+        p = next(p for p, r in self.plain.items()
+                 if r['status'] == 'ignorable-only' and r['hunks'])
+        self.assertEqual(self.folded[p]['hunks'], self.plain[p]['hunks'])
+
+    def test_real_change_is_not_foldable(self):
+        results = scan(FIX / 'old', FIX / 'new', fold=('real-change',))
+        self.assertEqual(results['src/real_change.c']['status'], 'real-change')
 
 
 if __name__ == '__main__':

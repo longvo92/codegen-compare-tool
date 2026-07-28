@@ -22,6 +22,8 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
+            # scanned rule-free on purpose: the window applies the category
+            # rules to these results, so toggling one never rescans the disk
             results = scan(self.old, self.new, progress=self._progress,
                            exclude=self.exclude, include=self.include)
             self.done.emit(results)

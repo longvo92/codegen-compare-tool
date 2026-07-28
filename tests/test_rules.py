@@ -78,8 +78,97 @@ class TestRename(unittest.TestCase):
 class TestAutogenNames(unittest.TestCase):
     def test_rtb_pair(self):
         self.assertTrue(c_rules.is_autogen_name_pair('rtb_Switch', 'rtb_Switch_h'))
-        # rtb-to-rtb counts even when the root changed (signal relabeled)
-        self.assertTrue(c_rules.is_autogen_name_pair('rtb_Sum1', 'rtb_SumOfElements'))
+        # the block-path checksum Embedded Coder appends on a name collision
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'rtb_AND_c4nxjoom3d', 'rtb_AND_j2kqp1wxab'))
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'rtb_RelationalOperator_flz3jd3buf',
+            'rtb_RelationalOperator_dq7ybe5cui'))
+
+    def test_rtb_pair_needs_matching_root(self):
+        # a different block feeding the buffer is a rewiring, not a mangle
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'rtb_AND_c4nxjoom3d', 'rtb_OR_acr5fhzcjc'))
+        self.assertFalse(c_rules.is_autogen_name_pair('rtb_Sum1', 'rtb_SumOfElements'))
+        # digits glued to the block name are the name, not a mangle tail
+        self.assertFalse(c_rules.is_autogen_name_pair('rtb_Switch1', 'rtb_Switch2'))
+
+    def test_other_generated_prefixes(self):
+        for a, b in (('rtu_In1_a', 'rtu_In1_p'),
+                     ('localB_Sub_c4nxjoom3d', 'localB_Sub_j2kqp1wxab'),
+                     ('localDW_Delay_e', 'localDW_Delay_h9vmz0trns')):
+            self.assertTrue(c_rules.is_autogen_name_pair(a, b), (a, b))
+
+    def test_dwork_field_pair(self):
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Delay_DSTATE_flz3jd3buf', 'Delay_DSTATE_dq7ybe5cui'))
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Sub_SubsysRanBC_a', 'Sub_SubsysRanBC_o4'))
+        # same field kind, different block: real
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'Delay_DSTATE_a', 'Memory_DSTATE_a'))
+
+    def test_hand_written_names_never_touched(self):
+        # no generated prefix -> the tail keeps its meaning, whatever it is
+        for a, b in (('SIG_TORQUE_MIN', 'SIG_TORQUE_MAX'),
+                     ('Timer_Start', 'Timer_Stop'),
+                     ('CFG_TIMEOUT_MS', 'CFG_TIMEOUT_US'),
+                     ('Brake_Pressure_Front', 'Brake_Pressure_Rear'),
+                     ('Rte_Write_PpOut_Speed', 'Rte_Write_PpOut_Torque'),
+                     ('ADC_CH_0', 'ADC_CH_7')):
+            self.assertFalse(c_rules.is_autogen_name_pair(a, b), (a, b))
+
+    def test_checksum_inside_the_name(self):
+        # shared-utility / reusable-subsystem entry points carry it mid-name
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_step'))
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Model_flz3jd3buf_Init', 'Model_dq7ybe5cui_Init'))
+        # everything except the checksum is still meaning
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_Init'))
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'SubA_c4nxjoom3d_step', 'SubB_j2kqp1wxab_step'))
+
+    def test_checksum_root(self):
+        self.assertEqual(c_rules.checksum_root('Sub_c4nxjoom3d_step'), 'Sub__step')
+        # a segment that is too short, all letters, or a tail is not a checksum
+        for name in ('Sub_k2j_step', 'Sub_abcdefghij_step', 'Sub_c4nxjoom3d',
+                     'Rte_Write_PpOut_Speed'):
+            self.assertIsNone(c_rules.checksum_root(name), name)
+
+    def test_same_checksummed_object(self):
+        self.assertTrue(c_rules.same_checksummed_object(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_step'))
+        self.assertFalse(c_rules.same_checksummed_object(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_Init'))
+        # only judges pairs where BOTH sides carry a checksum: a plain
+        # generated rename is still the noise it has always been
+        self.assertTrue(c_rules.same_checksummed_object('rtb_Sum1', 'rtb_Sum_k2j'))
+        self.assertTrue(c_rules.same_checksummed_object('alpha', 'beta'))
+
+    def test_canonical_generated(self):
+        self.assertEqual(
+            c_rules.canonical_generated('rtb_AND_c4nxjoom3d = Sub_flz3jd3buf_step();'),
+            c_rules.canonical_generated('rtb_AND_j2kqp1wxab = Sub_dq7ybe5cui_step();'))
+        # a different block is still a different line
+        self.assertNotEqual(
+            c_rules.canonical_generated('rtb_AND_c4nxjoom3d = u;'),
+            c_rules.canonical_generated('rtb_OR_j2kqp1wxab = u;'))
+
+    def test_noise_map_across_a_rewrap(self):
+        # the shorter name let the argument stop wrapping: same statements,
+        # different line count
+        m = c_rules.autogen_noise_map(
+            ['Rte_Write_Out1', '(rtb_AND_c4nxjoom3d[65]);'],
+            ['Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);'])
+        self.assertEqual(m, {'rtb_AND_c4nxjoom3d': 'rtb_AND_j2kqp1wxab'})
+
+    def test_rewrap_does_not_hide_an_added_statement(self):
+        self.assertIsNone(c_rules.autogen_noise_map(
+            ['Rte_Write_Out1', '(rtb_AND_c4nxjoom3d[65]);'],
+            ['Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);',
+             'Rte_Write_Out2(rtb_AND_j2kqp1wxab[66]);']))
 
     def test_mangle_suffix_pair(self):
         self.assertTrue(c_rules.is_autogen_name_pair('Gain_Gain_c', 'Gain_Gain_o4'))
@@ -155,9 +244,26 @@ class TestArxml(unittest.TestCase):
         s = arxml_rules.strip_dates('<DATE>2026-01-05</DATE>')
         self.assertNotIn('2026', s)
 
+    def test_sw_version_blanked_keeping_line_count(self):
+        src = "<x>\n<SW-VERSION>1.2.3</SW-VERSION>\n<y/></x>"
+        s = arxml_rules.strip_sw_version(src)
+        self.assertEqual(s.count('\n'), src.count('\n'))
+        self.assertNotIn('1.2.3', s)
+        self.assertIn('<y/>', s)
+
+    def test_sw_version_does_not_touch_similarly_named_tags(self):
+        # anchored: SW-MAJOR-VERSION and SW-VERSIONING must survive untouched
+        src = '<SW-MAJOR-VERSION>4</SW-MAJOR-VERSION><SW-VERSIONING>on</SW-VERSIONING>'
+        self.assertEqual(arxml_rules.strip_sw_version(src), src)
+
     def test_shadow_equal_for_uuid_only(self):
         a = '<E UUID="1"><SHORT-NAME>X</SHORT-NAME></E>'
         b = '<E UUID="2"><SHORT-NAME>X</SHORT-NAME></E>'
+        self.assertEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
+
+    def test_shadow_equal_for_sw_version_only(self):
+        a = '<E><SW-VERSION>1.0.0</SW-VERSION><SHORT-NAME>X</SHORT-NAME></E>'
+        b = '<E><SW-VERSION>1.1.0</SW-VERSION><SHORT-NAME>X</SHORT-NAME></E>'
         self.assertEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
 
     def test_shadow_differs_for_real_change(self):
