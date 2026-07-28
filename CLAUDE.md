@@ -9,6 +9,10 @@ drowned in that churn.
 The whole product is a claim: *"you can ignore what I hid."* Every rule below
 exists to keep that claim true.
 
+Repo `codegen-compare-tool`, local folder `code-review`, package
+`compare_tool`. Where this file and `~/.claude/CLAUDE.md` disagree, this one
+wins.
+
 ## 1. Fail-safe is not negotiable
 
 **If it cannot be *proven* to be noise, it is a real change.** A rule that is
@@ -85,6 +89,15 @@ Wanting a library in the core is a legitimate answer — it just costs the `.pyz
 and the "zero dependencies" line in the README. Say that out loud and let the
 call be made; do not smuggle the import in and leave the claim standing.
 
+Two more promises the same machines depend on:
+
+- **`requires-python = ">=3.8"`.** No `match`, no `X | Y` at runtime; `list[str]`
+  in an annotation needs `from __future__ import annotations`. CI runs 3.8 and
+  3.11 on Linux and Windows, so a 3.10-ism passes locally and fails there.
+- **The HTML report is self-contained.** CSS and JS inline, no CDN, nothing
+  fetched when the file is opened. It gets mailed around and opened on boxes
+  with no internet; a report that renders blank there is worse than no report.
+
 ## 6. Verify UI by rendering it, not by reasoning about it
 
 Tests pass on layouts that look broken. Every UI change gets looked at:
@@ -132,6 +145,14 @@ never an empty, clean-looking result.
 
 ## 9. Packaging
 
+The exit code is a contract with somebody's pipeline. Do not change it:
+
+| Code | Meaning |
+|---|---|
+| 0 | No real change |
+| 1 | Real changes found (the CI gate) |
+| 2 | Compare INCOMPLETE — a path could not be listed, read or compared |
+
 `build.ps1` produces one `dist\compare-tool.exe` carrying the CLI and the
 viewer. It is a **console** build on purpose: a terminal run must keep stdout
 and its exit code (CI gates on `1` / `2`). A windowed build makes the shell
@@ -155,3 +176,10 @@ decision; the frozen entry point asks it rather than re-deriving it.
 - Comments explain the *reason* a line is the way it is, especially where the
   obvious implementation is wrong (why a console build, why raw results, why
   an anchored regex). Match the density of the surrounding file.
+
+```bash
+python -m compare_tool <old_gen> <new_gen> --report out.html
+python -m unittest discover -s tests        # unittest, NOT pytest
+.\build.ps1                                 # dist/compare_tool.pyz
+.\build.ps1 -Exe                            # plus the .exe (needs pyinstaller)
+```
