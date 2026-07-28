@@ -49,6 +49,11 @@ All notable changes to this project are documented here. Versions follow
   landing screen is two lines, the status chip says `Ready`, and the window
   title carries the CURRENT folder's name instead of two absolute paths.
 
+### Fixed
+
+- Clicking inside a highlighted change no longer paints every file opened
+  afterwards in that colour, on that pane.
+
 ## [1.1.0] — 2026-07-26
 
 The side-by-side viewer is now the main way to use the tool, with

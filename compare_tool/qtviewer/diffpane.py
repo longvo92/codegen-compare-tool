@@ -559,8 +559,8 @@ class DiffPane(QStackedWidget):
         lang = language_for(rel)
         self._hl_old.configure(lang, modes, repaint=False)
         self._hl_new.configure(lang, modes, repaint=False)
-        self.old_edit.setPlainText('\n'.join(r.old_txt or '' for r in rows))
-        self.new_edit.setPlainText('\n'.join(r.new_txt or '' for r in rows))
+        self._set_text(self.old_edit, '\n'.join(r.old_txt or '' for r in rows))
+        self._set_text(self.new_edit, '\n'.join(r.new_txt or '' for r in rows))
         self.old_edit.set_numbers([str(r.old_no) if r.old_no else '' for r in rows])
         self.new_edit.set_numbers([str(r.new_no) if r.new_no else '' for r in rows])
         self.minimap.set_rows(rows)
@@ -631,13 +631,27 @@ class DiffPane(QStackedWidget):
         lang = language_for(rel)
         self._hl_old.configure(lang, (), repaint=False)
         self._hl_new.configure(lang, (), repaint=False)
-        edit.setPlainText('\n'.join(lines))
+        self._set_text(edit, '\n'.join(lines))
         edit.set_numbers([str(i + 1) for i in range(len(lines))])
-        other.setPlainText('')
+        self._set_text(other, '')
         other.set_numbers([])
         for i in range(len(lines)):
             self._block_bg(edit, i, bg)
         self.setCurrentIndex(1)
+
+    @staticmethod
+    def _set_text(editor, text):
+        """Replace an editor's contents, caret formatting reset first.
+
+        ``setPlainText`` selects the whole new document and stamps the caret's
+        char format onto it. Click inside a changed span and the caret picks up
+        that span's green; every file opened afterwards then renders entirely
+        green, on that pane only, until the caret happens to land somewhere
+        plain. Resetting the caret format first is what keeps a click in the
+        diff from being a paint tool.
+        """
+        editor.setCurrentCharFormat(QTextCharFormat())
+        editor.setPlainText(text)
 
     def _block_bg(self, editor, block_no, color):
         if not color:

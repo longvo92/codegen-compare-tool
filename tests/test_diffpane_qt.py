@@ -1,0 +1,111 @@
+"""Diff pane behaviour that only shows up once Qt is really rendering.
+
+Skipped when PySide6 is absent, so the rest of the suite still runs headless
+(see the "viewer logic that can be Qt-free must be Qt-free" rule).
+"""
+import os
+import unittest
+from pathlib import Path
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+try:
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    HAVE_QT = True
+except ImportError:                                  # pragma: no cover
+    HAVE_QT = False
+
+from compare_tool.scanner import scan
+
+FIX = Path(__file__).parent / 'fixtures'
+_APP = None
+
+
+def _app():
+    global _APP
+    if _APP is None:
+        _APP = QApplication.instance() or QApplication([])
+    return _APP
+
+
+def _backgrounds(editor):
+    """Per block: the background colours actually attached to it."""
+    doc = editor.document()
+    out = []
+    for i in range(doc.blockCount()):
+        block = doc.findBlockByNumber(i)
+        marks = []
+        if block.blockFormat().background().style() != Qt.NoBrush:
+            marks.append('block')
+        for run in block.textFormats():
+            if run.format.background().style() != Qt.NoBrush:
+                marks.append('char{}:{}'.format(run.start, run.start + run.length))
+        out.append(marks)
+    return out
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestCaretDoesNotPaint(unittest.TestCase):
+    """Clicking inside a coloured span must not colour the next file.
+
+    setPlainText stamps the caret's char format across the whole new document,
+    so a caret left sitting in a changed span turns every file opened
+    afterwards into a wall of colour on that pane -- and an all-green pane
+    reads as "everything changed", which is the one thing the tool must never
+    say by accident.
+    """
+
+    REL = 'a2l/comment_only.a2l'
+    OTHER = 'a2l/cal.a2l'
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.pane.resize(1200, 600)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+
+    def _open(self, rel):
+        self.pane.show_file(rel, self.results[rel],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+
+    def _click_in_span(self, editor, pos):
+        cur = editor.textCursor()
+        cur.setPosition(pos)
+        editor.setTextCursor(cur)
+        self.app.processEvents()
+
+    def test_caret_in_a_changed_span_does_not_colour_the_next_file(self):
+        self._open(self.REL)
+        clean = _backgrounds(self.pane.new_edit)
+        # the caret lands inside the highlighted date on line 1
+        self._click_in_span(self.pane.new_edit, 14)
+        self.assertNotEqual(
+            self.pane.new_edit.currentCharFormat().background().style(),
+            Qt.NoBrush, 'fixture no longer highlights that position')
+
+        self._open(self.OTHER)
+        other = _backgrounds(self.pane.new_edit)
+        plain = [i for i, m in enumerate(other) if not m]
+        self.assertTrue(plain, 'every row of cal.a2l came back coloured')
+
+        self._open(self.REL)
+        self.assertEqual(_backgrounds(self.pane.new_edit), clean)
+
+    def test_the_same_holds_for_the_baseline_pane(self):
+        self._open(self.REL)
+        clean = _backgrounds(self.pane.old_edit)
+        self._click_in_span(self.pane.old_edit, 14)
+        self._open(self.OTHER)
+        self._open(self.REL)
+        self.assertEqual(_backgrounds(self.pane.old_edit), clean)
+
+
+if __name__ == '__main__':
+    unittest.main()
