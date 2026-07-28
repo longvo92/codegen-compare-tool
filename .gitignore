@@ -5,6 +5,8 @@ compare_report.html
 arxml_update.html
 build/
 dist/
+# an editable install (pip install -e .) leaves this beside the package
+*.egg-info/
 
 # review files land beside the NEW folder; a run against tests/fixtures
 # drops one in the repo
