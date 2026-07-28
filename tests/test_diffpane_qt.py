@@ -29,6 +29,26 @@ def _app():
     return _APP
 
 
+def _settle(app, win, timeout=30.0):
+    """Spin the event loop until the scan thread has delivered its results.
+
+    MainWindow scans in a ScanWorker, so a fixed number of processEvents turns
+    is a race: it passes on a warm checkout and fails on a cold one, which is
+    the worst kind of test.
+    """
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        app.processEvents()
+        worker = getattr(win, 'worker', None)
+        if win._raw_results and not (worker and worker.isRunning()):
+            for _ in range(5):
+                app.processEvents()
+            return
+        time.sleep(0.01)
+    raise AssertionError('scan did not finish within {}s'.format(timeout))
+
+
 def _backgrounds(editor):
     """Per block: the background colours actually attached to it."""
     doc = editor.document()
@@ -165,9 +185,8 @@ class TestQuickChangesJump(unittest.TestCase):
         win.resize(1400, 800)
         win.setAttribute(Qt.WA_DontShowOnScreen, True)
         win.show()
-        for _ in range(60):
-            self.app.processEvents()
         self.addCleanup(win.close)
+        _settle(self.app, win)
         return win
 
     def _rows(self, win):
