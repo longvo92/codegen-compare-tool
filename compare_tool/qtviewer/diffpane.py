@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QSplitter,
 from .. import review
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
-from ..view_model import (aligned_rows, char_span, collapse_rows,
+from ..view_model import (Row, aligned_rows, char_span, collapse_rows,
                           hunk_row_starts, row_with)
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
@@ -563,6 +563,10 @@ class DiffPane(QStackedWidget):
         self._set_text(self.new_edit, '\n'.join(r.new_txt or '' for r in rows))
         self.old_edit.set_numbers([str(r.old_no) if r.old_no else '' for r in rows])
         self.new_edit.set_numbers([str(r.new_no) if r.new_no else '' for r in rows])
+        # back to the two-pane layout: the old editor drives again (its
+        # scrollbar mirror carries the new pane), whatever a previous
+        # one-sided file left the map pointing at
+        self.minimap.set_editor(self.old_edit)
         self.minimap.set_rows(rows)
 
         for i, r in enumerate(rows):
@@ -616,7 +620,6 @@ class DiffPane(QStackedWidget):
         self.rows = []
         self._stops = []
         self._pos_text = ''
-        self.minimap.set_rows([])
         self._sem.setVisible(False)
         # keep _head_base in step with the shown header (an added/deleted file
         # has no change stops, but leaving a stale base from the previous file
@@ -637,6 +640,13 @@ class DiffPane(QStackedWidget):
         other.set_numbers([])
         for i in range(len(lines)):
             self._block_bg(edit, i, bg)
+        # the map still shows the file's shape, so a whole added or deleted
+        # file scrolls like any other. Rows are marked 'ctx' on purpose: the
+        # pane is already one solid colour, and repeating that on the map would
+        # be a red or green rectangle carrying no information.
+        self.minimap.set_editor(edit)
+        self.minimap.set_rows([Row(None, None, i + 1, line, 'ctx', 'ctx')
+                               for i, line in enumerate(lines)])
         self.setCurrentIndex(1)
 
     @staticmethod

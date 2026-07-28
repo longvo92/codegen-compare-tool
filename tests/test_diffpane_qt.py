@@ -108,6 +108,48 @@ class TestCaretDoesNotPaint(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestMinimapOnOneSidedFiles(unittest.TestCase):
+    """A whole added or deleted file still gets a map to scroll by."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.pane.resize(1200, 500)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+
+    def _open(self, rel):
+        self.pane.show_file(rel, self.results[rel],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+
+    def test_added_and_deleted_files_have_a_map(self):
+        for rel, side in (('src/added.c', 'new'), ('src/deleted.h', 'old')):
+            self._open(rel)
+            self.assertTrue(self.pane.minimap._rows, rel)
+            # driven by the pane that holds the text, or the slider sits at the
+            # top of an empty document for ever
+            edit = self.pane.new_edit if side == 'new' else self.pane.old_edit
+            self.assertIs(self.pane.minimap._editor, edit, rel)
+
+    def test_a_one_sided_map_carries_no_diff_colour(self):
+        # the pane is already one solid colour; repeating it on the map would
+        # be a rectangle carrying no information
+        self._open('src/added.c')
+        self.assertEqual({r.mode for r in self.pane.minimap._rows}, {'ctx'})
+
+    def test_two_pane_files_go_back_to_the_baseline_editor(self):
+        self._open('src/added.c')
+        self._open('src/real_change.c')
+        self.assertIs(self.pane.minimap._editor, self.pane.old_edit)
+        self.assertTrue(self.pane.minimap._rows)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class TestQuickChangesJump(unittest.TestCase):
     """Activating a quick-changes row must land on that object's line.
 

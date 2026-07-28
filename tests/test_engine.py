@@ -284,6 +284,59 @@ class TestAutogenNoise(unittest.TestCase):
                       + h['new_range'][1] - h['new_range'][0] for h in r['hunks'])
         self.assertEqual(covered, 210)   # 70 ports x (2 old lines + 1 new line)
 
+    def test_checksummed_function_name_is_ignorable(self):
+        def body(h):
+            return ('void Sub_{0}_step(void)\n{{\n  y = u * 2.0F;\n}}\n'
+                    'void step(void)\n{{\n  Sub_{0}_step();\n  Sub_{0}_step();\n}}\n'
+                    .format(h))
+        r = compare_pair(body('c4nxjoom3d'), body('j2kqp1wxab'), 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_a_different_entry_point_stays_real(self):
+        # consistent 1-1, but _step and _Init are not the same function
+        old = 'void step(void)\n{\n  Sub_c4nxjoom3d_step();\n}\n'
+        new = 'void step(void)\n{\n  Sub_j2kqp1wxab_Init();\n}\n'
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_rewrapped_statement_is_ignorable(self):
+        # the shorter checksum let the argument fit on one line
+        old = ('void step(void)\n{\n  Rte_Write_Out1\n'
+               '    (rtb_AND_c4nxjoom3d[65]);\n'
+               '  Rte_Write_Out2(rtb_OR_acr5fhzcjc[7]);\n}\n')
+        new = ('void step(void)\n{\n  Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);\n'
+               '  Rte_Write_Out2(rtb_OR_h9vmz0trns[7]);\n}\n')
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'rename'})
+
+    def test_rewrap_does_not_launder_a_real_change(self):
+        head = 'void step(void)\n{\n  Rte_Write_Out1\n    (rtb_AND_c4nxjoom3d[65]);\n}\n'
+        for new in (
+                # the index moved
+                'void step(void)\n{\n  Rte_Write_Out1(rtb_AND_j2kqp1wxab[66]);\n}\n',
+                # a call appeared
+                'void step(void)\n{\n  Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);\n'
+                '  Rte_Write_Extra(rtb_AND_j2kqp1wxab[66]);\n}\n'):
+            r = compare_pair(head, new, 'f.c')
+            self.assertEqual(r['status'], 'real-change', new)
+
+    def test_block_moved_with_new_checksums_reads_as_moved(self):
+        def sub(h1, h2):
+            return ('void a(void)\n{{\n  rtb_Sum_{0} = u + 1.0F;\n'
+                    '  rtb_Gain_{1} = rtb_Sum_{0} * 2.0F;\n'
+                    '  y = rtb_Gain_{1};\n}}\n'.format(h1, h2))
+        keep = 'void keep(void)\n{\n  z = 1;\n}\n'
+        r = compare_pair(sub('c4nxjoom3d', 'acr5fhzcjc') + '\n' + keep,
+                         keep + '\n' + sub('j2kqp1wxab', 'h9vmz0trns'), 'f.c')
+        # reordering can be a semantic change, so the verdict stays real; what
+        # improves is the label -- one blue "moved" note instead of two walls
+        # of red and green
+        self.assertEqual(r['status'], 'real-change')
+        self.assertIn('moved', kinds(r))
+        self.assertNotIn('real', kinds(r))
+
     def test_signal_rewiring_stays_real(self):
         # pos_y already exists in OLD: pos_x -> pos_y is rewiring, not mangle
         old = "out = pos_x;\nchk = pos_y;\n"

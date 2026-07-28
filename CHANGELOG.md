@@ -23,9 +23,14 @@ All notable changes to this project are documented here. Versions follow
   a fraction of the time, and the cost now tracks file size rather than its
   square. Verdicts are unchanged.
 - **Generated-name churn is matched against known Embedded Coder prefixes.**
-  Block-path checksums (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`) and DWork
-  fields (`UnitDelay_DSTATE_…`) fold as renames. The root has to match, so
-  `rtb_AND_…` → `rtb_OR_…` is a real change.
+  Block-path checksums fold as renames wherever they sit — on a buffer
+  (`rtb_AND_c4nxjoom3d`), a DWork field (`UnitDelay_DSTATE_…`) or inside a
+  function name (`Sub_c4nxjoom3d_step`) — including when a shorter name stops
+  an argument wrapping and the line count changes with it. The root has to
+  match, so `rtb_AND_…` → `rtb_OR_…` and `Sub_…_step` → `Sub_…_Init` are real
+  changes.
+- **Moved blocks are still recognised when their checksums were regenerated**,
+  instead of reading as an unrelated delete plus insert.
 - **`OLD`/`NEW` renamed to `BASELINE`/`CURRENT`** in the viewer and the report.
   The CLI's own `old_dir`/`new_dir` are unchanged.
 - **One colour language for the diff.** Comment and Unimportant changes use the
@@ -45,6 +50,7 @@ All notable changes to this project are documented here. Versions follow
 
 ### Fixed
 
+- Added and deleted files now show a minimap, so they scroll like any other.
 - Quick-changes rows open on the object they name — an A2L characteristic, a
   port, an RTE access point — instead of on the file's first change.
 - Clicking inside a highlighted change no longer paints every file opened

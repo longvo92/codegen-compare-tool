@@ -50,8 +50,25 @@ class Minimap(QWidget):
         self._maxlen = 1
         self.setFixedWidth(_WIDTH)
         self.setCursor(Qt.PointingHandCursor)
+        self._connect(editor)
+
+    def _connect(self, editor):
         editor.verticalScrollBar().valueChanged.connect(self.update)
         editor.blockCountChanged.connect(lambda _n: self.update())
+
+    def set_editor(self, editor):
+        """Point the map at the pane that actually holds the text.
+
+        Normally the old editor drives and its scrollbar mirror carries the new
+        one along, but an added file has text on the new side only (a deleted
+        one on the old side only). Driving off an empty document would leave
+        the viewport slider stuck at the top.
+        """
+        if editor is self._editor:
+            return
+        self._editor = editor
+        self._connect(editor)
+        self.update()
 
     def set_rows(self, rows):
         self._rows = rows

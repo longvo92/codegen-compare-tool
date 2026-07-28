@@ -198,6 +198,8 @@ def detect_renames(old_shadow, new_shadow, hunks=None):
             continue
         if o in new_ids or n in old_ids:
             continue  # not a true rename (name still in use / swap)
+        if not same_checksummed_object(o, n):
+            continue  # consistent, but it names a different generated object
         mapping[o] = n
     return mapping or None
 
@@ -243,6 +245,13 @@ DWORK_FIELD_RE = re.compile(
 # the underscore is what separates the chosen name from the generated tail.
 MANGLE_TAIL_RE = re.compile(r'_(?:[a-z]\d{0,2}|(?=[a-z0-9]*\d)[a-z0-9]{8,12})$')
 
+# The same checksum, as a whole underscore-delimited segment rather than a
+# tail: shared-utility and reusable-subsystem entry points carry it in the
+# middle (Sub_c4nxjoom3d_step, Model_flz3jd3buf_Init). Shape alone is the
+# guard here -- 8..12 lowercase alnum containing a digit -- so a written name
+# segment like 'size' or 'buffer' cannot be mistaken for one.
+MANGLE_SEGMENT_RE = re.compile(r'(?<=_)(?=[a-z0-9]*\d)[a-z0-9]{8,12}(?=_)')
+
 
 def generated_root(name):
     """Root of a generator-owned name with its mangle tail removed, or None
@@ -250,6 +259,13 @@ def generated_root(name):
     if GEN_PREFIX_RE.match(name) or DWORK_FIELD_RE.search(name):
         return MANGLE_TAIL_RE.sub('', name)
     return None
+
+
+def checksum_root(name):
+    """`name` with its embedded block-path checksum removed, or None when it
+    carries none. ``Sub_c4nxjoom3d_step`` -> ``Sub__step``."""
+    root, n = MANGLE_SEGMENT_RE.subn('', name)
+    return root if n else None
 
 
 def is_autogen_name_pair(a, b, old_ids=None, new_ids=None):
@@ -276,6 +292,15 @@ def is_autogen_name_pair(a, b, old_ids=None, new_ids=None):
     gen_a = generated_root(a)
     if gen_a is not None and gen_a == generated_root(b):
         return True
+    # a checksum sitting inside the name (Sub_<hash>_step). Unlike the
+    # prefixed case this one keeps the vanish guard: these are file-scope
+    # function and type names, so a name that is still in use on the other
+    # side is not a rename at all.
+    chk_a = checksum_root(a)
+    if chk_a is not None and chk_a == checksum_root(b):
+        if old_ids is not None and (a in new_ids or b in old_ids):
+            return False
+        return True
     ta, tb = TEMP_NAME_RE.match(a), TEMP_NAME_RE.match(b)
     if ta and tb:
         return ta.group(1) == tb.group(1)
@@ -285,6 +310,48 @@ def is_autogen_name_pair(a, b, old_ids=None, new_ids=None):
             return False
         return True
     return False
+
+
+def same_checksummed_object(a, b):
+    """False when a checksummed name was replaced by a *different* object
+    rather than by its own regenerated spelling.
+
+    A consistent 1-1 rename across a whole file is normally behaviour
+    preserving, which is why it counts as noise. That argument breaks down
+    around a block-path checksum, because everything except the checksum is
+    still meaning: ``Sub_<hash>_step -> Sub_<hash>_Init`` is a different entry
+    point and ``rtb_AND_<hash> -> rtb_OR_<hash>`` a different block, and both
+    are perfectly consistent renames.
+
+    Deliberately narrow: only a pair where BOTH names carry a checksum is
+    judged. ``rtb_Sum1 -> rtb_Sum_k2j`` has no checksum on either side and
+    stays the plain rename it has always been.
+    """
+    ra, rb = checksum_root(a), checksum_root(b)
+    if ra is None or rb is None:
+        return True
+    return ra == rb
+
+
+def canonical_generated(text):
+    """Text with every generated identifier reduced to its root.
+
+    ``rtb_AND_c4nxjoom3d`` and ``rtb_AND_j2kqp1wxab`` both become ``rtb_AND``,
+    so two copies of a block that only differ by regenerated names compare
+    equal. Used to match a moved block: without it a reorder that also
+    reshuffled the checksums looks like an unrelated delete plus insert, which
+    is two walls of red and green instead of one blue "moved" note. Names the
+    generator does not own are left exactly as they are.
+    """
+    def sub(m):
+        tok = m.group(0)
+        root = generated_root(tok)
+        if root is not None:
+            return root
+        root = checksum_root(tok)
+        return root if root is not None else tok
+
+    return re.sub(r'[A-Za-z_]\w*', sub, text)
 
 
 def _map_has_cycle(mapping):
@@ -311,11 +378,18 @@ def autogen_noise_map(old_lines, new_lines, old_ids=None, new_ids=None):
     collected, or when the map contains a cycle (i_0 <-> i_1 index swap /
     rotation is a real semantic change).
     """
+    accept = lambda a, b: is_autogen_name_pair(a, b, old_ids, new_ids)  # noqa: E731
+    if len(old_lines) != len(new_lines):
+        # A shorter generated name lets an argument fit on one line where it
+        # used to wrap at 80 columns, so the two sides hold the same statements
+        # over a different number of lines. Comparing the hunk as one token
+        # stream ignores where the newlines fell; token ORDER still has to
+        # match, so a genuine insertion or reordering is still rejected.
+        old_lines = [' '.join(old_lines)]
+        new_lines = [' '.join(new_lines)]
     mapping = {}
     for la, lb in zip(old_lines, new_lines):
-        if not _collect_line_pair_renames(
-                la, lb, mapping,
-                lambda a, b: is_autogen_name_pair(a, b, old_ids, new_ids)):
+        if not _collect_line_pair_renames(la, lb, mapping, accept):
             return None
     if not mapping or _map_has_cycle(mapping):
         return None

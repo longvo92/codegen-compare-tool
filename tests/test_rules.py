@@ -118,6 +118,58 @@ class TestAutogenNames(unittest.TestCase):
                      ('ADC_CH_0', 'ADC_CH_7')):
             self.assertFalse(c_rules.is_autogen_name_pair(a, b), (a, b))
 
+    def test_checksum_inside_the_name(self):
+        # shared-utility / reusable-subsystem entry points carry it mid-name
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_step'))
+        self.assertTrue(c_rules.is_autogen_name_pair(
+            'Model_flz3jd3buf_Init', 'Model_dq7ybe5cui_Init'))
+        # everything except the checksum is still meaning
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_Init'))
+        self.assertFalse(c_rules.is_autogen_name_pair(
+            'SubA_c4nxjoom3d_step', 'SubB_j2kqp1wxab_step'))
+
+    def test_checksum_root(self):
+        self.assertEqual(c_rules.checksum_root('Sub_c4nxjoom3d_step'), 'Sub__step')
+        # a segment that is too short, all letters, or a tail is not a checksum
+        for name in ('Sub_k2j_step', 'Sub_abcdefghij_step', 'Sub_c4nxjoom3d',
+                     'Rte_Write_PpOut_Speed'):
+            self.assertIsNone(c_rules.checksum_root(name), name)
+
+    def test_same_checksummed_object(self):
+        self.assertTrue(c_rules.same_checksummed_object(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_step'))
+        self.assertFalse(c_rules.same_checksummed_object(
+            'Sub_c4nxjoom3d_step', 'Sub_j2kqp1wxab_Init'))
+        # only judges pairs where BOTH sides carry a checksum: a plain
+        # generated rename is still the noise it has always been
+        self.assertTrue(c_rules.same_checksummed_object('rtb_Sum1', 'rtb_Sum_k2j'))
+        self.assertTrue(c_rules.same_checksummed_object('alpha', 'beta'))
+
+    def test_canonical_generated(self):
+        self.assertEqual(
+            c_rules.canonical_generated('rtb_AND_c4nxjoom3d = Sub_flz3jd3buf_step();'),
+            c_rules.canonical_generated('rtb_AND_j2kqp1wxab = Sub_dq7ybe5cui_step();'))
+        # a different block is still a different line
+        self.assertNotEqual(
+            c_rules.canonical_generated('rtb_AND_c4nxjoom3d = u;'),
+            c_rules.canonical_generated('rtb_OR_j2kqp1wxab = u;'))
+
+    def test_noise_map_across_a_rewrap(self):
+        # the shorter name let the argument stop wrapping: same statements,
+        # different line count
+        m = c_rules.autogen_noise_map(
+            ['Rte_Write_Out1', '(rtb_AND_c4nxjoom3d[65]);'],
+            ['Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);'])
+        self.assertEqual(m, {'rtb_AND_c4nxjoom3d': 'rtb_AND_j2kqp1wxab'})
+
+    def test_rewrap_does_not_hide_an_added_statement(self):
+        self.assertIsNone(c_rules.autogen_noise_map(
+            ['Rte_Write_Out1', '(rtb_AND_c4nxjoom3d[65]);'],
+            ['Rte_Write_Out1(rtb_AND_j2kqp1wxab[65]);',
+             'Rte_Write_Out2(rtb_AND_j2kqp1wxab[66]);']))
+
     def test_mangle_suffix_pair(self):
         self.assertTrue(c_rules.is_autogen_name_pair('Gain_Gain_c', 'Gain_Gain_o4'))
         self.assertTrue(c_rules.is_autogen_name_pair('UnitDelay_DSTATE', 'UnitDelay_DSTATE_l'))
