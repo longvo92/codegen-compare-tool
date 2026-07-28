@@ -1,5 +1,6 @@
 """Report rendering tests: hunk grouping, minor-change styling, context."""
 
+import re
 import unittest
 from pathlib import Path
 
@@ -48,7 +49,7 @@ class TestGrouping(unittest.TestCase):
         # line 5 sits between the two hunks; it must appear once per side
         self.assertEqual(table.count('<td class="ln">5</td>'), 2)
 
-    def test_minor_hunks_render_yellow(self):
+    def test_minor_hunks_get_their_own_row_class(self):
         table = _group_table(self.old, self.new, _group_hunks(self.r['hunks'])[0])
         self.assertIn('class="delm"', table)
         self.assertIn('class="addm"', table)
@@ -81,8 +82,10 @@ class TestRealPlusMinor(unittest.TestCase):
         self.assertEqual(len(groups), 1)
         self.assertEqual(_group_label(groups[0]), 'comment + real')
         table = _group_table(old.split('\n'), new.split('\n'), groups[0])
-        self.assertIn('class="delc"', table)  # comment line purple
-        self.assertIn('class="del"', table)   # real line red
+        # both are red on the removed side now; the classes still differ so
+        # the Unimportant badge can hide one of them
+        self.assertIn('class="delc"', table)
+        self.assertIn('class="del"', table)
 
     def test_report_shows_minor_hunks_in_modified_files(self):
         results = scan(FIX / 'old', FIX / 'new')
@@ -255,6 +258,97 @@ class TestIfaceSection(unittest.TestCase):
         self.assertNotIn('AUTOSAR changes', page)
 
 
+class TestOneColourLanguage(unittest.TestCase):
+    """Every category of difference is red on the left and green on the right.
+
+    Noise used to get a yellow and a purple of its own. With syntax colours in
+    the panes that made four hues compete, and a diff whose colours need a
+    legend is not readable at a glance. Noise is now the same red/green, dimmer
+    -- dimmer and not identical, because inside a Modified file the reviewer
+    still has to see which hunks count."""
+
+    @staticmethod
+    def _bg(selector):
+        """The background colour a CSS rule sets, as (r, g, b)."""
+        from compare_tool.report import _CSS
+        # comments carry commas of their own, which would land inside the
+        # selector list of the rule that follows them
+        css = re.sub(r'/\*.*?\*/', '', _CSS, flags=re.S)
+        for block in css.split('}'):
+            head, _, body = block.partition('{')
+            if selector not in [s.strip() for s in head.split(',')]:
+                continue
+            m = re.search(r'background:\s*#([0-9a-fA-F]{6})', body)
+            if m:
+                h = m.group(1)
+                return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+        raise AssertionError('no background for ' + selector)
+
+    def test_removed_rows_are_red_on_every_category(self):
+        for sel in ('td.del', 'td.delm', 'td.delc'):
+            r, g, b = self._bg(sel)
+            self.assertGreater(r, g, sel)
+            self.assertGreater(r, b, sel)
+
+    def test_added_rows_are_green_on_every_category(self):
+        for sel in ('td.add', 'td.addm', 'td.addc'):
+            r, g, b = self._bg(sel)
+            self.assertGreater(g, r, sel)
+            self.assertGreater(g, b, sel)
+
+    def test_noise_is_dimmer_than_a_real_change(self):
+        self.assertLess(sum(self._bg('td.delm')), sum(self._bg('td.del')))
+        self.assertLess(sum(self._bg('td.addm')), sum(self._bg('td.add')))
+
+    def test_the_legend_no_longer_offers_a_noise_swatch(self):
+        # a swatch for a colour the reader cannot tell from 'real change'
+        # explains nothing
+        page = build_report(scan(FIX / 'old', FIX / 'new'), FIX / 'old', FIX / 'new')
+        legend = page.split('class="legend"')[1].split('</div>')[0]
+        self.assertNotIn('sw-min', legend)
+        self.assertNotIn('sw-cmt', legend)
+
+
+class TestOldSideNaming(unittest.TestCase):
+    """Comparing against a commit checks it out to a temp folder. The header
+    names the BASELINE side, and a temp folder name is not an answer anybody
+    can act on -- the record has to say which commit was compared."""
+
+    @staticmethod
+    def _results():
+        return scan(FIX / 'old', FIX / 'new')
+
+    def test_without_a_label_the_folder_name_is_used(self):
+        page = build_report(self._results(), FIX / 'old', FIX / 'new')
+        self.assertIn('BASELINE <code title=', page)
+        self.assertIn('>old</code>', page)
+
+    def test_a_label_replaces_the_folder_name_on_the_old_side_only(self):
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            old_label='a1b2c3d  2026-07-20  raise the limit')
+        self.assertIn('a1b2c3d  2026-07-20  raise the limit', page)
+        self.assertNotIn('>old</code>', page)
+        self.assertIn('>new</code>', page)  # CURRENT is still its own folder
+
+    def test_the_real_path_stays_on_hover(self):
+        # the temp folder is still where the files were read from: hiding it
+        # entirely would make a failed compare impossible to trace
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            old_label='a1b2c3d')
+        self.assertIn('title="{}"'.format(FIX / 'old'), page)
+
+    def test_the_arxml_report_names_the_commit_too(self):
+        page = build_arxml_report(self._results(), FIX / 'old', FIX / 'new',
+                                  old_label='a1b2c3d  raise the limit')
+        self.assertIn('a1b2c3d  raise the limit', page)
+
+    def test_a_label_is_escaped_like_any_other_text(self):
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            old_label='fix <script>alert(1)</script>')
+        self.assertNotIn('<script>alert(1)</script>', page)
+        self.assertIn('&lt;script&gt;', page)
+
+
 class TestModelGrouping(unittest.TestCase):
     """File grouping by Embedded Coder model naming (X.c, X_*.h, Rte_X.h)."""
 
@@ -422,8 +516,8 @@ class TestMovedRendering(unittest.TestCase):
         self.assertNotIn('class="add"', self.out)
 
     def test_moved_note_rows_cross_reference(self):
-        self.assertIn('block moved to NEW line 1', self.out)
-        self.assertIn('block moved from OLD line 6', self.out)
+        self.assertIn('block moved to CURRENT line 1', self.out)
+        self.assertIn('block moved from BASELINE line 6', self.out)
 
     def test_moved_group_not_hidden_by_unimportant_toggle(self):
         # moved is a real change shown in blue; grp-min would hide it

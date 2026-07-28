@@ -30,6 +30,8 @@ from collections import namedtuple
 from datetime import datetime
 from pathlib import Path
 
+from .scanner import looks_binary, read_text
+
 SCHEMA = 1
 DEFAULT_NAME = 'codegen-review.json'
 
@@ -61,7 +63,7 @@ def _side(a, b):
 def _where(h):
     i1, i2 = h['old_range']
     j1, j2 = h['new_range']
-    return 'OLD {} · NEW {}'.format(_side(i1, i2), _side(j1, j2))
+    return 'BASELINE {} · CURRENT {}'.format(_side(i1, i2), _side(j1, j2))
 
 
 def blob_digest(path):
@@ -118,6 +120,45 @@ def units(result, old_lines=None, new_lines=None, blob=None):
             return []  # no fingerprint -> not reviewable -> never hideable
         return [Unit('{}#0'.format(_digest('file', status, body)), None, 'whole file')]
     return []
+
+
+def units_of(result, old_path, new_path, old_lines=None, new_lines=None):
+    """Reviewable units of one compared file, given where its two sides live.
+
+    :func:`units` needs different content for different verdicts -- lines for a
+    text change, the file's own bytes for a binary or a whole added/deleted
+    file, one side only when the other does not exist. That decision has to be
+    made in ONE place: the diff pane's sign-off and the tree's review column
+    would otherwise disagree about how many changes a file has, and the tree
+    would show a file as fully signed off while a change in it was still
+    untouched.
+
+    Callers already holding the lines (the diff pane renders from them) pass
+    them in; anyone else lets this read them.
+
+    A side that cannot be read yields no units at all -- nothing to sign off,
+    therefore nothing that a sign-off could hide.
+    """
+    status = result.get('status')
+    try:
+        if status == 'real-change':
+            if result.get('binary'):
+                return units(result, blob=blob_digest(new_path))
+            if old_lines is None:
+                old_lines = read_text(old_path).split('\n')
+            if new_lines is None:
+                new_lines = read_text(new_path).split('\n')
+            return units(result, old_lines, new_lines)
+        if status in ('added', 'deleted'):
+            path = new_path if status == 'added' else old_path
+            if looks_binary(path):
+                return units(result, blob=blob_digest(path))
+            lines = read_text(path).split('\n')
+            return units(result, **{'new_lines' if status == 'added'
+                                    else 'old_lines': lines})
+    except OSError:
+        return []
+    return []  # identical, noise-only, or a path that could not be compared
 
 
 class ReviewStore:
@@ -202,6 +243,28 @@ class ReviewStore:
         if label:
             entry['where'] = label
         self._data.setdefault(rel, {})[key] = entry
+
+
+def mark_file(store, rel, file_units, reviewed=True):
+    """Sign off (or un-sign) every reviewable unit of one file at once.
+
+    A regenerated file often carries a dozen hunks that are all the same
+    decision; ticking them one at a time adds clicks without adding scrutiny.
+    Notes already written are kept -- this changes the flag, nothing else.
+
+    It signs off exactly what :func:`units` produced, so the guarantee does not
+    move: a noise-only file has no units and therefore cannot be marked at all,
+    and a file whose content could not be fingerprinted stays unreviewed.
+
+    Returns how many units actually changed.
+    """
+    n = 0
+    for u in file_units:
+        if store.is_reviewed(rel, u.key) == bool(reviewed):
+            continue
+        store.set(rel, u.key, store.note(rel, u.key), reviewed, u.label)
+        n += 1
+    return n
 
 
 def default_path(new_root):

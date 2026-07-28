@@ -66,8 +66,8 @@ class TestScanErrors(_TreeCase):
         # both sides failed -> one note per side
         notes = results['locked']['notes']
         self.assertEqual(len(notes), 2)
-        self.assertIn('folder listing failed on OLD side', notes[0])
-        self.assertIn('folder listing failed on NEW side', notes[1])
+        self.assertIn('folder listing failed on BASELINE side', notes[0])
+        self.assertIn('folder listing failed on CURRENT side', notes[1])
 
     def test_listing_error_survives_include_filter(self):
         # --arxml-only passes include globs; a broken folder listing must

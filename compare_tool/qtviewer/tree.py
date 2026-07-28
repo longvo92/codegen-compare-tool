@@ -12,8 +12,10 @@ from collections import namedtuple
 # Identical) and its colours so the viewer and the report read the same.
 STATUS = {
     'real-change':    ('≠', 'Modified',     '#ff7b7b'),   # not-equal sign
-    'comment-only':   ('≉', 'Comment',      '#9d92e0'),   # comments only
-    'ignorable-only': ('≈', 'Unimportant',  '#e6c85c'),   # almost-equal
+    # the two noise verdicts are grey on purpose: grey is what "this does not
+    # count" looks like, and it keeps red/green meaning removed/added only
+    'comment-only':   ('≉', 'Comment',      '#8f96a2'),   # comments only
+    'ignorable-only': ('≈', 'Unimportant',  '#9aa1ad'),   # almost-equal
     'added':          ('+',      'Added',        '#7bd88a'),
     'deleted':        ('−', 'Deleted',      '#c88ad8'),   # minus sign
     'identical':      ('=',      'Identical',    '#8a8a8a'),
@@ -24,6 +26,26 @@ STATUS = {
 # outranks everything so a folder hiding one can never look clean
 PRIO = {'error': 6, 'real-change': 5, 'ignorable-only': 4, 'comment-only': 3,
         'added': 2, 'deleted': 2, 'identical': 1}
+
+# review progress -> colour, for the tree column that only exists in review
+# mode. Same three colours as the status chip on the status bar: green is a
+# finished state, amber is in flight, grey is nothing yet.
+REVIEW_COLOR = {'done': '#7bd88a', 'partial': '#e2c16b', 'none': '#8a8f98'}
+
+
+def review_state(reviewed, total):
+    """``'done'`` / ``'partial'`` / ``'none'`` for a file or folder, or None
+    when there is nothing to sign off at all.
+
+    ``done`` is a claim -- "every change here has been read" -- so it needs
+    every unit signed off, and a file with no reviewable unit makes no claim
+    rather than a free green: noise-only, identical and NOT-compared paths
+    have nothing anyone could have reviewed."""
+    if total <= 0:
+        return None
+    if reviewed >= total:
+        return 'done'
+    return 'partial' if reviewed else 'none'
 
 # a directory node's .rel is None; a file node carries its relative path
 Node = namedtuple('Node', 'name is_dir status rel children')

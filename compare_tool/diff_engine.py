@@ -45,10 +45,42 @@ def _lines(text):
     return text.split('\n')
 
 
+def _trim_common(a, b):
+    """(head, a_middle, b_middle) with the identical leading and trailing
+    lines removed; head is how far the middles were shifted."""
+    n = min(len(a), len(b))
+    head = 0
+    while head < n and a[head] == b[head]:
+        head += 1
+    tail = 0
+    while tail < n - head and a[-1 - tail] == b[-1 - tail]:
+        tail += 1
+    return head, a[head:len(a) - tail], b[head:len(b) - tail]
+
+
 def _diff_hunks(old_lines, new_lines):
-    """Non-equal opcodes of a line diff as (i1, i2, j1, j2) tuples."""
-    sm = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
-    return [(i1, i2, j1, j2) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
+    """Non-equal opcodes of a line diff as (i1, i2, j1, j2) tuples.
+
+    Two things keep this from going quadratic on a generated file, where the
+    same banner and brace lines repeat thousands of times:
+
+    The identical head and tail are trimmed before difflib sees them. Both
+    the trimmed and the untrimmed run describe the same two files; trimming
+    only removes work, and the block-boundary ambiguity it can shift is the
+    one _slide_down already normalises.
+
+    ``autojunk`` (difflib's own default) stops lines that make up more than
+    1% of a sequence of 200+ from being used as match anchors. Without it a
+    24k-line AUTOSAR file does not finish in ten minutes; with it, 0.7s. It
+    cannot hide a difference: a difflib matching block is a stretch where the
+    two sides are *identical*, so dropping anchors can only produce shorter
+    matches and therefore larger hunks -- it errs towards reporting more, not
+    less. What it does affect is where an ambiguous hunk boundary lands.
+    """
+    head, a, b = _trim_common(old_lines, new_lines)
+    sm = SequenceMatcher(None, a, b)
+    return [(i1 + head, i2 + head, j1 + head, j2 + head)
+            for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
 
 
 def _is_blank_hunk(h, old_shadow_lines, new_shadow_lines):
@@ -88,13 +120,27 @@ def _slide_down(lines, a, b):
     return a, b
 
 
-def _detect_moves(candidates, old_sh_lines, new_sh_lines):
+def _move_key(lines, ruleset):
+    """Content key for move matching.
+
+    For C the generated identifiers are reduced to their roots first: a model
+    that reorders a function usually regenerates its checksums too, and on the
+    raw text that reads as an unrelated delete plus insert -- two walls of red
+    and green where one blue "moved" note is the truth.
+    """
+    if ruleset != 'c':
+        return tuple(lines)
+    return tuple(c_rules.canonical_generated(l) for l in lines)
+
+
+def _detect_moves(candidates, old_sh_lines, new_sh_lines, ruleset='plain'):
     """Pair pure-delete hunks with pure-insert hunks whose non-blank shadow
     content is identical (MATLAB codegen reordering functions/declarations).
 
-    Fail-safe filters: exact shadow content match only, at least
-    MIN_MOVED_LINES non-blank lines, and the content must appear in exactly
-    one delete and one insert hunk (duplicates would be ambiguous).
+    Fail-safe filters: exact content match only (up to generated-name roots,
+    see _move_key), at least MIN_MOVED_LINES non-blank lines, and the content
+    must appear in exactly one delete and one insert hunk (duplicates would be
+    ambiguous).
 
     Returns ({del_hunk: new_line_1based}, {ins_hunk: old_line_1based});
     keys are the ORIGINAL hunk tuples, partner lines use slid positions.
@@ -104,12 +150,12 @@ def _detect_moves(candidates, old_sh_lines, new_sh_lines):
         i1, i2, j1, j2 = h
         if j1 == j2 and i2 > i1:
             a, b = _slide_down(old_sh_lines, i1, i2)
-            key = tuple(_nonblank(old_sh_lines[a:b]))
+            key = _move_key(_nonblank(old_sh_lines[a:b]), ruleset)
             if len(key) >= MIN_MOVED_LINES:
                 dels.setdefault(key, []).append((h, a))
         elif i1 == i2 and j2 > j1:
             a, b = _slide_down(new_sh_lines, j1, j2)
-            key = tuple(_nonblank(new_sh_lines[a:b]))
+            key = _move_key(_nonblank(new_sh_lines[a:b]), ruleset)
             if len(key) >= MIN_MOVED_LINES:
                 inss.setdefault(key, []).append((h, a))
     moved_del, moved_ins = {}, {}
@@ -159,7 +205,11 @@ def _is_autogen_hunk(h, old_sh_lines, new_sh_lines, old_ids, new_ids):
     i1, i2, j1, j2 = h
     a = _nonblank(old_sh_lines[i1:i2])
     b = _nonblank(new_sh_lines[j1:j2])
-    if not a or len(a) != len(b):
+    # unequal line counts are still offered up: autogen_noise_map compares
+    # those as one token stream, which is how a rewrapped statement (the
+    # generated name got shorter, so its argument stopped wrapping) is
+    # recognised. A real insertion still fails there, on token order.
+    if not a or not b:
         return False
     return c_rules.autogen_noise_map(a, b, old_ids, new_ids) is not None
 
@@ -248,7 +298,8 @@ def compare_pair(old_text, new_text, path):
 
     # candidate real hunks from shadow diff (blank-only hunks are pure
     # comment/whitespace line insertions -> not real)
-    candidates = [h for h in _diff_hunks(old_shadow_lines, new_shadow_lines)
+    shadow_hunks = _diff_hunks(old_shadow_lines, new_shadow_lines)
+    candidates = [h for h in shadow_hunks
                   if not _is_blank_hunk(h, old_shadow_lines, new_shadow_lines)]
 
     # rename detection (C only). The map is best-effort: it is verified by
@@ -257,7 +308,7 @@ def compare_pair(old_text, new_text, path):
     rename_map = None
     final_old_shadow_lines = old_shadow_lines
     if ruleset == 'c' and candidates:
-        rename_map = c_rules.detect_renames(old_shadow, new_shadow)
+        rename_map = c_rules.detect_renames(old_shadow, new_shadow, shadow_hunks)
         if rename_map:
             old_shadow2_lines = _lines(c_rules.apply_rename_map(old_shadow, rename_map))
             remaining = [h for h in _diff_hunks(old_shadow2_lines, new_shadow_lines)
@@ -292,7 +343,7 @@ def compare_pair(old_text, new_text, path):
 
     real_hunks = candidates
     moved_del, moved_ins = _detect_moves(candidates, final_old_shadow_lines,
-                                         new_shadow_lines)
+                                         new_shadow_lines, ruleset)
     plain_real = [h for h in candidates if h not in moved_del and h not in moved_ins]
 
     # --- pass 1: raw diff, then classify each hunk ---

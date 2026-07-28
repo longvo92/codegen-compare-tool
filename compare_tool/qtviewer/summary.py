@@ -11,13 +11,16 @@ from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
 from .summary_model import summary_sections
 
 REL_ROLE = Qt.UserRole
+KEY_ROLE = Qt.UserRole + 1
 
 _SIGN_COLOR = {'+': '#7bd88a', '−': '#ff7b7b', '~': '#7fb3d9'}
 _EMPTY = 'No AUTOSAR / A2L changes'
 
 
 class SummaryPanel(QTreeWidget):
-    fileActivated = Signal(str)
+    # (file, name-in-that-file). The name is what lets the diff pane open on
+    # the hunk the row is about instead of on the file's first change.
+    fileActivated = Signal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -53,10 +56,11 @@ class SummaryPanel(QTreeWidget):
                 item.setForeground(1, QBrush(QColor('#9a9a9a')))
                 item.setToolTip(0, row.rel)
                 item.setData(0, REL_ROLE, row.rel)
+                item.setData(0, KEY_ROLE, row.key)
                 head.addChild(item)
             head.setExpanded(True)
 
     def _on_click(self, item, _column):
         rel = item.data(0, REL_ROLE)
         if rel:
-            self.fileActivated.emit(rel)
+            self.fileActivated.emit(rel, item.data(0, KEY_ROLE) or '')

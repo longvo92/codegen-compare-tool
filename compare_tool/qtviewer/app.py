@@ -5,20 +5,23 @@ signals. Fail-safe stays first-class: a worker crash or any uncompared path
 raises a loud red banner -- an incomplete compare must never look clean.
 """
 
+import shutil
+import subprocess
 import sys
+import tempfile
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QPalette
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QMainWindow, QMessageBox, QPlainTextEdit,
+                               QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
                                QProgressBar, QSizePolicy, QSplitter, QStyle,
                                QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import review
+from .. import gitsource, review
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
@@ -26,11 +29,44 @@ from ..scanner import apply_fold, summarize
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
+from .pickers import pick_commit, pick_folders
 from .summary import SummaryPanel
-from .tree import STATUS, build_nodes, filter_nodes
+from .tree import REVIEW_COLOR, STATUS, build_nodes, filter_nodes, review_state
 from .worker import ScanWorker
 
-REL_ROLE = Qt.UserRole  # QTreeWidgetItem data slot holding a file's rel path
+REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
+PATH_ROLE = Qt.UserRole + 1  # relative path of any row, file or folder
+REVIEW_COL = 2               # tree column shown only while review mode is on
+
+# Windows can select the file itself inside its folder; anywhere else the most
+# a desktop can be asked for is the folder, and the label must not over-claim
+_SHOW_FILE = 'Show in Explorer' if sys.platform == 'win32' \
+    else 'Open containing folder'
+
+
+def _open_in_file_manager(path, select=False):
+    """Show `path` in the desktop's file manager.
+
+    Explorer takes ``/select,`` to open the containing folder with the file
+    highlighted, which is the whole point of asking from a file row -- a
+    codegen folder holds hundreds of files. It also exits non-zero on success,
+    so its exit code is deliberately not checked. Everywhere else (and for a
+    folder row) the containing folder is handed to the desktop.
+
+    Cosmetic by nature: a failure to open a window must not take the compare
+    down, so this reports False instead of raising.
+    """
+    p = Path(path)
+    if select and sys.platform == 'win32':
+        # one command string, not an argv list: Explorer parses "/select,<path>"
+        # itself and list2cmdline's quoting of that single argument breaks it
+        try:
+            subprocess.Popen('explorer /select,"{}"'.format(p))
+            return True
+        except OSError:
+            pass  # fall through to the plain folder below
+    folder = p.parent if (select or p.is_file()) else p
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 
 def _arxml_include():
@@ -65,6 +101,9 @@ class MainWindow(QMainWindow):
         self.worker = None
         self._reviews = review.ReviewStore()  # replaced per scan, see _load_reviews
         self._review_unit = None  # (rel, key, label) the note box is editing
+        self._units = {}          # rel -> reviewable units, read once per scan
+        self._git_temp = None     # where commits are checked out, this session
+        self._old_label = None    # what OLD is, when its folder does not say
 
         self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
         self.setWindowIcon(app_icon())
@@ -78,15 +117,24 @@ class MainWindow(QMainWindow):
                                   'font-weight:bold; border-bottom:1px solid #b04a4a;')
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['File', 'Status'])
+        # the Review column exists at all times but is hidden until review mode
+        # is on: adding and removing a column would reset the header's own
+        # sizing every time the mode is toggled
+        self.tree.setHeaderLabels(['File', 'Status', 'Review'])
+        self.tree.setColumnHidden(REVIEW_COL, True)
         self.tree.setUniformRowHeights(True)
         # the name column hugs its content instead of taking a fixed 380 px,
         # so Status sits right next to the file name and never gets pushed out
         # of the panel
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         self.tree.itemSelectionChanged.connect(self._on_select)
+        # right-click a row to open that file where it actually lives -- the
+        # reviewer's next step after seeing a diff is often the file itself
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
 
         # path search only. Verdicts never remove a row: the folder structure
         # must stay stable so the reviewer's bearings do not shift when change
@@ -130,7 +178,7 @@ class MainWindow(QMainWindow):
         # quick-changes rollup under the tree: the same "what changed in the
         # model / calibration" view --arxml-only gives, without leaving the app
         self.summary = SummaryPanel()
-        self.summary.fileActivated.connect(self._reselect)
+        self.summary.fileActivated.connect(self._jump_to_name)
         left = QSplitter(Qt.Vertical)
         left.addWidget(tree_box)
         left.addWidget(self.summary)
@@ -156,12 +204,12 @@ class MainWindow(QMainWindow):
         v.setSpacing(0)
         v.addWidget(self.banner)
         v.addWidget(split, 1)
-        # the review note sits directly under the diff it describes, above the
-        # navigation that moves off it
-        v.addWidget(self._review_bar())
-        # navigation and export live on a bar at the BOTTOM, next to the diff
-        # they act on -- the toolbar up top is for opening folders and help
-        v.addWidget(self._action_bar())
+        # the review note sits directly under the diff it describes -- hidden
+        # until Review mode is on. Navigation lives in the diff pane's own
+        # header now, and Export sits in the toolbar next to Review mode.
+        self.review_box = self._review_bar()
+        self.review_box.setVisible(False)
+        v.addWidget(self.review_box)
         self.setCentralWidget(central)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
@@ -188,9 +236,10 @@ class MainWindow(QMainWindow):
             # no folders yet: invite a drag & drop instead of forcing a modal
             # file dialog on the reviewer the moment the app opens. One folder
             # on the command line counts as OLD and waits for its NEW.
+            # the chip says the tool's state, nothing else: what to do next is
+            # on the landing screen in the middle, in bigger type
             self.diff.show_drop_hint(self.old)
-            self._set_state('idle', 'Waiting for the NEW folder' if self.old else
-                            'Ready — drop the OLD and NEW folders')
+            self._set_state('idle', 'Ready')
 
     # tool-state chip on the status bar: a coloured dot plus a word, so the
     # reviewer can tell at a glance whether a result is final or still coming
@@ -211,24 +260,37 @@ class MainWindow(QMainWindow):
         shortcut can never drift apart."""
         self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon),
                                 'Open folders…', self)
-        self.act_open.setToolTip('Choose the OLD and NEW folders — or drop them '
-                                 'straight onto the window')
+        self.act_open.setToolTip('Choose the BASELINE and CURRENT folders — or '
+                                 'drop them straight onto the window')
         self.act_open.triggered.connect(self._pick_folders)
 
+        # a way in of its own, not a follow-up to Open folders: this one asks
+        # for ONE folder -- the one being reviewed -- and takes the other side
+        # from the repository that folder already sits in
+        self.act_git = QAction(icon('git-commit'), 'Git compare…', self)
+        self.act_git.setToolTip('Compare a folder against one of its own '
+                                'commits — no second folder to choose')
+        self.act_git.triggered.connect(self._pick_commit)
+
         nav = (('act_first', 'nav-first-change', 'First change', 'Ctrl+Home',
-                self._first_change),
+                self.diff.first_change),
                ('act_prev', 'nav-prev-change', 'Previous change', 'F7',
-                self._prev_change),
+                self.diff.prev_change),
                ('act_next', 'nav-next-change', 'Next change', 'F8',
-                self._next_change),
+                self.diff.next_change),
                ('act_last', 'nav-last-change', 'Last change', 'Ctrl+End',
-                self._last_change))
+                self.diff.last_change))
         for attr, glyph, text, key, slot in nav:
             act = QAction(icon(glyph), text, self)
             act.setShortcut(key)
             act.setToolTip('{} ({}) — noise is skipped'.format(text, key))
             act.triggered.connect(slot)
             setattr(self, attr, act)
+        # these four live in the diff pane's own header, beside the file name
+        # they step through -- a bar of their own at the bottom repeated the
+        # same "change k of N" the header already shows
+        for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
+            self.diff.nav_actions.addWidget(self._nav_button(act))
 
         self.act_export = QAction(icon('export', ACCENT), 'Export report…', self)
         self.act_export.setShortcut('Ctrl+E')
@@ -237,12 +299,27 @@ class MainWindow(QMainWindow):
                                    'the complete scan, never the folded view')
         self.act_export.triggered.connect(self._export_report)
 
+        # signing off is a second pass, not part of reading a diff, so the note
+        # box stays out of the way until it is asked for -- it was taking a
+        # permanent strip of height from the diff for a mode most runs never use
+        self.act_review_mode = QAction(icon('review-comment'), 'Review mode', self)
+        self.act_review_mode.setCheckable(True)
+        self.act_review_mode.setToolTip('Show the note box and sign-off for the '
+                                        'current change')
+        self.act_review_mode.toggled.connect(self._set_review_mode)
+
         # no button of its own: the tick in the review bar IS the button. The
         # shortcut exists so a review pass can stay on the keyboard -- F8, tick,
         # F8 -- without reaching for the mouse between every change.
         self.act_reviewed = QAction('Mark this change reviewed', self)
         self.act_reviewed.setShortcut('Ctrl+R')
         self.act_reviewed.triggered.connect(self._toggle_reviewed)
+
+        # a regenerated file is usually one decision spread over a dozen hunks;
+        # ticking each one adds clicks without adding scrutiny
+        self.act_file_reviewed = QAction('Mark the whole file reviewed', self)
+        self.act_file_reviewed.setShortcut('Ctrl+Shift+R')
+        self.act_file_reviewed.triggered.connect(self._toggle_file_reviewed)
 
         self.act_guide = QAction(icon('report'), 'User guide', self)
         self.act_guide.setShortcut('F1')
@@ -261,7 +338,8 @@ class MainWindow(QMainWindow):
         # window must hold these actions for F7/F8/Ctrl+E to fire wherever the
         # focus happens to be
         for act in (self.act_first, self.act_prev, self.act_next,
-                    self.act_last, self.act_export, self.act_reviewed):
+                    self.act_last, self.act_export, self.act_reviewed,
+                    self.act_file_reviewed):
             self.addAction(act)
 
     def _build_toolbar(self):
@@ -271,12 +349,30 @@ class MainWindow(QMainWindow):
         tb.setIconSize(QSize(20, 20))
         tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         tb.addAction(self.act_open)
+        tb.addAction(self.act_git)
+        tb.addSeparator()
+        tb.addAction(self.act_review_mode)
+        tb.addWidget(self._tool_button(self.act_export, primary=True))
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        tb.addWidget(spacer)  # help actions sit on the right, away from Open
-        tb.addAction(self.act_guide)
-        tb.addAction(self.act_notes)
-        tb.addAction(self.act_about)
+        tb.addWidget(spacer)
+        # the three help pages behind one menu on the right: they are read once
+        # and then never again, so three permanent buttons were spending the
+        # top bar on the rarest thing in the window
+        self.help_button = QToolButton()
+        self.help_button.setText('Help')
+        self.help_button.setIcon(icon('report'))
+        self.help_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.help_button.setIconSize(QSize(20, 20))
+        self.help_button.setPopupMode(QToolButton.InstantPopup)
+        self.help_button.setCursor(Qt.PointingHandCursor)
+        menu = QMenu(self.help_button)  # parented, so it outlives this call
+        menu.addAction(self.act_guide)
+        menu.addAction(self.act_notes)
+        menu.addSeparator()
+        menu.addAction(self.act_about)
+        self.help_button.setMenu(menu)
+        tb.addWidget(self.help_button)
 
     @staticmethod
     def _tool_button(action, primary=False):
@@ -289,20 +385,18 @@ class MainWindow(QMainWindow):
             b.setObjectName('primary')
         return b
 
-    def _action_bar(self):
-        bar = QFrame()
-        bar.setObjectName('actionbar')
-        h = QHBoxLayout(bar)
-        h.setContentsMargins(8, 5, 8, 5)
-        h.setSpacing(4)
-        for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
-            h.addWidget(self._tool_button(act))
-        self.pos_label = QLabel('')
-        self.pos_label.setStyleSheet('color:#9a9a9a; padding:0 10px;')
-        h.addWidget(self.pos_label)
-        h.addStretch(1)
-        h.addWidget(self._tool_button(self.act_export, primary=True))
-        return bar
+    @staticmethod
+    def _nav_button(action):
+        """Small, icon-only: these sit inside the diff pane's own header, next
+        to the file name, so they read as part of that row rather than as
+        another toolbar competing for attention."""
+        b = QToolButton()
+        b.setDefaultAction(action)
+        b.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        b.setIconSize(QSize(14, 14))
+        b.setCursor(Qt.PointingHandCursor)
+        b.setAutoRaise(True)  # flat until hovered -- no button chrome at rest
+        return b
 
     # --- review: one note and one sign-off per change ---
 
@@ -327,6 +421,10 @@ class MainWindow(QMainWindow):
                                     'can then hide it, leaving only what is '
                                     'still to review.')
         self.cb_reviewed.toggled.connect(self._commit_review)
+        self.btn_file_reviewed = QToolButton()
+        self.btn_file_reviewed.setText('Whole file')
+        self.btn_file_reviewed.setCursor(Qt.PointingHandCursor)
+        self.btn_file_reviewed.clicked.connect(self._toggle_file_reviewed)
         self.review_where = QLabel('')
         self.review_where.setStyleSheet('color:#8a8f98; font-size:11px;')
         self.review_file = QLabel('')
@@ -336,6 +434,7 @@ class MainWindow(QMainWindow):
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(2)
         side.addWidget(self.cb_reviewed)
+        side.addWidget(self.btn_file_reviewed)
         side.addWidget(self.review_where)
         side.addWidget(self.review_file)
         side.addStretch(1)
@@ -348,9 +447,70 @@ class MainWindow(QMainWindow):
         self._load_review()
         return bar
 
+    def _set_review_mode(self, on):
+        """Show or hide the note box. The store is loaded either way -- what is
+        already signed off still reaches the exported report, and hiding the
+        box never changes a verdict."""
+        if not on:
+            self._commit_review()  # a note typed and not yet left behind
+        self.review_box.setVisible(on)
+        # the tree's Review column belongs to the same mode: it is progress
+        # bookkeeping, useless while nobody is signing anything off, and it
+        # costs a read of every changed file to fill
+        self.tree.setColumnHidden(REVIEW_COL, not on)
+        if on:
+            self._load_review()
+            self._refresh_review_column()
+            self.note_edit.setFocus()
+
     def _toggle_reviewed(self):
+        # the shortcut works before the mode is on; showing the bar is how the
+        # reviewer sees that the tick landed
+        self.act_review_mode.setChecked(True)
         if self.cb_reviewed.isEnabled():
             self.cb_reviewed.toggle()  # its toggled signal commits the change
+
+    def _file_state(self):
+        """``(rel, units, all_reviewed)`` for the file on screen.
+
+        ``rel`` is None when there is nothing to sign off: a noise-only or
+        identical file, a path that could not be compared, or an unreadable
+        review file. That is what stops a whole-file tick from claiming
+        something nobody could have read."""
+        unit = self.diff.current_unit()
+        units = self.diff.file_units()
+        if unit is None or not units or self._reviews.error:
+            return None, [], False
+        rel = unit[0]
+        return rel, units, all(self._reviews.is_reviewed(rel, u.key) for u in units)
+
+    def _toggle_file_reviewed(self):
+        self._commit_review()  # the box may hold a note for one of these units
+        rel, units, done = self._file_state()
+        if rel is None:
+            return
+        self.act_review_mode.setChecked(True)
+        changed = review.mark_file(self._reviews, rel, units, not done)
+        if changed:
+            self._save_reviews()
+        self._load_review()
+        self._refresh_review_column()
+        self.statusBar().showMessage(
+            '{} change(s) in {} marked {}'.format(
+                changed, rel, 'not reviewed' if done else 'reviewed'), 6000)
+
+    def _sync_file_button(self):
+        rel, units, done = self._file_state()
+        self.btn_file_reviewed.setEnabled(rel is not None)
+        self.btn_file_reviewed.setText('Clear file' if done else 'Whole file')
+        if rel is None:
+            self.btn_file_reviewed.setToolTip('Nothing on this file can be '
+                                              'signed off.')
+        else:
+            self.btn_file_reviewed.setToolTip(
+                '{} all {} change(s) in this file (Ctrl+Shift+R). Notes you '
+                'wrote are kept.'.format('Un-sign' if done else 'Sign off',
+                                         len(units)))
 
     def _load_reviews(self):
         """Open the review that belongs to this pair of folders. Kept BESIDE
@@ -395,6 +555,7 @@ class MainWindow(QMainWindow):
             self.review_where.setText('')
         self.note_edit.blockSignals(False)
         self.cb_reviewed.blockSignals(False)
+        self._sync_file_button()
         self._show_review_file()
 
     def _show_review_file(self):
@@ -432,6 +593,10 @@ class MainWindow(QMainWindow):
                 and reviewed == self._reviews.is_reviewed(rel, key)):
             return
         self._reviews.set(rel, key, note, reviewed, label)
+        self._save_reviews()
+        self._refresh_review_column()  # this file just moved along
+
+    def _save_reviews(self):
         try:
             self._reviews.save()
         except Exception as e:
@@ -443,40 +608,26 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._commit_review()
+        if self._git_temp:
+            # checkouts are scratch: they live as long as the session, so
+            # flipping between commits is instant, and go with it
+            shutil.rmtree(self._git_temp, ignore_errors=True)
+            self._git_temp = None
         super().closeEvent(event)
 
-    # navigation goes through the window so the position readout stays in step
-    def _first_change(self):
-        self.diff.first_change()
-        self._sync_position()
-
-    def _prev_change(self):
-        self.diff.prev_change()
-        self._sync_position()
-
-    def _next_change(self):
-        self.diff.next_change()
-        self._sync_position()
-
-    def _last_change(self):
-        self.diff.last_change()
-        self._sync_position()
-
-    def _sync_position(self):
-        self.pos_label.setText(self.diff.position_text())
 
     # --- folder selection ---
 
     def _pick_folders(self):
-        o = QFileDialog.getExistingDirectory(self, 'Select OLD folder', self.old or '')
-        if not o:
-            self._front()
-            return
-        n = QFileDialog.getExistingDirectory(self, 'Select NEW folder', self.new or o)
+        # both sides in one dialog, prefilled: changing only one of them was
+        # two native dialogs' worth of clicking, the second of which just
+        # re-picked the folder that was already right
+        picked = pick_folders(self, self.old, self.new)
         self._front()  # closing a native dialog can leave the window behind others
-        if not n:
+        if picked is None:
             return
-        self.old, self.new = o, n
+        self.old, self.new = picked
+        self._clear_git_old()
         self._start_scan()
 
     def _front(self):
@@ -510,19 +661,88 @@ class MainWindow(QMainWindow):
             # first drop of a pair: OLD, and wait for the second
             self.old, self.new = dirs[0], None
             self.diff.show_drop_hint(self.old)
-            self._set_state('idle', 'OLD set — now drop the NEW folder')
+            self._set_state('idle', 'Ready')
             self._front()
             return
         else:
             self.new = dirs[0]
+        self._clear_git_old()
         self._front()
+        self._start_scan()
+
+    # --- comparing against a commit ---
+    #
+    # A commit is not a second kind of compare: it only supplies the OLD
+    # folder, checked out read-only to a temp directory. Everything after that
+    # -- scan, verdicts, folding, notes, export -- is the ordinary path.
+
+    def _clear_git_old(self):
+        """Dropped or picked folders replace a commit as the OLD side."""
+        self._old_label = None
+        self.diff.set_old_label(None)
+
+    @staticmethod
+    def _git_load(folder):
+        """``(repo root, subpath, commits)`` for a folder, for the picker.
+
+        Raises :class:`gitsource.GitError` with something the reviewer can act
+        on; the dialog prints it inline and stays open, so a wrong folder costs
+        one more click instead of a closed window.
+        """
+        root = gitsource.repo_root(folder)
+        if root is None:
+            raise gitsource.GitError(
+                'Not inside a git checkout: {}\nPick a folder from your '
+                'repository, or use Open folders… to compare two folders by '
+                'hand.'.format(folder))
+        sub = gitsource.rel_in_repo(root, folder)
+        return root, sub, gitsource.log(root, sub)
+
+    def _pick_commit(self):
+        # the folder lives in the dialog, not out here: reusing whatever was
+        # loaded meant the second git compare of a session was stuck on the
+        # first one's repository until the app was restarted
+        start = self.new if (self.new and gitsource.repo_root(self.new)) else None
+        picked = pick_commit(self, start, self._git_load, gitsource.resolve)
+        self._front()
+        if picked is None:
+            return
+        folder, root, sub, commit = picked
+        self.new = folder
+        self._checkout(root, sub, commit)
+
+    def _checkout(self, root, sub, commit):
+        if self._git_temp is None:
+            self._git_temp = tempfile.mkdtemp(prefix='codegen-compare-git-')
+        self._set_state('busy', 'Checking out {}…'.format(commit.short))
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()  # let the status chip paint before the wait
+        try:
+            path = gitsource.export(root, commit.sha, sub, self._git_temp)
+        except gitsource.GitError as e:
+            # loud: a failed checkout must never fall through to a stale or
+            # empty OLD folder and produce a compare that looks finished
+            QMessageBox.critical(self, 'Checkout failed', str(e))
+            self._set_state('error', 'Checkout failed')
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self.old = str(path)
+        subject = commit.subject if len(commit.subject) <= 60 else \
+            commit.subject[:57] + '…'
+        self._old_label = '{}  {}  {}'.format(commit.short, commit.when, subject)
+        self.diff.set_old_label(
+            '{}  ·  {}'.format(commit.short, subject),
+            '{}\n{} — {}\n\nchecked out to {}'.format(
+                commit.subject, commit.when, commit.author, path))
         self._start_scan()
 
     # --- scan lifecycle ---
 
     # a folded category disappears from BOTH places it shows: the file's verdict
     # (status -> Identical/Modified) and the lines in the diff panes. Leaving a
-    # wall of yellow in the code after saying those differences do not count was
+    # wall of coloured rows in the code after saying those do not count was
     # the worst of both.
     _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
@@ -546,13 +766,17 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         self.summary.set_results({})
         self.diff.clear()
-        self.pos_label.setText('')
         self._raw_results = {}
         self.results = {}
+        self._units = {}  # different folders, different content, different keys
         self.act_export.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)  # busy/indeterminate until first tick
-        self.setWindowTitle('AUTOSAR CodeGen Compare — {}  →  {}'.format(self.old, self.new))
+        # the folder NAME, not the two absolute paths: a title bar is not wide
+        # enough for a pair of them, and both roots are already named over the
+        # diff panes -- with the full path in their tooltip
+        name = Path(self.new).name or str(self.new)
+        self.setWindowTitle('AUTOSAR CodeGen Compare — {}'.format(name))
         self._load_reviews()
         self.counts_label.setText('')
         self._set_state('busy', 'Scanning…')
@@ -650,14 +874,16 @@ class MainWindow(QMainWindow):
             if self.arxml_only:
                 # the ARXML/A2L report lists files, not individual changes, so
                 # there is nothing for a per-change note to attach to
-                page = build_arxml_report(self._raw_results, self.old, self.new)
+                page = build_arxml_report(self._raw_results, self.old, self.new,
+                                          old_label=self._old_label)
             else:
                 # only pass the store when it holds something: an untouched
                 # review would otherwise add a "0 of N Reviewed" badge to every
                 # report, for a feature that run never used
                 store = self._reviews if (self._reviews.any_entries()
                                           or self._reviews.error) else None
-                page = build_report(self._raw_results, self.old, self.new, store)
+                page = build_report(self._raw_results, self.old, self.new, store,
+                                    old_label=self._old_label)
             Path(out).write_text(page, encoding='utf-8')
         except Exception as e:
             QMessageBox.critical(self, 'Export failed',
@@ -685,16 +911,18 @@ class MainWindow(QMainWindow):
                                      text=self.filter_edit.text()))
 
     def _fill_tree(self, nodes):
-        def add(parent, node):
+        def add(parent, node, prefix):
             marker, label, color = STATUS[node.status]
             item = QTreeWidgetItem(['{}  {}'.format(marker, node.name), label])
             brush = QBrush(QColor(color))
             item.setForeground(0, brush)
             item.setForeground(1, brush)
+            rel = node.rel or (prefix + node.name)
+            item.setData(0, PATH_ROLE, rel)  # folders included: the menu opens those too
             if not node.is_dir:
                 item.setData(0, REL_ROLE, node.rel)
             for ch in node.children:
-                add(item, ch)
+                add(item, ch, rel + '/')
             if parent is None:
                 self.tree.addTopLevelItem(item)
             else:
@@ -703,11 +931,126 @@ class MainWindow(QMainWindow):
                 item.setExpanded(True)
 
         for n in nodes:
-            add(None, n)
+            add(None, n, '')
+        self._refresh_review_column()
+
+    # --- review column: how far along each file is ---
+
+    def _file_units(self, rel):
+        """Reviewable units of one file, read from disk once per scan.
+
+        Cached because the column is rebuilt on every keystroke in the filter
+        box and after every tick, and re-reading both sides of every changed
+        file for that would make the tree crawl. Folding a category cannot
+        change the answer: only noise verdicts fold, and those have no units
+        either way."""
+        if rel not in self._units:
+            result = self.results.get(rel)
+            self._units[rel] = review.units_of(
+                result, Path(self.old) / rel, Path(self.new) / rel) \
+                if result and self.old and self.new else []
+        return self._units[rel]
+
+    def _refresh_review_column(self):
+        """Repaint the Review column from the store. A folder shows the tally
+        of everything under it, so a collapsed tree still says where the work
+        is left."""
+        if self.tree.isColumnHidden(REVIEW_COL):
+            return
+
+        def walk(item):
+            rel = item.data(0, REL_ROLE)
+            if rel is None:  # folder: the sum of what is underneath
+                done = total = 0
+                for i in range(item.childCount()):
+                    d, t = walk(item.child(i))
+                    done += d
+                    total += t
+            else:
+                units = self._file_units(rel)
+                total = len(units)
+                done = sum(1 for u in units
+                           if self._reviews.is_reviewed(rel, u.key))
+            self._paint_review(item, done, total)
+            return done, total
+
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+
+    def _paint_review(self, item, done, total):
+        state = review_state(done, total)
+        if state is None:
+            # nothing signable here: an em dash, not a green tick. A noise-only
+            # or NOT-compared file has nothing anyone could have read, and a
+            # free "done" on it is exactly the false all-clear to avoid.
+            item.setText(REVIEW_COL, '—')
+            item.setForeground(REVIEW_COL, QBrush(QColor('#5a5d63')))
+            item.setToolTip(REVIEW_COL, 'Nothing here can be signed off.')
+            return
+        item.setText(REVIEW_COL, '{}/{}'.format(done, total))
+        item.setForeground(REVIEW_COL, QBrush(QColor(REVIEW_COLOR[state])))
+        item.setToolTip(REVIEW_COL, '{} of {} change(s) reviewed'.format(done, total))
+
+    # --- right-click: open the file where it really lives ---
+
+    def _tree_menu(self, pos):
+        menu = self._context_menu(self.tree.itemAt(pos))
+        if menu is not None:
+            menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _context_menu(self, item):
+        """The right-click menu for one tree row, or None when the row has
+        nothing to offer. Built apart from showing it so the menu can be
+        rendered and looked at without a blocking exec()."""
+        if item is None or not (self.old and self.new):
+            return None
+        rel = item.data(0, PATH_ROLE)
+        if not rel:
+            return None
+        is_file = item.data(0, REL_ROLE) is not None
+        # NEW is the folder being reviewed, so it is the only side worth an
+        # entry -- except for a deleted path, which exists nowhere else but
+        # OLD. Offering both sides everywhere was two clicks' worth of choice
+        # for a question that has one answer.
+        target = Path(self.new) / rel
+        if not target.exists():
+            target = Path(self.old) / rel
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)  # the tooltip carries the full path
+        act = menu.addAction(_SHOW_FILE if is_file else 'Open folder')
+        exists = target.exists()
+        act.setEnabled(exists)
+        act.setToolTip(str(target) if exists else
+                       '{}\n\nNot on either side any more.'.format(target))
+        act.triggered.connect(
+            lambda _checked=False, p=target, s=is_file:
+            _open_in_file_manager(p, select=s))
+        menu.addSeparator()
+        # the FULL path of the same target the entry above opens: a relative
+        # path is not something you can paste into a shell, an explorer bar or
+        # a ticket, which is what a copied path is for
+        full = str(target)
+        copy = menu.addAction('Copy full path')
+        copy.setToolTip(full)
+        copy.triggered.connect(lambda: QApplication.clipboard().setText(full))
+        return menu
 
     def _selected_rel(self):
         items = self.tree.selectedItems()
         return items[0].data(0, REL_ROLE) if items else None
+
+    def _jump_to_name(self, rel, key):
+        """Open `rel` from the quick-changes panel, on the hunk about `key`.
+
+        Selecting the tree item loads the file, which parks on its first
+        change; the second step moves to the object the clicked row is
+        actually about. A row whose name is not in a changed line (a fold is
+        hiding it, or the name only occurs in context) leaves the pane on that
+        first change rather than scrolling somewhere unrelated.
+        """
+        self._reselect(rel)
+        if key:
+            self.diff.goto_name(key)
 
     def _reselect(self, rel):
         """Re-open the file that was showing before a rescan."""
@@ -725,7 +1068,6 @@ class MainWindow(QMainWindow):
         rel = self._selected_rel()
         if rel and rel in self.results:
             self.diff.show_file(rel, self.results[rel], self.old, self.new)
-            self._sync_position()
 
 
 # chrome styling. Deliberately narrow: the diff editors, the minimap and the
@@ -733,15 +1075,18 @@ class MainWindow(QMainWindow):
 # items would override those verdict colours.
 _QSS = """
 QToolBar#main { background:#25262a; border:0; border-bottom:1px solid #34363c;
-                padding:4px 6px; spacing:2px; }
+                padding:4px 12px 4px 6px; spacing:2px; }
+/* the Help button carries a menu: without room for it the arrow is clipped
+   against the window edge */
+QToolBar#main QToolButton::menu-indicator { subcontrol-position: right center;
+                subcontrol-origin: padding; right:-2px; }
 QToolBar#main QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
 QToolBar#main QToolButton:hover { background:#34363c; }
 QToolBar#main QToolButton:pressed { background:#3d404a; }
-QFrame#actionbar { background:#25262a; border-top:1px solid #34363c; }
-QFrame#actionbar QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
-QFrame#actionbar QToolButton:hover { background:#34363c; }
-QFrame#actionbar QToolButton:pressed { background:#3d404a; }
-QFrame#actionbar QToolButton:disabled { color:#6a6a6a; }
+/* Review mode is a MODE: without a lit checked state the button looks the same
+   on as off, and the note box appearing is the only clue it worked */
+QToolBar#main QToolButton:checked { background:#343a63; color:#e8e8ff; }
+QToolBar#main QToolButton:checked:hover { background:#454c80; }
 QFrame#reviewbar { background:#212226; border-top:1px solid #34363c; }
 QFrame#reviewbar QPlainTextEdit { background:#232427; border:1px solid #3a3c42;
             border-radius:6px; padding:4px 6px; color:#d4d4d4; }

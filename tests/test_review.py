@@ -106,6 +106,93 @@ class TestUnits(unittest.TestCase):
                             review.units(r, blob='bb')[0].key)
 
 
+class TestUnitsOf(unittest.TestCase):
+    """``units_of`` is the one place that decides which side a verdict needs
+    read. The diff pane and the tree's review column both go through it, so a
+    file can never be 'fully signed off' in one and unfinished in the other."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = Path(self.tmp.name) / 'old'
+        self.new = Path(self.tmp.name) / 'new'
+        self.old.mkdir()
+        self.new.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, name, old_text=None, new_text=None, binary=False):
+        for root, text in ((self.old, old_text), (self.new, new_text)):
+            if text is None:
+                continue
+            p = root / name
+            if binary:
+                p.write_bytes(text)
+            else:
+                p.write_text(text, encoding='utf-8')
+        return self.old / name, self.new / name
+
+    def test_reading_the_sides_gives_the_same_keys_as_passing_the_lines(self):
+        old_p, new_p = self._write('m.c', OLD_C, NEW_C)
+        r = compare_pair(OLD_C, NEW_C, 'm.c')
+        read = review.units_of(r, old_p, new_p)
+        given = review.units_of(r, old_p, new_p, OLD_C.split('\n'),
+                                NEW_C.split('\n'))
+        self.assertEqual(len(read), 1)
+        self.assertEqual([u.key for u in read], [u.key for u in given])
+
+    def test_added_reads_the_new_side_deleted_the_old(self):
+        old_p, new_p = self._write('gone.c', old_text='int gone;\n')
+        deleted = review.units_of({'status': 'deleted', 'hunks': []},
+                                  old_p, new_p)
+        old_p2, new_p2 = self._write('fresh.c', new_text='int fresh;\n')
+        added = review.units_of({'status': 'added', 'hunks': []},
+                                old_p2, new_p2)
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(len(added), 1)
+        self.assertIsNone(added[0].index)
+
+    def test_binary_change_is_keyed_by_the_new_bytes(self):
+        old_p, new_p = self._write('t.bin', b'\x00\x01', b'\x00\x02', binary=True)
+        r = {'status': 'real-change', 'binary': True, 'hunks': []}
+        first = review.units_of(r, old_p, new_p)
+        self.assertEqual(len(first), 1)
+        new_p.write_bytes(b'\x00\x03')
+        # regenerated differently -> different key -> comes back not reviewed
+        self.assertNotEqual(first[0].key, review.units_of(r, old_p, new_p)[0].key)
+
+    def test_binary_added_file_is_signable_by_its_own_bytes(self):
+        old_p, new_p = self._write('img.bin', new_text=b'\x00img', binary=True)
+        us = review.units_of({'status': 'added', 'hunks': []}, old_p, new_p)
+        self.assertEqual(len(us), 1)
+        self.assertEqual(us[0].label, 'whole file')
+
+    def test_noise_and_identical_have_nothing_to_sign_off(self):
+        # the tree column must not paint these green: nobody read anything
+        noisy = OLD_C.replace('/* banner */', '/* banner v2 */')
+        old_p, new_p = self._write('n.c', OLD_C, noisy)
+        r = compare_pair(OLD_C, noisy, 'n.c')
+        self.assertEqual(r['status'], 'comment-only')
+        self.assertEqual(review.units_of(r, old_p, new_p), [])
+        old_p, new_p = self._write('same.c', OLD_C, OLD_C)
+        self.assertEqual(review.units_of(compare_pair(OLD_C, OLD_C, 'same.c'),
+                                         old_p, new_p), [])
+
+    def test_a_path_that_cannot_be_read_yields_no_unit(self):
+        # fail-safe: no unit means nothing can be marked reviewed, so an
+        # unreadable file can never be hidden behind a sign-off
+        r = compare_pair(OLD_C, NEW_C, 'm.c')
+        missing_old, missing_new = self.old / 'nope.c', self.new / 'nope.c'
+        self.assertEqual(review.units_of(r, missing_old, missing_new), [])
+        self.assertEqual(review.units_of({'status': 'added', 'hunks': []},
+                                         missing_old, missing_new), [])
+
+    def test_error_verdict_is_never_signable(self):
+        old_p, new_p = self._write('e.c', OLD_C, NEW_C)
+        r = {'status': 'error', 'hunks': [], 'notes': ['unreadable']}
+        self.assertEqual(review.units_of(r, old_p, new_p), [])
+
+
 class TestStore(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -153,6 +240,59 @@ class TestStore(unittest.TestCase):
         self.assertTrue(review.ReviewStore.load(self.path).error)
 
 
+class TestMarkWholeFile(unittest.TestCase):
+    """Signing off a file at once. It has to sign off exactly the units the
+    per-change tick would, or the badge count and the report stop agreeing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = review.ReviewStore(Path(self.tmp.name) / 'r.json')
+        r = compare_pair(OLD_C, NEW_C, 'm.c')
+        self.units = review.units(r, OLD_C.split('\n'), NEW_C.split('\n'))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_every_unit_is_signed_off_and_counted(self):
+        n = review.mark_file(self.store, 'm.c', self.units)
+        self.assertEqual(n, len(self.units))
+        self.assertTrue(all(self.store.is_reviewed('m.c', u.key)
+                            for u in self.units))
+
+    def test_notes_already_written_survive(self):
+        self.store.set('m.c', self.units[0].key, 'calibration bump', False)
+        review.mark_file(self.store, 'm.c', self.units)
+        self.assertEqual(self.store.note('m.c', self.units[0].key),
+                         'calibration bump')
+        self.assertTrue(self.store.is_reviewed('m.c', self.units[0].key))
+
+    def test_marking_twice_changes_nothing_the_second_time(self):
+        # the file's timestamp is a signal to whoever shares it; a pass that
+        # changed nothing must not move it
+        review.mark_file(self.store, 'm.c', self.units)
+        self.assertEqual(review.mark_file(self.store, 'm.c', self.units), 0)
+
+    def test_unmarking_clears_the_flag_but_keeps_the_note(self):
+        self.store.set('m.c', self.units[0].key, 'why', True)
+        review.mark_file(self.store, 'm.c', self.units, reviewed=False)
+        self.assertFalse(self.store.is_reviewed('m.c', self.units[0].key))
+        self.assertEqual(self.store.note('m.c', self.units[0].key), 'why')
+
+    def test_unmarking_a_bare_signoff_removes_the_entry(self):
+        review.mark_file(self.store, 'm.c', self.units)
+        review.mark_file(self.store, 'm.c', self.units, reviewed=False)
+        self.assertFalse(self.store.any_entries())
+
+    def test_a_file_with_no_units_cannot_be_signed_off(self):
+        """The fail-safe edge: noise-only, identical and uncompared files
+        produce no units, so there is nothing for a whole-file tick to claim."""
+        noise = compare_pair('/* Mon */\nint a;\n', '/* Tue */\nint a;\n', 'c.c')
+        units = review.units(noise, ['/* Mon */', 'int a;'], ['/* Tue */', 'int a;'])
+        self.assertEqual(units, [])
+        self.assertEqual(review.mark_file(self.store, 'c.c', units), 0)
+        self.assertFalse(self.store.any_entries())
+
+
 class TestReportRendering(unittest.TestCase):
     def setUp(self):
         self.results = scan(FIX / 'old', FIX / 'new')
@@ -178,7 +318,7 @@ class TestReportRendering(unittest.TestCase):
         page = self._page()
         self.assertIn('Gain raised for the new plant.', page)
         self.assertIn('&#10003; Reviewed', page)
-        self.assertIn('1 of 7 Reviewed', page)
+        self.assertIn('1 of 8 Reviewed', page)
 
     def test_a_note_without_the_tick_still_shows_but_does_not_hide(self):
         self.store.set(self.rel, self.unit.key, 'Asking the integrator.', False,
@@ -187,7 +327,7 @@ class TestReportRendering(unittest.TestCase):
         self.assertIn('Asking the integrator.', page)
         self.assertIn('rvnote pending', page)
         self.assertNotIn(_GRP_REV, page)
-        self.assertIn('0 of 7 Reviewed', page)
+        self.assertIn('0 of 8 Reviewed', page)
 
     def test_reviewed_change_is_marked_hideable_but_stays_in_the_record(self):
         self.store.set(self.rel, self.unit.key, 'ok', True, self.unit.label)
@@ -208,7 +348,7 @@ class TestReportRendering(unittest.TestCase):
         page = self._page()
         self.assertNotIn('signed off long ago', page)
         self.assertNotIn(_GRP_REV, page)
-        self.assertIn('0 of 7 Reviewed', page)
+        self.assertIn('0 of 8 Reviewed', page)
 
     def test_unreadable_review_file_is_loud_in_the_report(self):
         broken = review.ReviewStore(path='x.json', error='ValueError: bad')

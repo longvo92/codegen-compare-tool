@@ -88,7 +88,7 @@ Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was r
 
 ## Side-by-side viewer
 
-Desktop app (PySide6): folder tree, two-pane diff with a minimap, per-change review notes.
+Desktop app (PySide6): folder tree, two-pane diff with a minimap and syntax colouring, per-change review notes, and a commit picker when the folder is in a git checkout.
 
 ```bash
 pip install "codegen-compare-tool[viewer]"   # or: pip install PySide6
@@ -98,7 +98,11 @@ python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
 
 ![Side-by-side viewer](resources/pic/main_page.png)
 
-Full walkthrough is built into the app — `User guide` (`F1`) or `Release notes` in the toolbar, both work offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
+Two ways in: `Open folders…` for two folders you name yourself, and `Git compare…` for **one** folder in a git checkout — it lists the commits that touched that folder, checks the one you pick out to a temp folder (read-only — your working copy is never touched), and compares as usual.
+
+`Review mode` adds the note box and a `Review` column in the tree — green when every change in a row is signed off, amber part way, grey when none is. Sign off one change (`Ctrl+R`) or a whole file (`Ctrl+Shift+R`); the notes travel into the exported report.
+
+Full walkthrough is built into the app — `Help` → `User guide` (`F1`), which works offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
 
 ## What counts as noise
 
@@ -112,13 +116,19 @@ Full walkthrough is built into the app — `User guide` (`F1`) or `Release notes
 | `whitespace` | Indentation, trailing spaces, blank lines | all |
 | `line-endings` | CRLF vs LF, BOM | all |
 
-Auto-generated name churn is recognised as a `rename`: Embedded Coder temporaries such as `rtb_*`, mangling suffixes and renumbered temporaries change between runs without changing behaviour.
+Auto-generated name churn is recognised as a `rename`. Two identifiers count as the same name only when the code generator owns both — a generated prefix (`rtb_`, `rtu_`, `rty_`, `rtDW`, `rtP`, `rtC`, `rtZC`, `localB`, `localDW`, …), a DWork field (`_DSTATE`, `_PreviousInput`, `_MODE`, `_SubsysRanBC`, …), or an embedded block-path checksum (`Sub_c4nxjoom3d_step` → `Sub_j2kqp1wxab_step`) — **and** they share a root once the generated part is removed. The generated part is a mangling suffix (`_c`, `_o4`) or a checksum (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`); renumbered MATLAB Coder temporaries (`tmp`, `idx`, `loop_ub`, `i`) are covered too.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary, its own tree marker and colour (purple vs yellow) in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
+A shorter name can stop an argument wrapping at 80 columns, so the two sides hold the same statements over a different number of lines. Such a hunk is compared as one token stream — where the newlines fell stops mattering, while token order still has to match exactly.
+
+Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` → `SIG_TORQUE_MAX` and `CFG_TIMEOUT_MS` → `CFG_TIMEOUT_US` are real changes, and so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
+
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
 
 ## Moved block detection
 
 A block deleted in one place and reappearing intact elsewhere (Embedded Coder reorders functions and declarations when a model changes) is labelled `moved` and coloured **blue** instead of red/green. Still counts as **Modified** — reordering can change behaviour — it's just easier to see than two large red/green blocks.
+
+Matching ignores generated-name churn, so a block that moved *and* had its checksums regenerated is still recognised as one move rather than an unrelated delete plus insert.
 
 ## AUTOSAR semantic summary
 
@@ -167,7 +177,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 ```powershell
 .\build.ps1           # dist\compare-tool.exe  - one file, nothing to install on the target
-.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~26 KB) for machines that have Python 3.8+
+.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~80 KB) for machines that have Python 3.8+
 .\build.ps1 -PyzOnly  # zipapp only (building it needs no PyInstaller / PySide6)
 ```
 
@@ -181,7 +191,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 Built as a **console** application so terminal runs keep their exit code (`1` = real changes, `2` = compare incomplete) for the CI gate. The viewer hides the console window at runtime — you'll see a brief flash on double-click. A crash un-hides the console so the error is visible.
 
-- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~26 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
+- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~80 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
 - **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target. Building needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs them), and the binary only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` there.
 
 Every CLI flag behaves identically in the packaged builds. `build/` and `dist/` are already in `.gitignore`.

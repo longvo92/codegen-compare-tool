@@ -24,7 +24,7 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: #e8e8e8
          margin-right: 8px; cursor: pointer; user-select: none; border: 1px solid transparent; }
 .badge:hover { border-color: #888; }
 .badge.off { opacity: .35; text-decoration: line-through; }
-.b-real { background: #6e2b2b; color: #ffb3b3; } .b-ign { background: #5c522a; color: #ffe28a; }
+.b-real { background: #6e2b2b; color: #ffb3b3; } .b-ign { background: #3a3b40; color: #c3c7cd; }
 .b-id { background: #333; color: #aaa; }
 /* added and deleted share one control: both are "a whole file appeared or
    vanished", and a reviewer flips them together */
@@ -55,11 +55,11 @@ ul.files li { margin: 2px 0; }
 .tf a { color: inherit; text-decoration: none; border-bottom: 1px dotted #666; cursor: pointer; }
 .tf a:hover { color: #fff; }
 .tmark { display: inline-block; width: 14px; font-weight: bold; }
-.t-real { color: #ff7b7b; } .t-ign { color: #e6c85c; } .t-add { color: #7bd88a; }
+.t-real { color: #ff7b7b; } .t-ign { color: #9aa1ad; } .t-add { color: #7bd88a; }
 .t-del { color: #c88ad8; } .t-id { color: #777; } .t-err { color: #ff5c5c; }
-.t-cmt { color: #9d92e0; }
-.tf.tc-cmt { color: #c9c2f0; }
-.tf.tc-real { color: #ffb3b3; } .tf.tc-ign { color: #ffe28a; } .tf.tc-add { color: #a8e6b0; }
+.t-cmt { color: #8f96a2; }
+.tf.tc-cmt { color: #b9bec6; }
+.tf.tc-real { color: #ffb3b3; } .tf.tc-ign { color: #c3c7cd; } .tf.tc-add { color: #a8e6b0; }
 .tf.tc-del { color: #d9a8e6; text-decoration: line-through; } .tf.tc-id { color: #8a8a8a; }
 .tf.tc-err { color: #ffb3b3; font-weight: 700; }
 .legend { color: #8a8a8a; font-size: 12px; margin: 2px 0 8px; }
@@ -69,20 +69,25 @@ table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: #6a6a6a; text-align: right; user-select: none; }
 td.del { background: #3a2222; } td.add { background: #1f3a24; }
-td.delm, td.addm { background: #3c3418; }
-td.delc, td.addc { background: #332a42; }
+/* Noise (comment, uuid, rename, whitespace) uses the SAME red/green as a real
+   change, one notch dimmer -- one colour language instead of three. Yellow and
+   purple were a third and fourth hue competing with the syntax colours for the
+   reader's attention, and a diff that needs a legend to be read is too loud.
+   Dimmer, not identical: inside a Modified file the reviewer still has to see
+   which hunks are the ones that count. */
+td.delm, td.delc { background: #2f2020; }
+td.addm, td.addc { background: #1e2f21; }
 td.mvd, td.mva { background: #1d2f3e; }
 td.ctx { color: #9a9a9a; }
 td.del .chg-seg { background: #7a2f2f; color: #ffc2c2; font-weight: 700; border-radius: 2px; }
 td.add .chg-seg { background: #2f6e3d; color: #c9f7d1; font-weight: 700; border-radius: 2px; }
-td.delm .chg-seg, td.addm .chg-seg { background: #8a6d1f; color: #ffe9a8; font-weight: 700;
+td.delm .chg-seg, td.delc .chg-seg { background: #5e2a2a; color: #f0c4c4; font-weight: 700;
                                      border-radius: 2px; }
-td.delc .chg-seg, td.addc .chg-seg { background: #6a5490; color: #e2dbff; font-weight: 700;
+td.addm .chg-seg, td.addc .chg-seg { background: #2c5738; color: #bfe8c8; font-weight: 700;
                                      border-radius: 2px; }
-.sw-cmt { background: #6a5490; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
       margin: 0 4px 0 2px; vertical-align: -1px; }
-.sw-del { background: #7a2f2f; } .sw-add { background: #2f6e3d; } .sw-min { background: #8a6d1f; }
+.sw-del { background: #7a2f2f; } .sw-add { background: #2f6e3d; }
 .sw-mv { background: #2f5a7a; }
 tr.gap td { text-align: center; color: #666; background: #26272b; font-size: 11px; }
 tr.mvnote td { text-align: center; color: #7fb3d9; background: #26272b; font-size: 11px; }
@@ -96,10 +101,10 @@ body.hide-ign tr.minorph { display: table-row; }
    silently dropped. (The viewer still shows them in full -- it is the reading
    surface, this is the record to send.) */
 tr.comment, .grp-cmt { display: none; }
-tr.commentph { display: table-row; color: #a99ce8; }
-tr.minorph td { color: #a8935a; }
+tr.commentph { display: table-row; color: #8f96a2; }
+tr.minorph td { color: #8f96a2; }
 .filenote { color: #8a8a8a; font-size: 12px; margin: 2px 0 10px; }
-.renames { font-size: 12px; color: #c8b458; margin: 2px 0 8px; }
+.renames { font-size: 12px; color: #9aa1ad; margin: 2px 0 8px; }
 .iflist { font-family: Consolas, monospace; font-size: 13px; background: #232427;
           border: 1px solid #333; border-radius: 6px; padding: 10px 14px; margin: 0 0 20px; }
 .iflist div { padding: 1px 0; }
@@ -119,11 +124,11 @@ details.file > summary:hover { background: #2a2b2f; }
 details.file > .body { padding: 0 14px 12px; }
 summary .hcount { color: #8a8a8a; font-size: 12px; font-weight: normal; }
 summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 11px; }
-.tag-real { background: #6e2b2b; color: #ffb3b3; } .tag-ign { background: #5c522a; color: #ffe28a; }
-.tag-cmt { background: #3d3a52; color: #c9c2f0; }
+.tag-real { background: #6e2b2b; color: #ffb3b3; } .tag-ign { background: #3a3b40; color: #c3c7cd; }
+.tag-cmt { background: #33353a; color: #b9bec6; }
 .tag-add { background: #2b5232; color: #a8e6b0; } .tag-del { background: #4a2b52; color: #d9a8e6; }
 .tag-err { background: #7a1f1f; color: #ffc2c2; }
-.hunklabel { color: #c8b458; font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
+.hunklabel { color: #9aa1ad; font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
              letter-spacing: .5px; }
 .toolbar { margin: 4px 0 16px; }
 .toolbar button { background: #2b2c30; color: #d4d4d4; border: 1px solid #444; border-radius: 4px;
@@ -141,8 +146,8 @@ table.ov a { color: #dcdcaa; text-decoration: none; border-bottom: 1px dotted #6
 table.ov a:hover { color: #fff; }
 .cnt { margin-right: 10px; white-space: nowrap; }
 .cnt-real { color: #ffb3b3; } .cnt-add { color: #a8e6b0; } .cnt-del { color: #d9a8e6; }
-.cnt-ign { color: #ffe28a; } .cnt-id { color: #8a8a8a; } .cnt-err { color: #ff9d9d; font-weight: 700; }
-.cnt-cmt { color: #c9c2f0; }
+.cnt-ign { color: #c3c7cd; } .cnt-id { color: #8a8a8a; } .cnt-err { color: #ff9d9d; font-weight: 700; }
+.cnt-cmt { color: #b9bec6; }
 .aut { color: #9a9a9a; }
 .aut .a-add { color: #7bd88a; } .aut .a-del { color: #ff7b7b; } .aut .a-chg { color: #7fb3d9; }
 .ifgroup { color: #8a8a8a; font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
@@ -181,16 +186,21 @@ def _esc(s):
     return html.escape(s, quote=False)
 
 
-def _root_html(tag, root):
+def _root_html(tag, root, label=None):
     """A compare root shown by its own folder name, full path on hover.
 
     The absolute path is a fact about the reader's machine, not about the
     change; spelled out in full it wrapped the header onto three lines and
     pushed the actual result below the fold. Same rule as the viewer's pane
-    banners, so the two surfaces name the folders the same way."""
+    banners, so the two surfaces name the folders the same way.
+
+    `label` overrides the name when the folder is not the real answer: a
+    commit checked out to a temp folder must be recorded as that commit, or
+    the report claims a compare that nobody can reproduce.
+    """
     p = Path(str(root))
     return '{} <code title="{}">{}</code>'.format(
-        tag, html.escape(str(p), quote=True), _esc(p.name or str(p)))
+        tag, html.escape(str(p), quote=True), _esc(label or p.name or str(p)))
 
 
 class _Review:
@@ -270,7 +280,7 @@ def _group_label(group):
 def _group_table(old_lines, new_lines, group):
     """One continuous side-by-side table for a run of nearby hunks: leading /
     trailing CONTEXT lines, the equal lines between hunks shown once, real
-    hunks in red/green, minor hunks in yellow."""
+    hunks in red/green, noise hunks in the same pair, dimmer."""
     rows = []
     i1, j1 = group[0]['old_range'][0], group[0]['new_range'][0]
     lead = min(CONTEXT, i1, j1)
@@ -295,9 +305,10 @@ def _group_table(old_lines, new_lines, group):
                                                   '' if span == 1 else 's'))
         elif mode == 'moved':
             if 'moved_to' in h:
-                note = '⇄ block moved to NEW line {}'.format(h['moved_to'])
+                note = '⇄ block moved to CURRENT line {}'.format(h['moved_to'])
             else:
-                note = '⇄ block moved from OLD line {}'.format(h.get('moved_from', '?'))
+                note = '⇄ block moved from BASELINE line {}'.format(
+                    h.get('moved_from', '?'))
             rows.append('<tr class="mvnote"><td colspan="4">{}</td></tr>'.format(note))
         if idx + 1 < len(group):
             # equal lines between this hunk and the next of the group
@@ -938,9 +949,12 @@ def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
                   '</div></details>'.format(_esc(type(e).__name__), _esc(str(e))))
 
 
-def build_arxml_report(results, old_root, new_root):
+def build_arxml_report(results, old_root, new_root, old_label=None):
     """Compact ARXML / A2L update report: did the AUTOSAR model or the
     calibration surface change, and how.
+
+    ``old_label`` names the OLD side when its folder does not -- see
+    :func:`build_report`.
 
     Only .arxml/.xml/.a2l files are considered; other files in `results`
     are ignored ('error' entries of any extension always count -- a failed
@@ -965,7 +979,7 @@ def build_arxml_report(results, old_root, new_root):
                  '<body>'.format(_CSS))
     parts.append('<h1>ARXML / A2L Update Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('OLD', old_root), _root_html('NEW', new_root), now))
+        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
     parts.append('<div class="meta">{}</div>'.format(
         ' &middot; '.join('{} {} file(s) compared'.format(len(by_type[label]), label)
                           for label, _rs in types)))
@@ -1038,8 +1052,12 @@ def build_arxml_report(results, old_root, new_root):
     return ''.join(parts)
 
 
-def build_report(results, old_root, new_root, reviews=None):
+def build_report(results, old_root, new_root, reviews=None, old_label=None):
     """Full self-contained HTML report.
+
+    ``old_label`` names the OLD side when its folder does not: comparing
+    against a commit checks it out to a temp folder, and the record has to say
+    which commit that was.
 
     ``reviews`` is a :class:`compare_tool.review.ReviewStore` or None. When
     given, every change the reviewer signed off carries its note, and a
@@ -1097,7 +1115,7 @@ def build_report(results, old_root, new_root, reviews=None):
                  '<body class="hide-ign">'.format(_CSS))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('OLD', old_root), _root_html('NEW', new_root), now))
+        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
     parts.append(_error_banner(results))
     if reviews is not None and reviews.error:
         # the notes are missing, not merely absent -- say so, or the reader
@@ -1149,12 +1167,12 @@ def build_report(results, old_root, new_root, reviews=None):
 
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
-        # no comment swatch: comment rows are never displayed here, so
-        # advertising their colour would describe something the reader cannot see
+        # two entries only: noise now shares the red/green of a real change, so
+        # a swatch for it would describe a colour the reader cannot tell apart,
+        # and comment rows are never displayed here at all
         parts.append('<div class="legend">'
-                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>real change&emsp;'
-                     '<span class="sw sw-mv"></span>moved block&emsp;'
-                     '<span class="sw sw-min"></span>unimportant</div>')
+                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>removed / added&emsp;'
+                     '<span class="sw sw-mv"></span>moved block</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=false)">Collapse all</button>'

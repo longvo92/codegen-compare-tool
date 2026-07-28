@@ -5,10 +5,14 @@ gives one row per aligned line, so every row maps to the SAME line number in
 both editors (a padded side becomes a blank line). That equal block count is
 what makes the two panes scroll in lockstep with a trivial scrollbar mirror.
 
-Row backgrounds follow the report's palette (real = red/green, minor = yellow,
-moved = blue, absent side = dim filler); the changed characters inside a line
-are highlighted at the exact offsets :func:`view_model.char_span` reports, so
-the pane and the HTML report mark identical spans.
+Row backgrounds follow the report's palette (removed = red, added = green,
+noise = the same pair dimmed, moved = blue, absent side = dim filler); the
+changed characters inside a line are highlighted at the exact offsets
+:func:`view_model.char_span` reports, so the pane and the HTML report mark
+identical spans.
+
+Foreground is the other channel: :mod:`compare_tool.syntax` colours the code
+itself, and the two never touch -- the diff owns background, syntax owns text.
 """
 
 from pathlib import Path
@@ -21,8 +25,10 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QSplitter,
 
 from .. import review
 from ..scanner import looks_binary, read_text
-from ..view_model import (aligned_rows, char_span, collapse_rows,
-                          hunk_row_starts)
+from ..syntax import language_for
+from ..view_model import (Row, aligned_rows, char_span, collapse_rows,
+                          hunk_row_starts, row_with)
+from .highlight import CodeHighlighter
 from .icons import logo_pixmap
 from .minimap import Minimap
 
@@ -66,25 +72,30 @@ def _semantic_summary(result):
     return 'AUTOSAR / A2L:   ' + '   ·   '.join(chips) if chips else ''
 
 # per-side row background by mode; None = context (editor base colour).
-# comment noise is purple, matching its own file verdict, so "only the banner
-# moved" is distinguishable at a glance from a renamed identifier (yellow).
+#
+# One colour language: removed is red, added is green, on every category. Noise
+# (comment banners, UUID churn, renames) used to get purple and yellow of its
+# own, which made four hues compete for attention in a pane that also carries
+# syntax colours now -- and a diff whose colours need a legend is not readable
+# at a glance. Noise is the SAME red/green, one notch dimmer: the reviewer still
+# has to see which hunks inside a Modified file are the ones that count.
 _ROW_BG = {
     ('real', 'old'):    '#3a2222', ('real', 'new'):    '#1f3a24',
-    ('comment', 'old'): '#332a42', ('comment', 'new'): '#332a42',
-    ('minor', 'old'):   '#3c3418', ('minor', 'new'):   '#3c3418',
+    ('comment', 'old'): '#2f2020', ('comment', 'new'): '#1e2f21',
+    ('minor', 'old'):   '#2f2020', ('minor', 'new'):   '#1e2f21',
     ('moved', 'old'):   '#1d2f3e', ('moved', 'new'):   '#1d2f3e',
     # a folded run of noise: a flat strip, no diff colour -- it stands for
     # lines the current compare rules say are not a difference at all
     ('folded', 'old'):  '#26272b', ('folded', 'new'):  '#26272b',
 }
-# text colour of a folded placeholder, by what was folded: the reviewer can
-# tell a comment banner from a UUID churn without unfolding it
-_FOLD_FG = {'comment': '#a99ce8', 'other': '#a8935a'}
+# a folded placeholder is not code and gets no diff colour; its text says what
+# was folded, so the colour does not have to
+_FOLD_FG = {'comment': '#8f96a2', 'other': '#8f96a2'}
 # inline changed-span background by mode/side
 _SEG_BG = {
     ('real', 'old'):    '#7a2f2f', ('real', 'new'):    '#2f6e3d',
-    ('comment', 'old'): '#6a5490', ('comment', 'new'): '#6a5490',
-    ('minor', 'old'):   '#8a6d1f', ('minor', 'new'):   '#8a6d1f',
+    ('comment', 'old'): '#5e2a2a', ('comment', 'new'): '#2c5738',
+    ('minor', 'old'):   '#5e2a2a', ('minor', 'new'):   '#2c5738',
     ('moved', 'old'):   '#2f5a7a', ('moved', 'new'):   '#2f5a7a',
 }
 # translucent overlay marking the change the reviewer is currently on, so
@@ -98,6 +109,7 @@ _NEW_ACCENT = '#8ec69a'
 _FILLER_BG = '#26272b'   # the absent side of an insert/delete
 _ADD_BG = '#1f3a24'
 _DEL_BG = '#3a2222'
+_ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
 _BASE_BG = '#232427'
 
 
@@ -118,7 +130,20 @@ class _Gutter(QWidget):
 class DiffEditor(QPlainTextEdit):
     """Read-only monospace pane with a per-side line-number gutter. The gutter
     shows each row's ORIGINAL file line number (blank on padded rows), not the
-    visual row index."""
+    visual row index.
+
+    Ctrl+wheel is deliberately NOT left to QPlainTextEdit's own handling: its
+    built-in zoom stamps an explicit point size onto the document's char
+    format, which changes what is on screen without changing ``self.font()`` --
+    so the gutter (sized off ``fontMetrics()``) stops matching the code, and
+    the two panes drift apart since each one zooms itself alone. Here the
+    wheel only reports a step; :class:`DiffPane` applies it to both editors
+    through :meth:`set_point_size`, which sets the widget's real font.
+    """
+
+    # +1 / -1 per Ctrl+wheel notch; DiffPane applies it to both editors so a
+    # zoom on either pane can never leave the other one behind
+    zoomStep = Signal(int)
 
     def __init__(self):
         super().__init__()
@@ -135,6 +160,23 @@ class DiffEditor(QPlainTextEdit):
         self.blockCountChanged.connect(lambda _n: self._update_gutter_width())
         self.updateRequest.connect(self._on_update_request)
         self._update_gutter_width()
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.ControlModifier:
+            self.zoomStep.emit(1 if event.angleDelta().y() > 0 else -1)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def set_point_size(self, pt):
+        """Change the actual widget font -- not a char-format overlay -- so
+        the gutter's own ``fontMetrics()`` (used for its width and the row
+        height it paints text at) tracks the code exactly."""
+        f = self.font()
+        f.setPointSize(pt)
+        self.setFont(f)
+        self._update_gutter_width()
+        self._gutter.update()
 
     def set_numbers(self, nos):
         self._nos = nos
@@ -213,13 +255,32 @@ class DiffPane(QStackedWidget):
         ml.addStretch(1)
 
         self._header = QLabel('')
-        self._header.setStyleSheet('color:#e8e8e8; padding:6px 10px 0; font-weight:bold;')
+        self._header.setStyleSheet('color:#e8e8e8; font-weight:bold;')
+        # navigation lives in THIS row, beside the file name it steps through --
+        # not in a bar of its own at the bottom, which repeated the same
+        # "change k of N" this header already carries for four small buttons'
+        # worth of height. MainWindow fills this layout with its nav actions
+        # once the pane exists; empty here so the pane works standalone.
+        self.nav_actions = QHBoxLayout()
+        self.nav_actions.setContentsMargins(0, 0, 0, 0)
+        self.nav_actions.setSpacing(0)
+        head_row = QHBoxLayout()
+        head_row.setContentsMargins(10, 6, 6, 0)
+        head_row.setSpacing(6)
+        head_row.addWidget(self._header, 1)
+        head_row.addLayout(self.nav_actions)
         self._sem = QLabel('')
         self._sem.setWordWrap(True)
         self._sem.setStyleSheet('color:#9a9a9a; padding:0 10px 6px; font-size:12px;')
         self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
+        self._zoom_pt = self.old_edit.font().pointSize()
+        # either pane can be the one under the mouse; both zoom together, or a
+        # reviewer scrolling one side larger to read it would silently leave
+        # the other side's font behind
+        self.old_edit.zoomStep.connect(self._zoom_by)
+        self.new_edit.zoomStep.connect(self._zoom_by)
         # a folder-name banner sits over each editor: OLD on the left, NEW on
         # the right, so which side is which is unmistakable at a glance. Each
         # banner is wrapped INTO the splitter pane, so it tracks the split when
@@ -245,21 +306,27 @@ class DiffPane(QStackedWidget):
         # editor body takes ALL remaining vertical space (stretch=1), so the
         # two-pane diff fills the pane from just under the header instead of
         # being pushed to the bottom by an oversized header gap
-        dl.addWidget(self._header)
+        dl.addLayout(head_row)
         dl.addWidget(self._sem)
         dl.addWidget(body, 1)
 
         self.addWidget(msg_page)   # index 0
         self.addWidget(diff_page)  # index 1
 
+        # syntax colouring: one per document, foreground only, so it never
+        # touches the diff backgrounds painted below
+        self._hl_old = CodeHighlighter(self.old_edit.document())
+        self._hl_new = CodeHighlighter(self.new_edit.document())
+
         self.rows = []
         self._stops = []           # first row of each reviewable change block
         self._fold = ()            # row modes folded out of the panes
         self._units = []           # review.Unit per change, same order as _stops
         self._rel = None           # file currently shown
+        self._old_label = None     # (text, tooltip) when OLD is not a folder
         self._cur_idx = 0          # which change (index into _stops / _units)
         self._head_base = ''       # header without the "change k of N" suffix
-        self._pos_text = ''        # "change k of N", mirrored on the action bar
+        self._pos_text = ''        # "change k of N", folded into the header text
         self._syncing = False
         self._link_scrolls()
 
@@ -284,18 +351,31 @@ class DiffPane(QStackedWidget):
         lay.addWidget(editor, 1)
         return w
 
+    def set_old_label(self, text=None, tip=None):
+        """Name the BASELINE pane something other than its folder.
+
+        A commit is checked out to a temp folder whose name is the codegen
+        folder's own -- both banners would then read the same word. The banner
+        has to say *which* version is on the left, so it shows the commit
+        instead. None puts the folder name back.
+        """
+        self._old_label = (text, tip) if text else None
+
     def _set_pane_names(self, old_root, new_root):
-        """Name each pane by its folder: a coloured OLD/NEW tag then the folder
-        name, bright, with the full path as a tooltip. Called wherever a file
-        is shown, so the two roots are in hand."""
+        """Name each pane by its folder: a coloured BASELINE/CURRENT tag then
+        the folder name, bright, with the full path as a tooltip. Called
+        wherever a file is shown, so the two roots are in hand."""
         for lbl, root, tag, accent in (
-                (self._old_name, old_root, 'OLD', _OLD_ACCENT),
-                (self._new_name, new_root, 'NEW', _NEW_ACCENT)):
+                (self._old_name, old_root, 'BASELINE', _OLD_ACCENT),
+                (self._new_name, new_root, 'CURRENT', _NEW_ACCENT)):
             p = Path(root)
+            name, tip = p.name or str(p), str(p)
+            if tag == 'BASELINE' and self._old_label:
+                name, tip = self._old_label[0], self._old_label[1] or str(p)
             lbl.setText('<span style="color:{}">{}</span>'
                         '<span style="color:#e8e8e8">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
-                        .format(accent, tag, p.name or str(p)))
-            lbl.setToolTip(str(p))
+                        .format(accent, tag, name))
+            lbl.setToolTip(tip)
 
     # --- scroll sync: equal block counts make it a straight mirror ---
 
@@ -313,6 +393,20 @@ class DiffPane(QStackedWidget):
         self._syncing = True
         bar.setValue(value)
         self._syncing = False
+
+    # --- zoom: both editors always share one size ---
+
+    def _zoom_by(self, step):
+        pt = max(_ZOOM_MIN, min(_ZOOM_MAX, self._zoom_pt + step))
+        if pt == self._zoom_pt:
+            return
+        self._zoom_pt = pt
+        self.old_edit.set_point_size(pt)
+        self.new_edit.set_point_size(pt)
+        # block heights just changed under it; its viewport rectangle and
+        # visible-row count are computed fresh on every paint, so a repaint is
+        # all that is needed to bring the map back in step
+        self.minimap.update()
 
     # --- public seam ---
 
@@ -336,14 +430,18 @@ class DiffPane(QStackedWidget):
         self.unitChanged.emit()
 
     def show_drop_hint(self, old=None):
-        """Landing screen when no folders are chosen yet."""
+        """Landing screen when no folders are chosen yet. Two lines: it is a
+        splash, not documentation -- the toolbar buttons are right there, and
+        the User guide holds the rest."""
         if old:
-            self._msg.setText('OLD folder:\n{}\n\nNow drop the NEW folder onto '
-                              'this window.'.format(old))
+            self._msg.setText('BASELINE: {}\n\nNow drop the CURRENT folder.'
+                              .format(Path(old).name or old))
         else:
-            self._msg.setText('Drag the OLD and NEW folders onto this window\n'
-                              '(drop both at once, or one after the other).\n\n'
-                              'Or use "Open folders…" in the toolbar.')
+            # the git way in gets a mention: a landing screen that only talks
+            # about a pair of folders hides half the tool
+            self._msg.setText('Drop the BASELINE and CURRENT folders here.\n'
+                              'Or use "Open folders…" — or "Git compare…" for '
+                              'one folder and its own history.')
         self._logo.setVisible(True)
         self._forget_units()
         self.setCurrentIndex(0)
@@ -361,6 +459,14 @@ class DiffPane(QStackedWidget):
             self._message('{}\n\nCould not render — treat as potentially '
                           'changed.\n{}: {}'.format(rel, type(e).__name__, e))
         self.unitChanged.emit()
+
+    def file_units(self):
+        """Every reviewable unit of the file on screen, in file order.
+
+        Empty when there is nothing to sign off, which is what stops a
+        noise-only or unreadable file from being marked reviewed wholesale.
+        """
+        return list(self._units)
 
     def current_unit(self):
         """``(rel, key, label)`` of the change the reviewer is looking at, or
@@ -396,22 +502,24 @@ class DiffPane(QStackedWidget):
             self._message('{}\n\nNOT compared — treat as potentially changed.\n{}'
                           .format(rel, '; '.join(result.get('notes', []))))
             return
+        # units come from the shared seam, never from a local reading of the
+        # verdict: the tree's review column counts the same units, and a second
+        # copy of "which side does this status need" is how the two start
+        # disagreeing about whether a file is fully signed off
         if result.get('binary'):
             # a binary change is still a change to sign off; it is keyed by the
             # file's own bytes, so a regenerated binary drops the signature
-            self._units = review.units(result, blob=review.blob_digest(new_p))
+            self._units = review.units_of(result, old_p, new_p)
             self._message('{}\n\nBinary file differs.'.format(rel))
             return
         if status in ('added', 'deleted'):
             path = new_p if status == 'added' else old_p
             label = 'Added' if status == 'added' else 'Deleted'
+            self._units = review.units_of(result, old_p, new_p)
             if looks_binary(path):
-                self._units = review.units(result, blob=review.blob_digest(path))
                 self._message('{}\n\nBinary file {}.'.format(rel, status))
                 return
             lines = read_text(path).split('\n')
-            kw = {'new_lines' if status == 'added' else 'old_lines': lines}
-            self._units = review.units(result, **kw)
             self._load_one_side(rel, label, lines,
                                 'new' if status == 'added' else 'old')
             return
@@ -426,7 +534,7 @@ class DiffPane(QStackedWidget):
         # folding is a display choice: the units (and therefore the review keys)
         # come from the hunks, so what a note is attached to never depends on
         # which categories happen to be folded on screen
-        self._units = review.units(result, old_lines, new_lines)
+        self._units = review.units_of(result, old_p, new_p, old_lines, new_lines)
         self.rows, row_map = collapse_rows(rows, self._fold)
         self._load_rows(rel, status, result, row_map)
 
@@ -445,10 +553,20 @@ class DiffPane(QStackedWidget):
         sem = _semantic_summary(result or {})
         self._sem.setText(sem)
         self._sem.setVisible(bool(sem))
-        self.old_edit.setPlainText('\n'.join(r.old_txt or '' for r in rows))
-        self.new_edit.setPlainText('\n'.join(r.new_txt or '' for r in rows))
+        # configure before the text lands: setPlainText runs a full highlight
+        # pass of its own, so this way the file is coloured once, not twice
+        modes = [r.mode for r in rows]
+        lang = language_for(rel)
+        self._hl_old.configure(lang, modes, repaint=False)
+        self._hl_new.configure(lang, modes, repaint=False)
+        self._set_text(self.old_edit, '\n'.join(r.old_txt or '' for r in rows))
+        self._set_text(self.new_edit, '\n'.join(r.new_txt or '' for r in rows))
         self.old_edit.set_numbers([str(r.old_no) if r.old_no else '' for r in rows])
         self.new_edit.set_numbers([str(r.new_no) if r.new_no else '' for r in rows])
+        # back to the two-pane layout: the old editor drives again (its
+        # scrollbar mirror carries the new pane), whatever a previous
+        # one-sided file left the map pointing at
+        self.minimap.set_editor(self.old_edit)
         self.minimap.set_rows(rows)
 
         for i, r in enumerate(rows):
@@ -502,7 +620,6 @@ class DiffPane(QStackedWidget):
         self.rows = []
         self._stops = []
         self._pos_text = ''
-        self.minimap.set_rows([])
         self._sem.setVisible(False)
         # keep _head_base in step with the shown header (an added/deleted file
         # has no change stops, but leaving a stale base from the previous file
@@ -512,13 +629,39 @@ class DiffPane(QStackedWidget):
         edit = self.old_edit if side == 'old' else self.new_edit
         other = self.new_edit if side == 'old' else self.old_edit
         bg = _DEL_BG if side == 'old' else _ADD_BG
-        edit.setPlainText('\n'.join(lines))
+        # a whole added/deleted file is all one mode, so there are no folded
+        # placeholders to skip -- the language is the only thing to pass on
+        lang = language_for(rel)
+        self._hl_old.configure(lang, (), repaint=False)
+        self._hl_new.configure(lang, (), repaint=False)
+        self._set_text(edit, '\n'.join(lines))
         edit.set_numbers([str(i + 1) for i in range(len(lines))])
-        other.setPlainText('')
+        self._set_text(other, '')
         other.set_numbers([])
         for i in range(len(lines)):
             self._block_bg(edit, i, bg)
+        # the map still shows the file's shape, so a whole added or deleted
+        # file scrolls like any other. Rows are marked 'ctx' on purpose: the
+        # pane is already one solid colour, and repeating that on the map would
+        # be a red or green rectangle carrying no information.
+        self.minimap.set_editor(edit)
+        self.minimap.set_rows([Row(None, None, i + 1, line, 'ctx', 'ctx')
+                               for i, line in enumerate(lines)])
         self.setCurrentIndex(1)
+
+    @staticmethod
+    def _set_text(editor, text):
+        """Replace an editor's contents, caret formatting reset first.
+
+        ``setPlainText`` selects the whole new document and stamps the caret's
+        char format onto it. Click inside a changed span and the caret picks up
+        that span's green; every file opened afterwards then renders entirely
+        green, on that pane only, until the caret happens to land somewhere
+        plain. Resetting the caret format first is what keeps a click in the
+        diff from being a paint tool.
+        """
+        editor.setCurrentCharFormat(QTextCharFormat())
+        editor.setPlainText(text)
 
     def _block_bg(self, editor, block_no, color):
         if not color:
@@ -598,11 +741,6 @@ class DiffPane(QStackedWidget):
         self._pos_text = 'change {} of {}'.format(idx, len(self._stops))
         self._header.setText('{}   ·   {}'.format(self._head_base, self._pos_text))
 
-    def position_text(self):
-        """'change 3 of 7' for the action bar; '' when there is nothing to
-        step through (identical or noise-only file, or no file open)."""
-        return self._pos_text
-
     # --- change navigation (real/moved blocks; noise is skipped) ---
 
     def next_change(self):
@@ -616,6 +754,22 @@ class DiffPane(QStackedWidget):
             return
         cur = self.old_edit.textCursor().blockNumber()
         self._reveal(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))
+
+    def goto_name(self, key):
+        """Jump to the first changed row naming `key`. True when it landed.
+
+        Used by the quick-changes panel: it knows *what* changed but not where,
+        and opening the file at change 1 makes a row about the eighth
+        CHARACTERISTIC look like it pointed at the wrong thing. False when the
+        name is not in a changed row -- the caller leaves the pane where the
+        file's own first change put it rather than scrolling somewhere
+        arbitrary.
+        """
+        i = row_with(self.rows, key)
+        if i is None:
+            return False
+        self._reveal(i)
+        return True
 
     def first_change(self):
         if self._stops:

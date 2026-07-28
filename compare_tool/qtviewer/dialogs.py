@@ -17,52 +17,65 @@ from .icons import app_icon, logo_pixmap
 GUIDE = """
 # Using the side-by-side viewer
 
-## 1. Load folders
+## 1. Two folders
 
-- Drag & drop OLD and NEW onto the window (together, or one after the other)
-- Or `Open folders…` in the toolbar
+- `Open folders…` -- both sides in one dialog, change either one, `Compare`
+- Or drag & drop BASELINE and CURRENT onto the window (together, or one after
+  the other)
 - Or start loaded: `compare-tool.exe <old> <new> --qt`
 
-## 2. Read the tree
+## 2. One folder, against its own history
+
+- `Git compare…` -- pick **one** folder in a git checkout; BASELINE comes from
+  a commit, so there is no second folder to find
+- Lists the commits that touched that folder; the box below takes any revision
+  you type: sha, branch, tag, `HEAD~3`
+- `Browse…` at the top switches folder without leaving the dialog
+- The commit is checked out to a temp folder -- your working tree is never
+  touched, and the temp copy goes when the app closes
+
+## 3. Read the tree
 
 - Every file always listed -- a verdict never removes a row
 - A folder shows its heaviest child verdict
 - Box above the tree filters by path
+- Right-click a row: show it in Explorer, or copy its full path
 
 | Mark | Verdict | Meaning |
 |---|---|---|
 | `≠` | Modified | real changes |
 | `≉` | Comment | only comments differ |
 | `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
-| `+` | Added | file exists only in NEW |
-| `−` | Deleted | file exists only in OLD |
+| `+` | Added | file exists only in CURRENT |
+| `−` | Deleted | file exists only in BASELINE |
 | `=` | Identical | no difference |
 | `‼` | NOT compared | treat as changed |
 
-## 3. Fold the noise
+## 4. Fold the noise
 
 - Untick `Comment` / `Unimportant` -- affected files re-judge instantly
 - Folded lines collapse to `⋯ N lines hidden`
 - Tick back on to bring them back
 - Real changes can never be folded away
 
-## 4. Read the diff
+## 5. Read the diff
 
-- Old on the left, new on the right, scrolled in lockstep
+- Baseline on the left, Current on the right, scrolled in lockstep
 - Minimap on the right edge -- click or drag to jump
+- C and ARXML are syntax-coloured; the code colours never use red or green
 
-| Colour | Meaning |
+| Row colour | Meaning |
 |---|---|
-| red / green | real change |
-| purple | comment change |
-| yellow | other noise |
+| red / green | removed / added |
+| dim red / green | noise: comment, UUID, rename, whitespace |
 | blue | moved block |
 
-## 5. Navigate and export
+## 6. Navigate and export
 
 - Header shows `change 3 of 7`
 - Export writes the full HTML report -- folded categories still included
-- **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump
+- **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump straight
+  to the line that names that object
 
 | Shortcut | Action |
 |---|---|
@@ -70,17 +83,31 @@ GUIDE = """
 | `F7` | Previous change |
 | `F8` | Next change |
 | `Ctrl+End` | Last change |
-| `Ctrl+R` | Mark reviewed |
+| `Ctrl+R` | Mark this change reviewed |
+| `Ctrl+Shift+R` | Mark the whole file reviewed |
 | `Ctrl+E` | Export report |
 
-## 6. Review sign-off
+## 7. Review sign-off
 
-- Write a note on the current change
-- Tick **Reviewed** (`Ctrl+R`), then `F8` to the next one
-- Saves automatically to `codegen-review.json`, next to the NEW folder
-- Only real changes can be signed off
-- A note follows the change's content, not its line number
+- Off by default -- turn on `Review mode` in the toolbar
+- Write a note on the current change, tick **Reviewed** (`Ctrl+R`), `F8` to the
+  next one
+- `Whole file` signs off the whole file at once (`Ctrl+Shift+R`); press again
+  to clear it. Notes you wrote are kept
+- Only real changes can be signed off; a note follows the change's content, not
+  its line number
+- Saves automatically to `codegen-review.json`, next to the CURRENT folder
 - Export carries every note, plus a **Reviewed** badge to hide what's done
+
+The tree gains a `Review` column in this mode. A folder's count is everything
+underneath it.
+
+| Review column | Meaning |
+|---|---|
+| green `7/7` | every change in the row signed off |
+| amber `3/7` | part way through |
+| grey `0/7` | nothing signed off yet |
+| `—` | nothing here can be signed off (noise, identical, NOT compared) |
 
 ## Fail-safe
 

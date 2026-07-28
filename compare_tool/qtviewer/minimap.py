@@ -20,17 +20,18 @@ _MAX_LINE_H = 4.0    # px per line at most; short files render small, VS Code-li
 _MAX_CHAR_W = 3.0    # px per char at most, so short lines don't stretch full width
 
 # dim token colour per mode (ctx = plain code grey); changed rows also get a
-# translucent full-width strip so diffs pop on the map
-_TOKEN = {'ctx': '#565b62', 'real': '#e8908d', 'comment': '#a99ce8',
-          'minor': '#d8c070', 'moved': '#7fb0d9', 'folded': '#4a4e55'}
+# translucent full-width strip so diffs pop on the map. Noise shares the change
+# colour, dimmer -- same one-colour-language rule as the panes (see _ROW_BG).
+_TOKEN = {'ctx': '#565b62', 'real': '#e8908d', 'comment': '#a4706e',
+          'minor': '#a4706e', 'moved': '#7fb0d9', 'folded': '#4a4e55'}
 # a folded placeholder is not a change on the map either: it stands for lines
 # the current compare rules say are not a difference, so it gets no strip and
 # collapses away with the context rows when the map is compressed
 _NOT_A_CHANGE = ('ctx', 'folded')
 _STRIP = {
     'real':    QColor(217, 82, 79, 70),
-    'comment': QColor(140, 120, 210, 70),
-    'minor':   QColor(200, 160, 48, 70),
+    'comment': QColor(217, 82, 79, 40),
+    'minor':   QColor(217, 82, 79, 40),
     'moved':   QColor(63, 127, 176, 70),
 }
 _VIEW_FILL = QColor(255, 255, 255, 26)
@@ -49,8 +50,25 @@ class Minimap(QWidget):
         self._maxlen = 1
         self.setFixedWidth(_WIDTH)
         self.setCursor(Qt.PointingHandCursor)
+        self._connect(editor)
+
+    def _connect(self, editor):
         editor.verticalScrollBar().valueChanged.connect(self.update)
         editor.blockCountChanged.connect(lambda _n: self.update())
+
+    def set_editor(self, editor):
+        """Point the map at the pane that actually holds the text.
+
+        Normally the old editor drives and its scrollbar mirror carries the new
+        one along, but an added file has text on the new side only (a deleted
+        one on the old side only). Driving off an empty document would leave
+        the viewport slider stuck at the top.
+        """
+        if editor is self._editor:
+            return
+        self._editor = editor
+        self._connect(editor)
+        self.update()
 
     def set_rows(self, rows):
         self._rows = rows

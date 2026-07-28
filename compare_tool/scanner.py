@@ -193,7 +193,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
     results = {}
     # listing errors are NEVER filtered by include/exclude: an unlisted
     # folder could hide files of any type, so it must always surface
-    for side, errs in (('OLD', old_errors), ('NEW', new_errors)):
+    for side, errs in (('BASELINE', old_errors), ('CURRENT', new_errors)):
         for rel, msg in errs:
             note = 'folder listing failed on {} side: {}'.format(side, msg)
             if rel in results:

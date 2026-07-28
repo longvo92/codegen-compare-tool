@@ -20,8 +20,9 @@ consume them:
 from collections import namedtuple
 
 # mode: how a row is painted. 'ctx' = equal line (context), 'real' = real
-# change (red/green), 'comment' = comment-only noise (purple), 'minor' = the
-# other ignorable noise (yellow), 'moved' = moved block (blue). Comments get
+# change (red/green), 'comment' = comment-only noise, 'minor' = the other
+# ignorable noise (both painted in the same red/green, dimmer), 'moved' =
+# moved block (blue). Comments get
 # their own mode for the same reason they get their own file verdict: banner
 # churn reads very differently from a renamed identifier. kind = the
 # underlying hunk kind ('equal' for ctx rows, otherwise straight from the hunk).
@@ -158,3 +159,56 @@ def aligned_rows(old_lines, new_lines, hunks):
         rows.append(Row(oi + k + 1, old_lines[oi + k],
                         nj + k + 1, new_lines[nj + k], 'ctx', 'equal'))
     return rows
+
+
+def _word_at(text, key, start):
+    """True when text[start:start+len(key)] is not glued to a longer word.
+
+    'In2' must not match inside 'In20' or 'Prev_In2'; the AUTOSAR and A2L
+    names this looks for always sit between punctuation or spaces
+    (<SHORT-NAME>In2</SHORT-NAME>, CHARACTERISTIC K_Gain "...").
+    """
+    before = text[start - 1] if start else ''
+    after_i = start + len(key)
+    after = text[after_i] if after_i < len(text) else ''
+    bad = '_-'
+    return not ((before.isalnum() or before in bad)
+                or (after.isalnum() or after in bad))
+
+
+def row_with(rows, key):
+    """Index of the row to jump to for `key`, or None when it is absent.
+
+    The quick-changes panel knows which object changed but not where it sits,
+    so this is how 'K_Gain' in the panel becomes a jump to the line about
+    K_Gain rather than to the top of the file.
+
+    A changed row wins over a context one. An object can be listed as changed
+    while the line carrying its name is untouched -- an event whose period
+    moved still declares <SHORT-NAME>TE_Step</SHORT-NAME> exactly as before --
+    and landing on the declaration is the useful answer there; refusing to
+    move would leave the reviewer on an unrelated hunk.
+    """
+    if not key:
+        return None
+    fallback = None
+    for i, r in enumerate(rows):
+        hit = False
+        for text in (r.new_txt, r.old_txt):
+            if not text:
+                continue
+            at = text.find(key)
+            while at >= 0:
+                if _word_at(text, key, at):
+                    hit = True
+                    break
+                at = text.find(key, at + 1)
+            if hit:
+                break
+        if not hit:
+            continue
+        if r.mode != 'ctx':
+            return i
+        if fallback is None:
+            fallback = i
+    return fallback
