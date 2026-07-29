@@ -280,6 +280,65 @@ class TestFindInFile(unittest.TestCase):
         self.pane.find_prev()
         self.assertEqual(self.pane._find_count.text(), '{} of {}'.format(n, n))
 
+    def _match_marks(self):
+        return sum(len(s) for s in self.pane._sel_match)
+
+    def _type(self, text):
+        self.pane._find_edit.setText(text)
+        for _ in range(5):
+            self.app.processEvents()
+
+    def test_a_query_that_stops_matching_takes_its_highlights_with_it(self):
+        # typing on past the last hit ("begin" -> "beginal") said "no match"
+        # while the old word stayed lit, which reads as the wrong answer
+        self._open('a2l/comment_only.a2l')
+        self.pane.open_find()
+        self._type('begin')
+        self.assertGreater(self._match_marks(), 0)
+        self._type('beginal')
+        self.assertEqual(self.pane._find_count.text(), 'no match')
+        self.assertEqual(self._match_marks(), 0)
+
+    def test_clearing_the_box_clears_the_marks(self):
+        self._open('a2l/comment_only.a2l')
+        self.pane.open_find()
+        self._type('begin')
+        self._type('')
+        self.assertEqual(self._match_marks(), 0)
+        self.assertEqual(self.pane._find_count.text(), '')
+
+    def test_closing_the_bar_clears_the_marks(self):
+        self._open('a2l/comment_only.a2l')
+        self.pane.open_find()
+        self._type('begin')
+        self.pane.close_find()
+        for _ in range(5):
+            self.app.processEvents()
+        self.assertEqual(self._match_marks(), 0)
+
+    def test_every_occurrence_is_marked_not_only_the_current_one(self):
+        self._open('a2l/comment_only.a2l')
+        self.pane.open_find()
+        self._type('begin')
+        # one mark per occurrence per pane that has the row
+        self.assertGreaterEqual(self._match_marks(), len(self.pane._hits))
+
+    def test_the_current_change_overlay_survives_a_cleared_search(self):
+        # the two overlays share one selection list; clearing the search used
+        # to wipe the block the reviewer is standing on as well
+        self._open('src/rename_conflict.c')
+        self.pane.open_find()
+        self._type('rtb_')
+        self._type('')
+        self.assertGreater(sum(len(s) for s in self.pane._sel_rows), 0)
+
+    def test_leaving_a_file_takes_its_marks_with_it(self):
+        self._open('src/rename_conflict.c')
+        self.pane.open_find()
+        self._type('rtb_')
+        self._open('src/real_change.c')  # no rtb_ in this one
+        self.assertEqual(self._match_marks(), 0)
+
     def test_the_query_survives_a_file_change_without_moving_the_pane(self):
         self._open('src/rename_conflict.c')
         self.pane.open_find()
