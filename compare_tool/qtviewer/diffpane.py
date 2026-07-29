@@ -17,11 +17,13 @@ itself, and the two never touch -- the diff owns background, syntax owns text.
 
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QSize, Qt, Signal
-from PySide6.QtGui import (QColor, QFont, QPainter, QTextBlockFormat,
-                           QTextCharFormat, QTextCursor, QTextFormat)
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPlainTextEdit, QSplitter,
-                               QStackedWidget, QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
+from PySide6.QtGui import (QColor, QFont, QKeySequence, QPainter, QShortcut,
+                           QTextBlockFormat, QTextCharFormat, QTextCursor,
+                           QTextFormat)
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+                               QSplitter, QStackedWidget, QTextEdit,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from .. import review
 from ..scanner import looks_binary, read_text
@@ -102,6 +104,13 @@ _SEG_BG = {
 # F7/F8 are visibly doing something even when the file fits on screen and
 # there is nothing to scroll
 _CUR_BG = QColor(255, 255, 255, 34)
+# the find hits. Amber on purpose: red, green and blue already mean removed,
+# added and moved, so a fourth hue is the only way a search result can be told
+# apart from a verdict about the code. Every occurrence is marked, the one the
+# counter is pointing at brighter -- "3 of 8" is only useful if the other seven
+# are visible too.
+_FIND_BG = QColor('#5a4715')
+_FIND_CUR_BG = QColor('#8f7220')
 # OLD/NEW pane-banner accents: one source, used for both the tag text and the
 # underline so the two can never drift apart
 _OLD_ACCENT = '#c98b8b'
@@ -298,6 +307,9 @@ class DiffPane(QStackedWidget):
         bl.setSpacing(0)
         bl.addWidget(self._split, 1)
         bl.addWidget(self.minimap)
+        self._find_bar = self._build_find_bar()
+        self._find_bar.setVisible(False)
+
         diff_page = QWidget()
         dl = QVBoxLayout(diff_page)
         dl.setContentsMargins(0, 0, 0, 0)
@@ -308,6 +320,7 @@ class DiffPane(QStackedWidget):
         # being pushed to the bottom by an oversized header gap
         dl.addLayout(head_row)
         dl.addWidget(self._sem)
+        dl.addWidget(self._find_bar)
         dl.addWidget(body, 1)
 
         self.addWidget(msg_page)   # index 0
@@ -328,7 +341,23 @@ class DiffPane(QStackedWidget):
         self._head_base = ''       # header without the "change k of N" suffix
         self._pos_text = ''        # "change k of N", folded into the header text
         self._syncing = False
+        # which editor scrolling is driven from. The old pane normally carries
+        # both (the scrollbar mirror follows it), but a whole added/deleted file
+        # puts its text in ONE pane and leaves the other empty -- driving from
+        # an empty document scrolls nothing at all.
+        self._drive = self.old_edit
+        self._hits = []            # rows matching the find box, in file order
+        self._hit_idx = -1
+        # the two extraSelections layers, per editor (old, new): see
+        # _paint_selections
+        self._sel_rows = [[], []]
+        self._sel_match = [[], []]
         self._link_scrolls()
+        # Ctrl+F is where every editor puts find; the pane owns the shortcut so
+        # it works wherever the focus sits inside the diff
+        QShortcut(QKeySequence.Find, self).activated.connect(self.open_find)
+        QShortcut(QKeySequence(Qt.Key_F3), self).activated.connect(self.find_next)
+        QShortcut(QKeySequence('Shift+F3'), self).activated.connect(self.find_prev)
 
     @staticmethod
     def _pane_banner(accent):
@@ -350,6 +379,175 @@ class DiffPane(QStackedWidget):
         lay.addWidget(banner)
         lay.addWidget(editor, 1)
         return w
+
+    # --- find in this file ---
+
+    def _build_find_bar(self):
+        """One-line find strip under the header, hidden until Ctrl+F.
+
+        It searches the ROWS, not the two documents: a row is one aligned pair,
+        so a hit is reported once whichever side carries it, and the jump can
+        reuse the same reveal-and-highlight the change navigation uses. Both
+        panes then land on the same line, which is the whole point of a
+        side-by-side view.
+        """
+        bar = QWidget()
+        bar.setObjectName('findbar')
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 4, 6, 4)
+        lay.setSpacing(6)
+        self._find_edit = QLineEdit()
+        self._find_edit.setPlaceholderText('Find in this file…  (Enter next, '
+                                           'Shift+Enter previous, Esc close)')
+        self._find_edit.setClearButtonEnabled(True)
+        self._find_edit.textChanged.connect(self._find_changed)
+        self._find_edit.returnPressed.connect(self.find_next)
+        self._find_edit.installEventFilter(self)
+        self._find_count = QLabel('')
+        self._find_count.setStyleSheet('color:#9aa1ad; font-size:12px;')
+        close = QToolButton()
+        close.setText('✕')
+        close.setToolTip('Close the find bar (Esc)')
+        close.setAutoRaise(True)
+        close.clicked.connect(self.close_find)
+        lay.addWidget(self._find_edit, 1)
+        lay.addWidget(self._find_count)
+        lay.addWidget(close)
+        return bar
+
+    def eventFilter(self, obj, event):
+        # Esc closes, Shift+Enter steps back: QLineEdit has no signal for
+        # either, and both are what every find box in every editor does
+        if obj is self._find_edit and event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                self.close_find()
+                return True
+            if (event.key() in (Qt.Key_Return, Qt.Key_Enter)
+                    and event.modifiers() & Qt.ShiftModifier):
+                self.find_prev()
+                return True
+        return super().eventFilter(obj, event)
+
+    def open_find(self):
+        """Show the find bar and take the focus, selecting what is there so a
+        second Ctrl+F starts a new search instead of appending to the old one."""
+        if self.currentIndex() != 1:
+            return  # nothing to search: landing screen or a message page
+        self._find_bar.setVisible(True)
+        self._find_edit.setFocus()
+        self._find_edit.selectAll()
+
+    def close_find(self):
+        self._find_bar.setVisible(False)
+        self._hits = []
+        self._hit_idx = -1
+        self._mark_matches()  # a closed find bar leaves nothing lit behind it
+        # the focus goes back to the diff, or the next keystroke would vanish
+        # into a hidden box
+        self._drive.setFocus()
+
+    def _refresh_find(self):
+        """Re-run the current query against the file just loaded.
+
+        The query is KEPT across files on purpose -- "where else does this
+        identifier change" is the reason to search a codegen diff at all, and
+        retyping it per file is the whole cost of asking. The pane does not
+        jump to a hit by itself, though: opening a file parks on its first
+        change, and a search from a previous file must not quietly override
+        that. Enter or F3 moves.
+        """
+        self._hits = []
+        self._hit_idx = -1
+        if not self._find_bar.isVisible():
+            self._mark_matches()
+            return
+        text = self._find_edit.text()
+        if not text.strip():
+            self._find_count.setText('')
+            self._mark_matches()
+            return
+        self._hits = self.find_matches(text)
+        self._find_count.setText('{} match{}'.format(len(self._hits),
+                                                     '' if len(self._hits) == 1 else 'es')
+                                 if self._hits else 'no match')
+        self._mark_matches()
+
+    def _find_changed(self, text):
+        self._hits = self.find_matches(text)
+        self._hit_idx = -1
+        if not text.strip():
+            self._find_count.setText('')
+            self._mark_matches()  # every path repaints: see _mark_matches
+            return
+        if not self._hits:
+            self._find_count.setText('no match')
+            self._mark_matches()
+            return
+        self.find_next()
+
+    def find_matches(self, text):
+        """Row indices containing `text` on either side, case-insensitive.
+
+        Public so the behaviour can be tested without driving the widget: the
+        rows are the model, the bar is only a way to walk them.
+        """
+        text = text.strip().lower()
+        if not text:
+            return []
+        return [i for i, r in enumerate(self.rows)
+                if text in (r.old_txt or '').lower()
+                or text in (r.new_txt or '').lower()]
+
+    def _goto_hit(self, idx):
+        self._hit_idx = idx % len(self._hits)
+        self._find_count.setText('{} of {}'.format(self._hit_idx + 1,
+                                                   len(self._hits)))
+        self._reveal(self._hits[self._hit_idx])
+        self._mark_matches()
+
+    def _mark_matches(self):
+        """Repaint the search layer from the CURRENT hits: every occurrence in
+        amber, the one being stepped through brighter.
+
+        Rebuilt from scratch on every call, and every path through the find box
+        calls it -- a query that stops matching (typing on past the last hit)
+        has to take its highlights with it, or the pane says 'no match' while
+        the old word is still lit, which reads as a wrong answer.
+        """
+        self._sel_match = [[], []]
+        needle = self._find_edit.text().strip().lower()
+        cur = self._hits[self._hit_idx] if 0 <= self._hit_idx < len(self._hits) else None
+        if needle and self._hits:
+            for i, editor in enumerate((self.old_edit, self.new_edit)):
+                doc = editor.document()
+                for row in self._hits:
+                    if doc.blockCount() <= row:
+                        continue  # the other side of a one-sided file
+                    block = doc.findBlockByNumber(row)
+                    line = block.text().lower()
+                    colour = _FIND_CUR_BG if row == cur else _FIND_BG
+                    at = line.find(needle)
+                    while at >= 0:
+                        sel = QTextEdit.ExtraSelection()
+                        sel.format.setBackground(colour)
+                        c = QTextCursor(block)
+                        c.setPosition(block.position() + at)
+                        c.setPosition(block.position() + at + len(needle),
+                                      QTextCursor.KeepAnchor)
+                        sel.cursor = c
+                        self._sel_match[i].append(sel)
+                        at = line.find(needle, at + len(needle))
+        self._paint_selections()
+
+    def find_next(self):
+        if not self._hits:
+            return
+        self._goto_hit(self._hit_idx + 1)
+
+    def find_prev(self):
+        if not self._hits:
+            return
+        self._goto_hit(self._hit_idx - 1)
 
     def set_old_label(self, text=None, tip=None):
         """Name the BASELINE pane something other than its folder.
@@ -421,6 +619,10 @@ class DiffPane(QStackedWidget):
         self._logo.setVisible(False)
         self._msg.setText(_HINT)
         self._forget_units()
+        self._find_bar.setVisible(False)  # no file: nothing to search
+        self._hits = []
+        self._hit_idx = -1
+        self._clear_selections()
         self.setCurrentIndex(0)
 
     def _forget_units(self):
@@ -458,6 +660,7 @@ class DiffPane(QStackedWidget):
             self._units = []  # nothing to sign off on a file we could not read
             self._message('{}\n\nCould not render — treat as potentially '
                           'changed.\n{}: {}'.format(rel, type(e).__name__, e))
+        self._refresh_find()
         self.unitChanged.emit()
 
     def file_units(self):
@@ -488,6 +691,7 @@ class DiffPane(QStackedWidget):
     def _message(self, text):
         self.rows = []
         self._stops = []
+        self._clear_selections()
         self.minimap.set_rows([])
         self._pos_text = ''
         self._logo.setVisible(False)
@@ -566,6 +770,7 @@ class DiffPane(QStackedWidget):
         # back to the two-pane layout: the old editor drives again (its
         # scrollbar mirror carries the new pane), whatever a previous
         # one-sided file left the map pointing at
+        self._drive = self.old_edit
         self.minimap.set_editor(self.old_edit)
         self.minimap.set_rows(rows)
 
@@ -612,14 +817,19 @@ class DiffPane(QStackedWidget):
             self._reveal(self._stops[0])
         else:
             self._pos_text = ''
-            self.old_edit.setExtraSelections([])
-            self.new_edit.setExtraSelections([])
+            self._clear_selections()
             self.old_edit.verticalScrollBar().setValue(0)
 
     def _load_one_side(self, rel, label, lines, side):
-        self.rows = []
+        # rows are marked 'ctx': the pane is already one solid colour, so the
+        # map has nothing to add by repeating it -- but they ARE the file, and
+        # the find box searches rows, so a whole added file has to have them
+        self.rows = [Row(None, None, i + 1, line, 'ctx', 'ctx')
+                     if side == 'new' else Row(i + 1, line, None, None, 'ctx', 'ctx')
+                     for i, line in enumerate(lines)]
         self._stops = []
         self._pos_text = ''
+        self._clear_selections()  # nothing of the previous file may survive
         self._sem.setVisible(False)
         # keep _head_base in step with the shown header (an added/deleted file
         # has no change stops, but leaving a stale base from the previous file
@@ -641,12 +851,10 @@ class DiffPane(QStackedWidget):
         for i in range(len(lines)):
             self._block_bg(edit, i, bg)
         # the map still shows the file's shape, so a whole added or deleted
-        # file scrolls like any other. Rows are marked 'ctx' on purpose: the
-        # pane is already one solid colour, and repeating that on the map would
-        # be a red or green rectangle carrying no information.
+        # file scrolls like any other -- driven by the pane that holds the text
+        self._drive = edit
         self.minimap.set_editor(edit)
-        self.minimap.set_rows([Row(None, None, i + 1, line, 'ctx', 'ctx')
-                               for i, line in enumerate(lines)])
+        self.minimap.set_rows(self.rows)
         self.setCurrentIndex(1)
 
     @staticmethod
@@ -700,14 +908,31 @@ class DiffPane(QStackedWidget):
         The change block is also highlighted on both sides: without it, a file
         that fits on screen has nothing to scroll and the navigation looks
         dead even though it moved."""
-        block = self.old_edit.document().findBlockByNumber(row)
-        self.old_edit.setTextCursor(QTextCursor(block))
+        drive = self._drive
+        block = drive.document().findBlockByNumber(row)
+        drive.setTextCursor(QTextCursor(block))
         # NoWrap: the vertical scrollbar is in lines, so its value is the top
         # visible line index
-        self.old_edit.verticalScrollBar().setValue(max(0, row - context))
+        drive.verticalScrollBar().setValue(max(0, row - context))
         self._highlight_block(row)
         self._update_position(row)
         self.unitChanged.emit()
+
+    # Two overlays share one extraSelections list per editor: the block the
+    # reviewer is on, and the search hits. They are kept apart so either can be
+    # rebuilt without wiping the other -- one list meant a cleared search took
+    # the current-change overlay with it, and a search that stopped matching
+    # left its old highlights behind.
+
+    def _paint_selections(self):
+        for i, editor in enumerate((self.old_edit, self.new_edit)):
+            # matches last: they paint on top of the row overlay
+            editor.setExtraSelections(self._sel_rows[i] + self._sel_match[i])
+
+    def _clear_selections(self):
+        self._sel_rows = [[], []]
+        self._sel_match = [[], []]
+        self._paint_selections()
 
     def _highlight_block(self, row):
         """Overlay the whole contiguous change block containing `row`."""
@@ -719,8 +944,12 @@ class DiffPane(QStackedWidget):
             start -= 1
         while end + 1 < len(rows) and rows[end + 1].mode == rows[row].mode != 'ctx':
             end += 1
-        for editor in (self.old_edit, self.new_edit):
-            sels = []
+        self._sel_rows = [[], []]
+        for k, editor in enumerate((self.old_edit, self.new_edit)):
+            # a one-sided file leaves the other document empty: selecting a
+            # block it does not have would be a null cursor
+            if editor.document().blockCount() <= end:
+                continue
             for i in range(start, end + 1):
                 sel = QTextEdit.ExtraSelection()
                 sel.format.setBackground(_CUR_BG)
@@ -728,8 +957,8 @@ class DiffPane(QStackedWidget):
                 cur = QTextCursor(editor.document().findBlockByNumber(i))
                 cur.clearSelection()
                 sel.cursor = cur
-                sels.append(sel)
-            editor.setExtraSelections(sels)
+                self._sel_rows[k].append(sel)
+        self._paint_selections()
 
     def _update_position(self, row):
         if not self._stops:
@@ -742,18 +971,33 @@ class DiffPane(QStackedWidget):
         self._header.setText('{}   ·   {}'.format(self._head_base, self._pos_text))
 
     # --- change navigation (real/moved blocks; noise is skipped) ---
+    #
+    # next_change / prev_change stop at the end of THIS file and say so with
+    # False instead of wrapping round to the other end. Wrapping inside one
+    # file was silent and it dead-ended the review pass: the window catches the
+    # False and moves to the next changed file, so F8 walks the whole compare.
 
     def next_change(self):
+        """Step to the next change. False when this file has no next one."""
         if not self._stops:
-            return
-        cur = self.old_edit.textCursor().blockNumber()
-        self._reveal(next((s for s in self._stops if s > cur), self._stops[0]))
+            return False
+        cur = self._drive.textCursor().blockNumber()
+        nxt = next((s for s in self._stops if s > cur), None)
+        if nxt is None:
+            return False
+        self._reveal(nxt)
+        return True
 
     def prev_change(self):
+        """Step to the previous change. False when this file has no earlier one."""
         if not self._stops:
-            return
-        cur = self.old_edit.textCursor().blockNumber()
-        self._reveal(next((s for s in reversed(self._stops) if s < cur), self._stops[-1]))
+            return False
+        cur = self._drive.textCursor().blockNumber()
+        prv = next((s for s in reversed(self._stops) if s < cur), None)
+        if prv is None:
+            return False
+        self._reveal(prv)
+        return True
 
     def goto_name(self, key):
         """Jump to the first changed row naming `key`. True when it landed.

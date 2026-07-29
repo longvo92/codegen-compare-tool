@@ -151,7 +151,7 @@ The exit code is a contract with somebody's pipeline. Do not change it:
 |---|---|
 | 0 | No real change |
 | 1 | Real changes found (the CI gate) |
-| 2 | Compare INCOMPLETE — a path could not be listed, read or compared |
+| 2 | Compare INCOMPLETE — a path could not be listed, read or compared, or the report could not be written (no record == not a clean run) |
 
 `build.ps1` produces one `dist\compare-tool.exe` carrying the CLI and the
 viewer. It is a **console** build on purpose: a terminal run must keep stdout

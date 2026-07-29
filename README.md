@@ -69,9 +69,14 @@ Exit codes:
 |---|---|
 | `0` | No real changes |
 | `1` | Real changes found (useful as a CI gate) |
-| `2` | **Compare INCOMPLETE** — some path could not be listed, read or compared (permissions, file locked by another process, long paths, …) |
+| `2` | **Compare INCOMPLETE** — some path could not be listed, read or compared (permissions, file locked by another process, long paths, …), or the report could not be written |
 
 Exit `2` always shows: `!!` in the terminal, a red banner in the report. `--exit-zero` does not suppress it.
+
+A report path that cannot be written (missing folder, file open in a browser,
+read-only) is exit `2` with a one-line reason — never a traceback, and never
+exit `1`, which a pipeline reads as the ordinary "real changes found". What the
+scan did find is still printed.
 
 ## Command line
 
@@ -99,6 +104,13 @@ python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
 ![Side-by-side viewer](resources/pic/main_page.png)
 
 Two ways in: `Open folders…` for two folders you name yourself, and `Git compare…` for **one** folder in a git checkout — it lists the commits that touched that folder, checks the one you pick out to a temp folder (read-only — your working copy is never touched), and compares as usual.
+
+Reading a scan:
+
+- The scan **opens on the first change** — the pane is never empty next to a tree full of results.
+- `F8` / `F7` step through the changes in the open file and then **carry on into the next (previous) file** with something to review, wrapping at the end. `Ctrl+Home` / `Ctrl+End` stay inside the file.
+- `Ctrl+F` **finds text in the open file** (either side, `F3` / `Shift+F3` to step, `Esc` to close). The query survives moving to another file, so an identifier can be chased across the compare.
+- `Hide identical` leaves only the files with a difference in the tree. It is a view: verdicts, counts and the exported report are untouched.
 
 `Review mode` adds the note box and a `Review` column in the tree — green when every change in a row is signed off, amber part way, grey when none is. Sign off one change (`Ctrl+R`) or a whole file (`Ctrl+Shift+R`); the notes travel into the exported report.
 

@@ -16,6 +16,32 @@ from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
 
 
+class ReportWriteError(Exception):
+    """The report path could not be written, so this run left no record.
+
+    Carries the scan it could not write (``results`` / ``counts``, None when
+    the failure came before the scan) so the caller can still print what was
+    found instead of throwing the whole run away.
+    """
+
+    def __init__(self, message, results=None, counts=None):
+        super().__init__(message)
+        self.results = results
+        self.counts = counts
+
+
+def _write_hint(out, err):
+    """Why a report path could not be written, in the reviewer's terms rather
+    than as a traceback: the two everyday causes are a folder that does not
+    exist and a report still open in a browser holding the file."""
+    reason = err.strerror or str(err)
+    if not out.parent.is_dir():
+        reason += ' -- the folder {} does not exist'.format(out.parent)
+    elif isinstance(err, PermissionError):
+        reason += ' -- the file may be open in a browser or editor, or read-only'
+    return '{}: {}'.format(out, reason)
+
+
 def default_report_name(arxml_only):
     return 'arxml_update.html' if arxml_only else 'compare_report.html'
 
@@ -23,12 +49,17 @@ def default_report_name(arxml_only):
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                 progress=None, reviews=None):
     """Scan two trees and write the HTML report.
-    Returns (results, counts)."""
+    Returns (results, counts). Raises :class:`ReportWriteError` when the report
+    could not be written -- a run whose record does not exist is not a run that
+    may report success."""
     out = Path(out)
     # delete a leftover report from an earlier run BEFORE scanning: if this
     # run dies, a stale report must not pass for this run's result
-    if out.exists():
-        out.unlink()
+    try:
+        if out.exists():
+            out.unlink()
+    except OSError as e:
+        raise ReportWriteError(_write_hint(out, e))
     include = tuple('*' + ext for ext, rs in RULES.items()
                     if rs in ('arxml', 'a2l')) if arxml_only else ()
     results = scan(old_root, new_root, progress=progress, exclude=exclude,
@@ -40,7 +71,10 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
         page = build_arxml_report(results, old_root, new_root)
     else:
         page = build_report(results, old_root, new_root, reviews)
-    out.write_text(page, encoding='utf-8')
+    try:
+        out.write_text(page, encoding='utf-8')
+    except OSError as e:
+        raise ReportWriteError(_write_hint(out, e), results, counts)
     return results, counts
 
 
@@ -238,9 +272,23 @@ def main(argv=None):
         if done % 50 == 0 or done == total:
             print('  {}/{} {}'.format(done, total, rel))
 
-    results, counts = run_compare(old_root, new_root, out, args.arxml_only,
-                                  exclude=args.exclude, progress=progress,
-                                  reviews=reviews)
+    try:
+        results, counts = run_compare(old_root, new_root, out, args.arxml_only,
+                                      exclude=args.exclude, progress=progress,
+                                      reviews=reviews)
+    except ReportWriteError as e:
+        # what WAS scanned still goes to the terminal -- the compare itself may
+        # have been fine, it is only the record that is missing
+        if e.results is not None:
+            for line in summary_lines(e.results, e.counts):
+                print(line)
+        print('!! REPORT NOT WRITTEN -- {}'.format(e), file=sys.stderr)
+        print('!! This run left no record: treat it as INCOMPLETE.',
+              file=sys.stderr)
+        # exit 2, never 1: 1 is the gate's "real changes found", a perfectly
+        # normal outcome, and a run that produced no report must not be
+        # indistinguishable from it (--exit-zero cannot mask this either)
+        return 2
     for line in summary_lines(results, counts):
         print(line)
 

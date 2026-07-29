@@ -16,6 +16,11 @@ All notable changes to this project are documented here. Versions follow
   way, grey none, `—` nothing to sign off. Folders count what is underneath.
 - **Right-click a row** to show that file in Explorer, or copy its full path.
 - **Syntax colouring** in the diff panes for C/H and ARXML/XML.
+- **Find in the open file** (`Ctrl+F`) — steps through every line that names
+  what you typed, on either side, and keeps the search when you move to
+  another file.
+- **`Hide identical`** leaves only the files with a difference in the tree.
+  Verdicts, counts and the exported report are unchanged.
 
 ### Changed
 
@@ -47,9 +52,15 @@ All notable changes to this project are documented here. Versions follow
   `Release notes` and `About`; `Export report` sits next to `Review mode`;
   per-file navigation moved into the diff header. Two-line landing screen, a
   `Ready` status chip, and the CURRENT folder's name as the window title.
+- **A finished scan opens on the first change**, instead of on an empty pane.
+- **`F7` / `F8` walk the whole compare.** At the end of a file they carry on
+  into the next one with something to review, and round again at the end.
 
 ### Fixed
 
+- A report that cannot be written — missing folder, or the file open in
+  another program — now says so and exits `2` (compare incomplete) instead of
+  printing a Python error and exiting like an ordinary run with changes.
 - Added and deleted files now show a minimap, so they scroll like any other.
 - Quick-changes rows open on the object they name — an A2L characteristic, a
   port, an RTE access point — instead of on the file's first change.

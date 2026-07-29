@@ -201,5 +201,54 @@ class TestMainFailSafe(_TreeCase):
         self.assertEqual(rc, 0)
 
 
+class TestReportNotWritten(_TreeCase):
+    """A run whose report could not be written left no record of itself.
+
+    Exit 1 is the gate's ordinary "real changes found"; a crash that returned 1
+    was indistinguishable from it, and the traceback that came with it told the
+    reviewer nothing they could act on.
+    """
+
+    def _run(self, out):
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            rc = main([str(self.old), str(self.new), '--report', str(out)])
+        return rc, out_buf.getvalue(), err_buf.getvalue()
+
+    def test_a_missing_output_folder_is_exit_2_not_a_traceback(self):
+        out = Path(self.tmp.name) / 'nodir' / 'r.html'
+        rc, stdout, stderr = self._run(out)
+        self.assertEqual(rc, 2)
+        self.assertIn('REPORT NOT WRITTEN', stderr)
+        self.assertIn(str(out), stderr)
+        self.assertIn('does not exist', stderr)
+        self.assertNotIn('Traceback', stderr)
+
+    def test_the_scan_it_could_not_write_is_still_reported(self):
+        # the compare itself succeeded; throwing its result away as well would
+        # cost the reviewer the one thing the run did produce
+        rc, stdout, _err = self._run(Path(self.tmp.name) / 'nodir' / 'r.html')
+        self.assertEqual(rc, 2)
+        self.assertIn('Summary:', stdout)
+        self.assertIn('MODIFIED  a.c', stdout)
+
+    def test_an_unwritable_path_fails_before_the_scan_runs(self):
+        # a directory where the report should go: the leftover-report unlink
+        # hits it first, so this covers the pre-scan branch
+        out = Path(self.tmp.name) / 'busy'
+        out.mkdir()
+        rc, _stdout, stderr = self._run(out)
+        self.assertEqual(rc, 2)
+        self.assertIn('REPORT NOT WRITTEN', stderr)
+        self.assertIn('INCOMPLETE', stderr)
+
+    def test_exit_zero_cannot_mask_a_missing_report(self):
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            rc = main([str(self.old), str(self.new), '--exit-zero',
+                       '--report', str(Path(self.tmp.name) / 'nodir' / 'r.html')])
+        self.assertEqual(rc, 2)
+
+
 if __name__ == '__main__':
     unittest.main()
