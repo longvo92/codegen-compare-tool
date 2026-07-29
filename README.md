@@ -3,7 +3,7 @@
 [![Test](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml/badge.svg)](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.1.0-blue.svg)](https://github.com/longvo92/codegen-compare-tool/releases/latest)
+[![Release](https://img.shields.io/badge/release-v1.2.0-blue.svg)](https://github.com/longvo92/codegen-compare-tool/releases/latest)
 
 Diff two AUTOSAR code-generation output folders (MATLAB/Simulink Embedded Coder) and show **only the changes that matter**.
 
