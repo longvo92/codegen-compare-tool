@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Release](https://img.shields.io/badge/release-v1.2.0-blue.svg)](https://github.com/longvo92/codegen-compare-tool/releases/latest)
 
+🇻🇳 **Tiếng Việt:** [README](docs/vi/README.md) · [Kiến trúc](docs/vi/architecture.md)
+
 Diff two AUTOSAR code-generation output folders (MATLAB/Simulink Embedded Coder) and show **only the changes that matter**.
 
 Regenerating a Simulink model rewrites timestamps, UUIDs, comment banners and auto-generated variable names even when the behaviour is identical. This tool classifies every hunk as *real* or *ignorable*, then gives you two ways to review the result: a self-contained **HTML report** with an AUTOSAR-level summary on top of the text diff, and a **side-by-side desktop viewer** with a change minimap.
