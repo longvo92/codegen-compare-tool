@@ -3,7 +3,10 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.0] — 2026-07-29
+
+Compare a folder against its own git history, sign off a whole file at once,
+and read the result without leaving the keyboard.
 
 ### Added
 
