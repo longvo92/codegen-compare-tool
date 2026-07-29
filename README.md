@@ -86,7 +86,7 @@ scan did find is still printed.
 | `--exclude PATTERN` | Skip files matching a glob (relative path or bare file name), repeatable. Example: `--exclude compare_report.html` |
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
 | `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact per-type report (default `arxml_update.html`) — always written, even when nothing changed |
-| `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, with a `Reviewed` badge. Must be named explicitly; no effect with `--arxml-only` |
+| `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, plus a `Reviewed` badge that hides the changes already signed off. Must be named explicitly — a report must not pick up someone else's sign-off by accident; no effect with `--arxml-only` |
 | `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra (see below) |
 
 Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was removed in 1.1.0.
@@ -113,6 +113,8 @@ Reading a scan:
 - `Hide identical` leaves only the files with a difference in the tree. It is a view: verdicts, counts and the exported report are untouched.
 
 `Review mode` adds the note box and a `Review` column in the tree — green when every change in a row is signed off, amber part way, grey when none is. Sign off one change (`Ctrl+R`) or a whole file (`Ctrl+Shift+R`); the notes travel into the exported report.
+
+`Export report…` (`Ctrl+E`) writes the same self-contained HTML report the CLI writes, with the review notes folded in. It is always built from the **complete scan**, never from what is on screen — a category you collapsed in the tree still appears in the file with its real verdict.
 
 Full walkthrough is built into the app — `Help` → `User guide` (`F1`), which works offline. Standalone `.exe` (no Python needed): see [Single-file build](#single-file-build).
 
@@ -166,7 +168,6 @@ A file whose XML fails to parse is skipped from this summary (its text diff stil
 
 Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, the modular ARXML set, …). Files that match no model land in a final **Shared / other** group.
 
-
 ## HTML report
 
 Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden and `Modified` expanded, so it opens on what matters.
@@ -189,7 +190,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 ```powershell
 .\build.ps1           # dist\compare-tool.exe  - one file, nothing to install on the target
-.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~80 KB) for machines that have Python 3.8+
+.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~110 KB) for machines that have Python 3.8+
 .\build.ps1 -PyzOnly  # zipapp only (building it needs no PyInstaller / PySide6)
 ```
 
@@ -203,7 +204,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 Built as a **console** application so terminal runs keep their exit code (`1` = real changes, `2` = compare incomplete) for the CI gate. The viewer hides the console window at runtime — you'll see a brief flash on double-click. A crash un-hides the console so the error is visible.
 
-- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~80 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
+- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~110 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
 - **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target. Building needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs them), and the binary only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` there.
 
 Every CLI flag behaves identically in the packaged builds. `build/` and `dist/` are already in `.gitignore`.
@@ -226,10 +227,16 @@ compare_tool/
 ├── c_rules.py       # C/H rules: strip comments, tokenize, detect renames, extract RTE access points
 ├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments + extract port interfaces, SWCs (ports/runnables/events)
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
+├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
+├── syntax.py        # line-at-a-time C / XML token spans, Qt-free so it ships in the .pyz
+├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
+├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
 └── report.py        # self-contained HTML report (badge toggles, model overview, grouping, filter, collapsible diffs)
 ```
 
-To add a rule: write the strip function in `c_rules.py` / `arxml_rules.py`, then register it in the shadow builder and `_build_variants` in `diff_engine.py`.
+[docs/architecture.md](docs/architecture.md) covers how these fit together and why: the two diff passes, where a verdict is decided, the shared seams and the result-dict contract. Anything both renderers need lives in `view_model.py` — reimplementing a mapping inline lets the HTML report and the viewer drift apart about what changed.
+
+To add a rule: write the strip function in `c_rules.py` / `arxml_rules.py` / `a2l_rules.py`, join it into that ruleset's shadow, register one labelled variant in `_build_variants` in `diff_engine.py`, and add both tests — the pattern alone is noise, and the same pattern *beside* a real change still reports the real change.
 
 Issues and pull requests are welcome. Please keep the **compare core stdlib-only** — it has to run on locked-down build servers, so PySide6 stays confined to `compare_tool/qtviewer/` and is imported only when the viewer opens — and add a test under `tests/` for any new rule.
 
