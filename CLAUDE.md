@@ -13,6 +13,10 @@ Repo `codegen-compare-tool`, local folder `code-review`, package
 `compare_tool`. Where this file and `~/.claude/CLAUDE.md` disagree, this one
 wins.
 
+`docs/architecture.md` explains how the pieces fit and why — layering, the two
+diff passes, the shared seams, the result-dict contract. Read it before a change
+that crosses module boundaries; this file is the rules, that one is the map.
+
 ## 1. Fail-safe is not negotiable
 
 **If it cannot be *proven* to be noise, it is a real change.** A rule that is
@@ -74,7 +78,7 @@ any dev script take whatever they need; no need to ask first.
 
 The exception is **what ships in `compare_tool.pyz`**: the scan, the rules, the
 diff, the report, the review store and `gitsource` import stdlib only. That
-zipapp is 78 KB, needs nothing installed, and is the documented fallback for
+zipapp is ~110 KB, needs nothing installed, and is the documented fallback for
 the machines where antivirus blocks the `.exe` — one third-party import in
 `scanner.py` and it stops running there, which is a shipped promise broken by
 an import nobody reviewed.
@@ -102,8 +106,12 @@ Two more promises the same machines depend on:
 
 Tests pass on layouts that look broken. Every UI change gets looked at:
 
-```bash
-QT_QPA_PLATFORM=offscreen python smoke.py   # widget.grab().save(png), then read the png
+Write a throwaway script under `%TEMP%` that builds the widget, grabs it and
+saves a png — then read the png:
+
+```powershell
+$env:QT_QPA_PLATFORM = 'offscreen'
+python $env:TEMP\smoke.py   # widget.grab().save(png)
 ```
 
 and, for anything about colour or legibility, a real window on the desktop.
@@ -180,6 +188,7 @@ decision; the frozen entry point asks it rather than re-deriving it.
 ```bash
 python -m compare_tool <old_gen> <new_gen> --report out.html
 python -m unittest discover -s tests        # unittest, NOT pytest
-.\build.ps1                                 # dist/compare_tool.pyz
-.\build.ps1 -Exe                            # plus the .exe (needs pyinstaller)
+.\build.ps1                                 # dist\compare-tool.exe (needs pyinstaller + PySide6)
+.\build.ps1 -Pyz                            # plus dist\compare_tool.pyz
+.\build.ps1 -PyzOnly                        # zipapp only, no build dependencies
 ```
