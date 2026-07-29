@@ -1,5 +1,7 @@
 # Architecture
 
+🇻🇳 Bản tiếng Việt: [vi/architecture.md](vi/architecture.md)
+
 How the compare tool is put together, and why. For what it *does* — flags,
 noise rules, screenshots — read the [README](../README.md) first; this document
 is for someone about to change the code.
