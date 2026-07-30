@@ -3,6 +3,7 @@ here so the suite runs on a headless box without PySide6 installed."""
 
 import unittest
 
+from compare_tool import theme
 from compare_tool.qtviewer.tree import (PRIO, REVIEW_COLOR, STATUS,
                                         build_nodes, filter_nodes,
                                         review_state)
@@ -54,8 +55,12 @@ class TestBuildNodes(unittest.TestCase):
     def test_every_status_has_metadata(self):
         for st in PRIO:
             self.assertIn(st, STATUS)
-            marker, label, color = STATUS[st]
-            self.assertTrue(marker and label and color.startswith('#'))
+            marker, label, role = STATUS[st]
+            self.assertTrue(marker and label and role)
+            # the role has to exist in every theme, or the tree paints one
+            # verdict with a KeyError instead of a colour
+            for name in theme.THEMES:
+                self.assertTrue(theme.color(role, name).startswith('#'))
 
 
 class TestFilterNodes(unittest.TestCase):
@@ -144,7 +149,10 @@ class TestReviewState(unittest.TestCase):
 
     def test_every_state_has_a_colour(self):
         for reviewed, total in ((0, 1), (1, 2), (2, 2)):
-            self.assertIn(review_state(reviewed, total), REVIEW_COLOR)
+            state = review_state(reviewed, total)
+            self.assertIn(state, REVIEW_COLOR)
+            for name in theme.THEMES:
+                self.assertTrue(theme.color(REVIEW_COLOR[state], name))
 
 
 if __name__ == '__main__':

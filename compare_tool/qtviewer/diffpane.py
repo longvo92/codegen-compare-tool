@@ -9,7 +9,12 @@ Row backgrounds follow the report's palette (removed = red, added = green,
 noise = the same pair dimmed, moved = blue, absent side = dim filler); the
 changed characters inside a line are highlighted at the exact offsets
 :func:`view_model.char_span` reports, so the pane and the HTML report mark
-identical spans.
+identical spans. Every colour comes from :mod:`compare_tool.theme`, looked up
+when it is painted, so the dark/light switch is a repaint.
+
+A category the reviewer switches off is *muted*, not removed: the lines keep
+their place and stay readable in one flat grey, and only the surfaces that
+answer "where are the changes" -- the minimap and F7/F8 -- stop counting them.
 
 Foreground is the other channel: :mod:`compare_tool.syntax` colours the code
 itself, and the two never touch -- the diff owns background, syntax owns text.
@@ -25,11 +30,11 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QSplitter, QStackedWidget, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
 
-from .. import review
+from .. import review, theme
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
-from ..view_model import (Row, aligned_rows, char_span, collapse_rows,
-                          hunk_row_starts, row_with)
+from ..view_model import (MUTED, Row, aligned_rows, char_span, hunk_row_starts,
+                          mute_rows, row_with)
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
 from .minimap import Minimap
@@ -73,7 +78,9 @@ def _semantic_summary(result):
     chips = [c for c in chips if c]
     return 'AUTOSAR / A2L:   ' + '   ·   '.join(chips) if chips else ''
 
-# per-side row background by mode; None = context (editor base colour).
+# per-side row background by mode, as theme roles; None = context (editor base
+# colour). Looked up at paint time, so a theme switch is a repaint and never a
+# second copy of this table.
 #
 # One colour language: removed is red, added is green, on every category. Noise
 # (comment banners, UUID churn, renames) used to get purple and yellow of its
@@ -82,44 +89,39 @@ def _semantic_summary(result):
 # at a glance. Noise is the SAME red/green, one notch dimmer: the reviewer still
 # has to see which hunks inside a Modified file are the ones that count.
 _ROW_BG = {
-    ('real', 'old'):    '#3a2222', ('real', 'new'):    '#1f3a24',
-    ('comment', 'old'): '#2f2020', ('comment', 'new'): '#1e2f21',
-    ('minor', 'old'):   '#2f2020', ('minor', 'new'):   '#1e2f21',
-    ('moved', 'old'):   '#1d2f3e', ('moved', 'new'):   '#1d2f3e',
-    # a folded run of noise: a flat strip, no diff colour -- it stands for
-    # lines the current compare rules say are not a difference at all
-    ('folded', 'old'):  '#26272b', ('folded', 'new'):  '#26272b',
+    ('real', 'old'):    'del-bg',     ('real', 'new'):    'add-bg',
+    ('comment', 'old'): 'del-bg-dim', ('comment', 'new'): 'add-bg-dim',
+    ('minor', 'old'):   'del-bg-dim', ('minor', 'new'):   'add-bg-dim',
+    ('moved', 'old'):   'mv-bg',      ('moved', 'new'):   'mv-bg',
+    # a muted row -- a category the reviewer switched off -- keeps its code but
+    # loses its diff colour: one flat grey, same on both sides, so the eye
+    # passes over it on the way to the change that still counts
+    (MUTED, 'old'):     'muted-bg',   (MUTED, 'new'):     'muted-bg',
 }
-# a folded placeholder is not code and gets no diff colour; its text says what
-# was folded, so the colour does not have to
-_FOLD_FG = {'comment': '#8f96a2', 'other': '#8f96a2'}
-# inline changed-span background by mode/side
+# inline changed-span background by mode/side. No entry for MUTED on purpose:
+# marking the changed characters inside a line the rules no longer report would
+# undo the whole point of playing it down.
 _SEG_BG = {
-    ('real', 'old'):    '#7a2f2f', ('real', 'new'):    '#2f6e3d',
-    ('comment', 'old'): '#5e2a2a', ('comment', 'new'): '#2c5738',
-    ('minor', 'old'):   '#5e2a2a', ('minor', 'new'):   '#2c5738',
-    ('moved', 'old'):   '#2f5a7a', ('moved', 'new'):   '#2f5a7a',
+    ('real', 'old'):    'seg-del-bg',     ('real', 'new'):    'seg-add-bg',
+    ('comment', 'old'): 'seg-del-dim-bg', ('comment', 'new'): 'seg-add-dim-bg',
+    ('minor', 'old'):   'seg-del-dim-bg', ('minor', 'new'):   'seg-add-dim-bg',
+    ('moved', 'old'):   'seg-mv-bg',      ('moved', 'new'):   'seg-mv-bg',
 }
-# translucent overlay marking the change the reviewer is currently on, so
-# F7/F8 are visibly doing something even when the file fits on screen and
-# there is nothing to scroll
-_CUR_BG = QColor(255, 255, 255, 34)
-# the find hits. Amber on purpose: red, green and blue already mean removed,
+_ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
+
+# The find hits are amber on purpose: red, green and blue already mean removed,
 # added and moved, so a fourth hue is the only way a search result can be told
 # apart from a verdict about the code. Every occurrence is marked, the one the
 # counter is pointing at brighter -- "3 of 8" is only useful if the other seven
-# are visible too.
-_FIND_BG = QColor('#5a4715')
-_FIND_CUR_BG = QColor('#8f7220')
-# OLD/NEW pane-banner accents: one source, used for both the tag text and the
-# underline so the two can never drift apart
-_OLD_ACCENT = '#c98b8b'
-_NEW_ACCENT = '#8ec69a'
-_FILLER_BG = '#26272b'   # the absent side of an insert/delete
-_ADD_BG = '#1f3a24'
-_DEL_BG = '#3a2222'
-_ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
-_BASE_BG = '#232427'
+# are visible too. (Roles: find-bg / find-cur-bg.)
+#
+# 'cur-row' is the translucent wash over the change the reviewer is on, so
+# F7/F8 are visibly doing something even when the file fits on screen and there
+# is nothing to scroll.
+
+
+def _qc(role):
+    return QColor(theme.c(role))
 
 
 class _Gutter(QWidget):
@@ -162,13 +164,17 @@ class DiffEditor(QPlainTextEdit):
         f = QFont('Consolas', 10)
         f.setStyleHint(QFont.Monospace)
         self.setFont(f)
-        self.setStyleSheet('QPlainTextEdit{{background:{};color:#d4d4d4;'
-                           'border:none;}}'.format(_BASE_BG))
+        self.apply_theme()
         self._nos = []  # per block: line-number string ('' for padding)
         self._gutter = _Gutter(self)
         self.blockCountChanged.connect(lambda _n: self._update_gutter_width())
         self.updateRequest.connect(self._on_update_request)
         self._update_gutter_width()
+
+    def apply_theme(self):
+        self.setStyleSheet('QPlainTextEdit{{background:{};color:{};'
+                           'border:none;}}'.format(theme.c('code-bg'),
+                                                   theme.c('code-fg')))
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.ControlModifier:
@@ -213,11 +219,11 @@ class DiffEditor(QPlainTextEdit):
 
     def paint_gutter(self, event):
         painter = QPainter(self._gutter)
-        painter.fillRect(event.rect(), QColor('#1e1f22'))
+        painter.fillRect(event.rect(), _qc('gutter-bg'))
         block = self.firstVisibleBlock()
         top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
         bottom = top + self.blockBoundingRect(block).height()
-        painter.setPen(QColor('#6a6a6a'))
+        painter.setPen(_qc('gutter-fg'))
         h = self.fontMetrics().height()
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
@@ -254,7 +260,6 @@ class DiffPane(QStackedWidget):
         self._msg = QLabel(_HINT)
         self._msg.setAlignment(Qt.AlignCenter)
         self._msg.setWordWrap(True)
-        self._msg.setStyleSheet('color:#b9b9b9; font-size:13px;')
         msg_page = QWidget()
         ml = QVBoxLayout(msg_page)
         ml.setSpacing(18)
@@ -264,7 +269,6 @@ class DiffPane(QStackedWidget):
         ml.addStretch(1)
 
         self._header = QLabel('')
-        self._header.setStyleSheet('color:#e8e8e8; font-weight:bold;')
         # navigation lives in THIS row, beside the file name it steps through --
         # not in a bar of its own at the bottom, which repeated the same
         # "change k of N" this header already carries for four small buttons'
@@ -280,7 +284,6 @@ class DiffPane(QStackedWidget):
         head_row.addLayout(self.nav_actions)
         self._sem = QLabel('')
         self._sem.setWordWrap(True)
-        self._sem.setStyleSheet('color:#9a9a9a; padding:0 10px 6px; font-size:12px;')
         self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
@@ -294,8 +297,10 @@ class DiffPane(QStackedWidget):
         # the right, so which side is which is unmistakable at a glance. Each
         # banner is wrapped INTO the splitter pane, so it tracks the split when
         # the reviewer drags the divider.
-        self._old_name = self._pane_banner(_OLD_ACCENT)
-        self._new_name = self._pane_banner(_NEW_ACCENT)
+        self._old_name = QLabel('')
+        self._new_name = QLabel('')
+        for lbl in (self._old_name, self._new_name):
+            lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._split = QSplitter(Qt.Horizontal)
         self._split.addWidget(self._pane(self._old_name, self.old_edit))
         self._split.addWidget(self._pane(self._new_name, self.new_edit))
@@ -333,9 +338,12 @@ class DiffPane(QStackedWidget):
 
         self.rows = []
         self._stops = []           # first row of each reviewable change block
-        self._fold = ()            # row modes folded out of the panes
+        self._muted = ()           # row modes played down in the panes
         self._units = []           # review.Unit per change, same order as _stops
         self._rel = None           # file currently shown
+        # what show_file was last called with, so a theme switch can re-render
+        # the same file from the same arguments instead of half-repainting it
+        self._last = None
         self._old_label = None     # (text, tooltip) when OLD is not a folder
         self._cur_idx = 0          # which change (index into _stops / _units)
         self._head_base = ''       # header without the "change k of N" suffix
@@ -358,17 +366,50 @@ class DiffPane(QStackedWidget):
         QShortcut(QKeySequence.Find, self).activated.connect(self.open_find)
         QShortcut(QKeySequence(Qt.Key_F3), self).activated.connect(self.find_next)
         QShortcut(QKeySequence('Shift+F3'), self).activated.connect(self.find_prev)
+        self._style_widgets()
 
-    @staticmethod
-    def _pane_banner(accent):
-        # neutral dark strip, coloured only in the OLD/NEW tag text and a thin
+    # --- theme ---
+
+    def _style_widgets(self):
+        """Every stylesheet this pane sets by hand, in one place, so a theme
+        switch is one call rather than a hunt through the constructor."""
+        self._msg.setStyleSheet('color:{}; font-size:13px;'
+                                .format(theme.c('fg-dim')))
+        self._header.setStyleSheet('color:{}; font-weight:bold;'
+                                   .format(theme.c('fg-strong')))
+        self._sem.setStyleSheet('color:{}; padding:0 10px 6px; font-size:12px;'
+                                .format(theme.c('fg-dim')))
+        self._find_count.setStyleSheet('color:{}; font-size:12px;'
+                                       .format(theme.c('st-ign')))
+        # neutral strip, coloured only in the OLD/NEW tag text and a thin
         # underline -- a full red/green band would read as a changed diff row
-        lbl = QLabel('')
-        lbl.setStyleSheet(
-            'background:#2a2c31; color:{}; padding:5px 10px; font-weight:bold; '
-            'font-size:13px; border-bottom:2px solid {};'.format(accent, accent))
-        lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        return lbl
+        for lbl, role in ((self._old_name, 'pane-old-accent'),
+                          (self._new_name, 'pane-new-accent')):
+            lbl.setStyleSheet(
+                'background:{}; color:{}; padding:5px 10px; font-weight:bold; '
+                'font-size:13px; border-bottom:2px solid {};'
+                .format(theme.c('pane-banner-bg'), theme.c(role),
+                        theme.c(role)))
+
+    def apply_theme(self):
+        """Repaint everything this pane owns in the current theme.
+
+        The file on screen is re-rendered from ``show_file``'s own arguments:
+        the row backgrounds are stamped into the document as block formats, so
+        a stylesheet swap alone would leave the previous theme's red and green
+        sitting in the code."""
+        self._style_widgets()
+        for editor, hl in ((self.old_edit, self._hl_old),
+                           (self.new_edit, self._hl_new)):
+            editor.apply_theme()
+            hl.apply_theme()
+        self.minimap.update()
+        if self._last is not None and self.currentIndex() == 1:
+            # re-rendering parks on change 1 again; put the reviewer back where
+            # they were reading -- a colour switch is not a navigation command
+            at = self._drive.verticalScrollBar().value()
+            self.show_file(*self._last)
+            self._drive.verticalScrollBar().setValue(at)
 
     @staticmethod
     def _pane(banner, editor):
@@ -404,7 +445,6 @@ class DiffPane(QStackedWidget):
         self._find_edit.returnPressed.connect(self.find_next)
         self._find_edit.installEventFilter(self)
         self._find_count = QLabel('')
-        self._find_count.setStyleSheet('color:#9aa1ad; font-size:12px;')
         close = QToolButton()
         close.setText('✕')
         close.setToolTip('Close the find bar (Esc)')
@@ -525,7 +565,7 @@ class DiffPane(QStackedWidget):
                         continue  # the other side of a one-sided file
                     block = doc.findBlockByNumber(row)
                     line = block.text().lower()
-                    colour = _FIND_CUR_BG if row == cur else _FIND_BG
+                    colour = _qc('find-cur-bg' if row == cur else 'find-bg')
                     at = line.find(needle)
                     while at >= 0:
                         sel = QTextEdit.ExtraSelection()
@@ -563,16 +603,16 @@ class DiffPane(QStackedWidget):
         """Name each pane by its folder: a coloured BASELINE/CURRENT tag then
         the folder name, bright, with the full path as a tooltip. Called
         wherever a file is shown, so the two roots are in hand."""
-        for lbl, root, tag, accent in (
-                (self._old_name, old_root, 'BASELINE', _OLD_ACCENT),
-                (self._new_name, new_root, 'CURRENT', _NEW_ACCENT)):
+        for lbl, root, tag, role in (
+                (self._old_name, old_root, 'BASELINE', 'pane-old-accent'),
+                (self._new_name, new_root, 'CURRENT', 'pane-new-accent')):
             p = Path(root)
             name, tip = p.name or str(p), str(p)
             if tag == 'BASELINE' and self._old_label:
                 name, tip = self._old_label[0], self._old_label[1] or str(p)
             lbl.setText('<span style="color:{}">{}</span>'
-                        '<span style="color:#e8e8e8">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
-                        .format(accent, tag, name))
+                        '<span style="color:{}">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
+                        .format(theme.c(role), tag, theme.c('fg-strong'), name))
             lbl.setToolTip(tip)
 
     # --- scroll sync: equal block counts make it a straight mirror ---
@@ -608,12 +648,18 @@ class DiffPane(QStackedWidget):
 
     # --- public seam ---
 
-    def set_fold_modes(self, modes):
-        """Row modes to fold out of the panes -- the same categories the
-        compare rules stop reporting. Unticking `Unimportant` should not leave
-        a wall of yellow lines in the code: if those differences do not count,
-        showing them is noise. Takes effect on the next ``show_file``."""
-        self._fold = tuple(modes)
+    def set_muted_modes(self, modes):
+        """Row modes to play down in the panes -- the same categories the
+        compare rules stop reporting.
+
+        Unticking `Unimportant` should not leave a wall of red and green in the
+        code claiming to be changes; but taking those lines away costs the
+        reviewer the context the surviving hunks are read in, and a regenerated
+        file is mostly banner churn. So they are greyed, not removed: still
+        readable, no diff colour, and gone from the minimap and from F7/F8.
+
+        Takes effect on the next ``show_file``."""
+        self._muted = tuple(modes)
 
     def clear(self):
         self._logo.setVisible(False)
@@ -627,6 +673,7 @@ class DiffPane(QStackedWidget):
 
     def _forget_units(self):
         self._rel = None
+        self._last = None
         self._units = []
         self._cur_idx = 0
         self.unitChanged.emit()
@@ -652,6 +699,7 @@ class DiffPane(QStackedWidget):
         self._rel = rel
         self._units = []
         self._cur_idx = 0
+        self._last = (rel, result, old_root, new_root)
         try:
             self._show_file(rel, result, old_root, new_root)
         except Exception as e:
@@ -739,10 +787,10 @@ class DiffPane(QStackedWidget):
         # come from the hunks, so what a note is attached to never depends on
         # which categories happen to be folded on screen
         self._units = review.units_of(result, old_p, new_p, old_lines, new_lines)
-        self.rows, row_map = collapse_rows(rows, self._fold)
-        self._load_rows(rel, status, result, row_map)
+        self.rows = mute_rows(rows, self._muted)
+        self._load_rows(rel, status, result)
 
-    def _load_rows(self, rel, status, result=None, row_map=None):
+    def _load_rows(self, rel, status, result=None):
         rows = self.rows
         n_moved = sum(1 for r in rows if r.mode == 'moved')
         # header names the file only -- the verdict (real-change / identical /
@@ -777,37 +825,30 @@ class DiffPane(QStackedWidget):
         for i, r in enumerate(rows):
             if r.mode == 'ctx':
                 continue
-            if r.mode == 'folded':
-                fg = _FOLD_FG['comment' if r.kind == 'comment' else 'other']
-                for editor in (self.old_edit, self.new_edit):
-                    self._block_bg(editor, i, _ROW_BG[('folded', 'old')])
-                    self._block_fg(editor, i, fg)
-                continue
             # old side
             if r.old_txt is None:
-                self._block_bg(self.old_edit, i, _FILLER_BG)
+                self._block_bg(self.old_edit, i, theme.c('filler-bg'))
             else:
-                self._block_bg(self.old_edit, i, _ROW_BG.get((r.mode, 'old')))
+                self._block_bg(self.old_edit, i, self._bg(r.mode, 'old'))
             # new side
             if r.new_txt is None:
-                self._block_bg(self.new_edit, i, _FILLER_BG)
+                self._block_bg(self.new_edit, i, theme.c('filler-bg'))
             else:
-                self._block_bg(self.new_edit, i, _ROW_BG.get((r.mode, 'new')))
-            # inline highlight only when both sides present
-            if r.old_txt is not None and r.new_txt is not None:
+                self._block_bg(self.new_edit, i, self._bg(r.mode, 'new'))
+            # inline highlight only when both sides present, and never on a
+            # muted row: there is no _SEG_BG entry for it, so this stays quiet
+            if r.mode != MUTED and r.old_txt is not None and r.new_txt is not None:
                 (o_lo, o_hi), (n_lo, n_hi) = char_span(r.old_txt, r.new_txt)
-                self._seg_bg(self.old_edit, i, o_lo, o_hi, _SEG_BG.get((r.mode, 'old')))
-                self._seg_bg(self.new_edit, i, n_lo, n_hi, _SEG_BG.get((r.mode, 'new')))
+                self._seg_bg(self.old_edit, i, o_lo, o_hi, self._seg(r.mode, 'old'))
+                self._seg_bg(self.new_edit, i, n_lo, n_hi, self._seg(r.mode, 'new'))
         # navigation stops: the first row of each reviewable change, one per
         # hunk. Deriving them from the hunk list rather than from runs of
         # coloured rows is what makes "change 3 of 7", the hunk count the CLI
         # prints and the units a review note attaches to all the same thing.
+        # Muting never moves a row, so these indices need no translation --
+        # and a muted category is absent from _units anyway, so F7/F8 skip it.
         starts = hunk_row_starts((result or {}).get('hunks') or [])
-        # the starts are positions in the UNFOLDED layout; row_map carries them
-        # over. Real and moved rows are never folded, so a stop always lands on
-        # the change itself and never inside a placeholder.
-        self._stops = [row_map[starts[u.index]] if row_map else starts[u.index]
-                       for u in self._units
+        self._stops = [starts[u.index] for u in self._units
                        if u.index is not None and u.index < len(starts)]
         self._cur_idx = 0
         self.setCurrentIndex(1)
@@ -838,9 +879,9 @@ class DiffPane(QStackedWidget):
         self._header.setText(self._head_base)
         edit = self.old_edit if side == 'old' else self.new_edit
         other = self.new_edit if side == 'old' else self.old_edit
-        bg = _DEL_BG if side == 'old' else _ADD_BG
-        # a whole added/deleted file is all one mode, so there are no folded
-        # placeholders to skip -- the language is the only thing to pass on
+        bg = theme.c('del-bg' if side == 'old' else 'add-bg')
+        # a whole added/deleted file is all one mode, so there are no muted
+        # rows to grey out -- the language is the only thing to pass on
         lang = language_for(rel)
         self._hl_old.configure(lang, (), repaint=False)
         self._hl_new.configure(lang, (), repaint=False)
@@ -856,6 +897,16 @@ class DiffPane(QStackedWidget):
         self.minimap.set_editor(edit)
         self.minimap.set_rows(self.rows)
         self.setCurrentIndex(1)
+
+    @staticmethod
+    def _bg(mode, side):
+        role = _ROW_BG.get((mode, side))
+        return theme.c(role) if role else None
+
+    @staticmethod
+    def _seg(mode, side):
+        role = _SEG_BG.get((mode, side))
+        return theme.c(role) if role else None
 
     @staticmethod
     def _set_text(editor, text):
@@ -879,14 +930,6 @@ class DiffPane(QStackedWidget):
         fmt = QTextBlockFormat()
         fmt.setBackground(QColor(color))
         cursor.setBlockFormat(fmt)
-
-    def _block_fg(self, editor, block_no, color):
-        block = editor.document().findBlockByNumber(block_no)
-        cursor = QTextCursor(block)
-        cursor.select(QTextCursor.BlockUnderCursor)
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(color))
-        cursor.mergeCharFormat(fmt)
 
     def _seg_bg(self, editor, block_no, lo, hi, color):
         if not color or lo >= hi:
@@ -952,7 +995,7 @@ class DiffPane(QStackedWidget):
                 continue
             for i in range(start, end + 1):
                 sel = QTextEdit.ExtraSelection()
-                sel.format.setBackground(_CUR_BG)
+                sel.format.setBackground(_qc('cur-row'))
                 sel.format.setProperty(QTextFormat.FullWidthSelection, True)
                 cur = QTextCursor(editor.document().findBlockByNumber(i))
                 cur.clearSelection()

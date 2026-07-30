@@ -10,25 +10,27 @@ becomes the code channel, and neither has to know about the other.
 
 **No red, no green.** Those two mean removed and added here. The palette is
 blue / teal / amber / lilac, muted enough to stay legible on the red and green
-row fills rather than competing with them.
+row fills rather than competing with them. The actual values live in
+:mod:`compare_tool.theme` -- one per role per theme -- so switching to the light
+page does not need a second copy of this mapping.
 """
 
 from PySide6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat
 
-from .. import syntax
+from .. import syntax, theme
 
-# token kind -> (colour, italic). Deliberately low-saturation: these sit on top
-# of diff fills, and a bright token colour there reads as another change.
+# token kind -> (theme role, italic). Deliberately low-saturation: these sit on
+# top of diff fills, and a bright token colour there reads as another change.
 _PALETTE = {
-    syntax.COMMENT: ('#8f96a2', True),
-    syntax.STRING:  ('#e0a860', False),
-    syntax.NUMBER:  ('#c5a3e8', False),
-    syntax.KEYWORD: ('#7aa2e3', False),
-    syntax.TYPE:    ('#57b6a9', False),
-    syntax.PREPROC: ('#b58ac4', False),
-    syntax.CALL:    ('#d8c99a', False),
-    syntax.TAG:     ('#7aa2e3', False),
-    syntax.ATTR:    ('#57b6a9', False),
+    syntax.COMMENT: ('syn-comment', True),
+    syntax.STRING:  ('syn-string', False),
+    syntax.NUMBER:  ('syn-number', False),
+    syntax.KEYWORD: ('syn-keyword', False),
+    syntax.TYPE:    ('syn-type', False),
+    syntax.PREPROC: ('syn-preproc', False),
+    syntax.CALL:    ('syn-call', False),
+    syntax.TAG:     ('syn-tag', False),
+    syntax.ATTR:    ('syn-attr', False),
 }
 
 # above this the pane stays plain: rehighlighting runs on the GUI thread, and a
@@ -38,30 +40,43 @@ MAX_LINES = 20000
 
 def _formats():
     out = {}
-    for kind, (colour, italic) in _PALETTE.items():
+    for kind, (role, italic) in _PALETTE.items():
         fmt = QTextCharFormat()
-        fmt.setForeground(QColor(colour))
+        fmt.setForeground(QColor(theme.c(role)))
         if italic:
             fmt.setFontItalic(True)
         out[kind] = fmt
     return out
 
 
-class CodeHighlighter(QSyntaxHighlighter):
-    """Colours one editor's document, skipping rows that are not code.
+def _muted_format():
+    """One flat grey for a whole muted line.
 
-    ``modes`` is the row-mode list the pane is showing, in block order. Its
-    only job is to spot ``folded`` placeholders (`⋯ 12 uuid lines hidden`):
-    those are not code, and -- more importantly -- the lines they stand for are
-    gone, so a `/*` whose `*/` was folded away would otherwise turn every line
-    below into a comment. A fold therefore resets the state: worst case a real
-    comment loses its colour, which is cosmetic, where the other direction
-    looks like a finding.
+    A row the compare rules no longer report is still on screen, and syntax
+    colour on it would undo the point of playing it down -- so the code channel
+    goes quiet too, not just the diff background."""
+    fmt = QTextCharFormat()
+    fmt.setForeground(QColor(theme.c('muted-fg')))
+    return fmt
+
+
+class CodeHighlighter(QSyntaxHighlighter):
+    """Colours one editor's document, playing down rows that do not count.
+
+    ``modes`` is the row-mode list the pane is showing, in block order. Its job
+    is to spot ``muted`` rows -- the noise categories the reviewer has switched
+    off -- and paint those in one flat grey instead of syntax colours. The line
+    is still there and still readable; it just stops competing with the change
+    beside it.
+
+    The block state is still computed from the real text of a muted row, so a
+    `/* ... */` running across one keeps the lines below it correctly coloured.
     """
 
     def __init__(self, document):
         super().__init__(document)
         self._fmt = _formats()
+        self._muted = _muted_format()
         self._language = None
         self._modes = ()
 
@@ -77,20 +92,27 @@ class CodeHighlighter(QSyntaxHighlighter):
         if repaint:
             self.rehighlight()
 
+    def apply_theme(self):
+        """Re-read the palette after a theme switch and repaint."""
+        self._fmt = _formats()
+        self._muted = _muted_format()
+        self.rehighlight()
+
     def highlightBlock(self, text):
-        if self._language is None:
-            return
         n = self.currentBlock().blockNumber()
-        if n >= MAX_LINES:
-            return
-        if n < len(self._modes) and self._modes[n] == 'folded':
-            self.setCurrentBlockState(syntax.PLAIN)
+        muted = n < len(self._modes) and self._modes[n] == 'muted'
+        if muted and text:
+            # the grey has to win even with no language: a muted plain-text row
+            # must not keep the editor's normal foreground
+            self.setFormat(0, len(text), self._muted)
+        if self._language is None or n >= MAX_LINES:
             return
         prev = self.previousBlockState()
         state = prev if prev in (syntax.PLAIN, syntax.IN_BLOCK_COMMENT) else syntax.PLAIN
         spans, state = syntax.spans(text, self._language, state)
-        for start, end, kind in spans:
-            fmt = self._fmt.get(kind)
-            if fmt is not None:
-                self.setFormat(start, end - start, fmt)
+        if not muted:
+            for start, end, kind in spans:
+                fmt = self._fmt.get(kind)
+                if fmt is not None:
+                    self.setFormat(start, end - start, fmt)
         self.setCurrentBlockState(state)

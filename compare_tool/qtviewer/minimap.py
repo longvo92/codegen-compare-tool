@@ -14,28 +14,28 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget
 
+from .. import theme
+
 _WIDTH = 92
-_BG = '#202124'
 _MAX_LINE_H = 4.0    # px per line at most; short files render small, VS Code-like
 _MAX_CHAR_W = 3.0    # px per char at most, so short lines don't stretch full width
 
 # dim token colour per mode (ctx = plain code grey); changed rows also get a
 # translucent full-width strip so diffs pop on the map. Noise shares the change
 # colour, dimmer -- same one-colour-language rule as the panes (see _ROW_BG).
-_TOKEN = {'ctx': '#565b62', 'real': '#e8908d', 'comment': '#a4706e',
-          'minor': '#a4706e', 'moved': '#7fb0d9', 'folded': '#4a4e55'}
-# a folded placeholder is not a change on the map either: it stands for lines
-# the current compare rules say are not a difference, so it gets no strip and
-# collapses away with the context rows when the map is compressed
-_NOT_A_CHANGE = ('ctx', 'folded')
+_TOKEN = {'ctx': 'map-ctx', 'real': 'map-real', 'comment': 'map-noise',
+          'minor': 'map-noise', 'moved': 'map-moved', 'muted': 'map-muted'}
+# a muted row is not a change on the map either. That is the point of switching
+# a category off: the lines stay readable in the panes, but the map -- the
+# "where are the changes" surface -- stops pointing at them, exactly like
+# F7/F8 already do.
+_NOT_A_CHANGE = ('ctx', 'muted')
 _STRIP = {
-    'real':    QColor(217, 82, 79, 70),
-    'comment': QColor(217, 82, 79, 40),
-    'minor':   QColor(217, 82, 79, 40),
-    'moved':   QColor(63, 127, 176, 70),
+    'real':    'map-strip-real',
+    'comment': 'map-strip-noise',
+    'minor':   'map-strip-noise',
+    'moved':   'map-strip-moved',
 }
-_VIEW_FILL = QColor(255, 255, 255, 26)
-_VIEW_BORDER = QColor(190, 190, 190, 120)
 
 
 def _row_text(r):
@@ -92,7 +92,9 @@ class Minimap(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor(_BG))
+        # colours are read on every paint, not cached: a theme switch is then
+        # just an update() away, with no state of its own to keep in step
+        p.fillRect(self.rect(), QColor(theme.c('map-bg')))
         rows = self._rows
         n = len(rows)
         if not n:
@@ -111,8 +113,9 @@ class Minimap(QWidget):
                 continue
             prev_y = y
             if is_change:
-                p.fillRect(0, y, self.width(), bh, _STRIP.get(r.mode, _STRIP['real']))
-            token = QColor(_TOKEN.get(r.mode, _TOKEN['ctx']))
+                p.fillRect(0, y, self.width(), bh,
+                           QColor(theme.c(_STRIP.get(r.mode, _STRIP['real']))))
+            token = QColor(theme.c(_TOKEN.get(r.mode, _TOKEN['ctx'])))
             self._paint_tokens(p, _row_text(r), y, cw, bh, token)
         self._paint_viewport(p, n, h, lh)
 
@@ -135,8 +138,9 @@ class Minimap(QWidget):
         count = self._visible_rows()
         y0 = int(first * lh)
         y1 = int(min((first + count) * lh, n * lh))
-        p.fillRect(0, y0, self.width(), max(y1 - y0, 2), _VIEW_FILL)
-        p.setPen(_VIEW_BORDER)
+        p.fillRect(0, y0, self.width(), max(y1 - y0, 2),
+                   QColor(theme.c('map-view-fill')))
+        p.setPen(QColor(theme.c('map-view-border')))
         p.drawRect(0, y0, self.width() - 1, max(y1 - y0 - 1, 2))
 
     # --- interaction: click / drag scrolls the driven editor ---

@@ -1,11 +1,17 @@
-"""Self-contained HTML report. Summary badges toggle each change category."""
+"""Self-contained HTML report. Summary badges toggle each change category.
+
+Every colour comes from :mod:`compare_tool.theme` as a CSS custom property, and
+BOTH palettes are written into the page -- so the reader's dark/light button is
+an attribute flip with nothing to fetch, on a machine with no internet, which is
+where these reports are usually opened.
+"""
 
 import datetime
 import html
 import re
 from pathlib import Path
 
-from . import review
+from . import review, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -15,82 +21,96 @@ CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
 
 _CSS = """
-body { font-family: Segoe UI, Arial, sans-serif; background: #1e1f22; color: #d4d4d4;
+body { font-family: Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--fg);
        margin: 0; padding: 24px; }
-h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: #e8e8e8; }
-.meta { color: #9a9a9a; font-size: 13px; margin-bottom: 4px; }
+h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--fg-strong); }
+.meta { color: var(--fg-dim); font-size: 13px; margin-bottom: 4px; }
 .summary { margin: 14px 0 22px; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px;
          margin-right: 8px; cursor: pointer; user-select: none; border: 1px solid transparent; }
-.badge:hover { border-color: #888; }
+.badge:hover { border-color: var(--border-strong); }
 .badge.off { opacity: .35; text-decoration: line-through; }
-.b-real { background: #6e2b2b; color: #ffb3b3; } .b-ign { background: #3a3b40; color: #c3c7cd; }
-.b-id { background: #333; color: #aaa; }
+.b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
+.b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
+.b-id { background: var(--tag-id-bg); color: var(--tag-id-fg); }
 /* added and deleted share one control: both are "a whole file appeared or
    vanished", and a reviewer flips them together */
-.b-adddel { background: #33404a; color: #cfe0ec; }
-.bgroup + .bgroup { border-left: 1px solid #43454c; margin-left: 4px; padding-left: 18px; }
-.b-err { background: #7a1f1f; color: #ffc2c2; border-color: #b04a4a; cursor: default; }
-.b-ok { background: #2b5232; color: #a8e6b0; cursor: default; }
-.errbox { background: #4a1d1d; border: 1px solid #b04a4a; border-radius: 6px;
-          padding: 10px 14px; margin: 14px 0 20px; color: #ffd6d6; font-size: 13px; }
+.b-adddel { background: var(--tag-adddel-bg); color: var(--tag-adddel-fg); }
+.bgroup + .bgroup { border-left: 1px solid var(--border-strong); margin-left: 4px;
+                    padding-left: 18px; }
+.b-err { background: var(--tag-err-bg); color: var(--tag-err-fg);
+         border-color: var(--err-border); cursor: default; }
+.b-ok { background: var(--tag-add-bg); color: var(--tag-add-fg); cursor: default; }
+.errbox { background: var(--err-bg); border: 1px solid var(--err-border); border-radius: 6px;
+          padding: 10px 14px; margin: 14px 0 20px; color: var(--err-fg); font-size: 13px; }
 .errbox .errtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
 .errbox div { padding: 1px 0; }
-.errbox code { background: #5c2626; }
-.hint { color: #7a7a7a; font-size: 11px; margin: -14px 0 18px; }
+.errbox code { background: var(--err-code-bg); color: var(--err-fg); }
+.hint { color: var(--fg-faint); font-size: 11px; margin: -14px 0 18px; }
 body.hide-real .sec-real, body.hide-ign .sec-ign, body.hide-add .sec-add,
 body.hide-del .sec-del { display: none; }
 ul.files { margin: 4px 0 14px; padding-left: 22px; font-size: 13px; }
 ul.files li { margin: 2px 0; }
-.kinds { color: #8a8a8a; font-size: 12px; }
-.tree { font-family: Consolas, monospace; font-size: 13px; background: #232427;
-        border: 1px solid #333; border-radius: 6px; padding: 10px 14px; margin: 0 0 20px; }
+.kinds { color: var(--fg-muted); font-size: 12px; }
+.tree { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; margin: 0 0 20px; }
 .tree details.dir > summary { cursor: pointer; list-style: none; padding: 1px 0;
-        user-select: none; color: #dcdcaa; }
+        user-select: none; color: var(--accent); }
 .tree details.dir > summary::-webkit-details-marker { display: none; }
-.tree details.dir > summary::before { content: '▸ '; color: #8a8a8a; }
+.tree details.dir > summary::before { content: '▸ '; color: var(--fg-muted); }
 .tree details.dir[open] > summary::before { content: '▾ '; }
 .tree details.dir > *:not(summary) { margin-left: 18px; }
 .tf { padding: 1px 0; }
-.tf a { color: inherit; text-decoration: none; border-bottom: 1px dotted #666; cursor: pointer; }
-.tf a:hover { color: #fff; }
+.tf a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--link-underline);
+        cursor: pointer; }
+.tf a:hover { color: var(--link-hover); }
 .tmark { display: inline-block; width: 14px; font-weight: bold; }
-.t-real { color: #ff7b7b; } .t-ign { color: #9aa1ad; } .t-add { color: #7bd88a; }
-.t-del { color: #c88ad8; } .t-id { color: #777; } .t-err { color: #ff5c5c; }
-.t-cmt { color: #8f96a2; }
-.tf.tc-cmt { color: #b9bec6; }
-.tf.tc-real { color: #ffb3b3; } .tf.tc-ign { color: #c3c7cd; } .tf.tc-add { color: #a8e6b0; }
-.tf.tc-del { color: #d9a8e6; text-decoration: line-through; } .tf.tc-id { color: #8a8a8a; }
-.tf.tc-err { color: #ffb3b3; font-weight: 700; }
-.legend { color: #8a8a8a; font-size: 12px; margin: 2px 0 8px; }
+.t-real { color: var(--st-real); } .t-ign { color: var(--st-ign); }
+.t-add { color: var(--st-add); }
+.t-del { color: var(--st-del); } .t-id { color: var(--st-id); }
+.t-err { color: var(--st-err); }
+.t-cmt { color: var(--st-cmt); }
+.tf.tc-cmt { color: var(--st-cmt-text); }
+.tf.tc-real { color: var(--tag-real-fg); } .tf.tc-ign { color: var(--tag-ign-fg); }
+.tf.tc-add { color: var(--tag-add-fg); }
+.tf.tc-del { color: var(--tag-del-fg); text-decoration: line-through; }
+.tf.tc-id { color: var(--st-id); }
+.tf.tc-err { color: var(--tag-real-fg); font-weight: 700; }
+.legend { color: var(--fg-muted); font-size: 12px; margin: 2px 0 8px; }
 table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
              font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
-td.ln { width: 44px; color: #6a6a6a; text-align: right; user-select: none; }
-td.del { background: #3a2222; } td.add { background: #1f3a24; }
+td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
+td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Noise (comment, uuid, rename, whitespace) uses the SAME red/green as a real
    change, one notch dimmer -- one colour language instead of three. Yellow and
    purple were a third and fourth hue competing with the syntax colours for the
    reader's attention, and a diff that needs a legend to be read is too loud.
    Dimmer, not identical: inside a Modified file the reviewer still has to see
    which hunks are the ones that count. */
-td.delm, td.delc { background: #2f2020; }
-td.addm, td.addc { background: #1e2f21; }
-td.mvd, td.mva { background: #1d2f3e; }
-td.ctx { color: #9a9a9a; }
-td.del .chg-seg { background: #7a2f2f; color: #ffc2c2; font-weight: 700; border-radius: 2px; }
-td.add .chg-seg { background: #2f6e3d; color: #c9f7d1; font-weight: 700; border-radius: 2px; }
-td.delm .chg-seg, td.delc .chg-seg { background: #5e2a2a; color: #f0c4c4; font-weight: 700;
+td.delm, td.delc { background: var(--del-bg-dim); }
+td.addm, td.addc { background: var(--add-bg-dim); }
+td.mvd, td.mva { background: var(--mv-bg); }
+td.ctx { color: var(--fg-dim); }
+td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg); font-weight: 700;
+                  border-radius: 2px; }
+td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg); font-weight: 700;
+                  border-radius: 2px; }
+td.delm .chg-seg, td.delc .chg-seg { background: var(--seg-del-dim-bg);
+                                     color: var(--seg-del-dim-fg); font-weight: 700;
                                      border-radius: 2px; }
-td.addm .chg-seg, td.addc .chg-seg { background: #2c5738; color: #bfe8c8; font-weight: 700;
+td.addm .chg-seg, td.addc .chg-seg { background: var(--seg-add-dim-bg);
+                                     color: var(--seg-add-dim-fg); font-weight: 700;
                                      border-radius: 2px; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
       margin: 0 4px 0 2px; vertical-align: -1px; }
-.sw-del { background: #7a2f2f; } .sw-add { background: #2f6e3d; }
-.sw-mv { background: #2f5a7a; }
-tr.gap td { text-align: center; color: #666; background: #26272b; font-size: 11px; }
-tr.mvnote td { text-align: center; color: #7fb3d9; background: #26272b; font-size: 11px; }
+.sw-del { background: var(--seg-del-bg); } .sw-add { background: var(--seg-add-bg); }
+.sw-mv { background: var(--seg-mv-bg); }
+tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2);
+            font-size: 11px; }
+tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
+               font-size: 11px; }
 body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }
 tr.minorph { display: none; }
 body.hide-ign tr.minorph { display: table-row; }
@@ -101,85 +121,140 @@ body.hide-ign tr.minorph { display: table-row; }
    silently dropped. (The viewer still shows them in full -- it is the reading
    surface, this is the record to send.) */
 tr.comment, .grp-cmt { display: none; }
-tr.commentph { display: table-row; color: #8f96a2; }
-tr.minorph td { color: #8f96a2; }
-.filenote { color: #8a8a8a; font-size: 12px; margin: 2px 0 10px; }
-.renames { font-size: 12px; color: #9aa1ad; margin: 2px 0 8px; }
-.iflist { font-family: Consolas, monospace; font-size: 13px; background: #232427;
-          border: 1px solid #333; border-radius: 6px; padding: 10px 14px; margin: 0 0 20px; }
+tr.commentph { display: table-row; color: var(--muted-fg); }
+tr.minorph td { color: var(--muted-fg); }
+.filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
+.renames { font-size: 12px; color: var(--st-ign); margin: 2px 0 8px; }
+.iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
+          border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
+          margin: 0 0 20px; }
 .iflist div { padding: 1px 0; }
-.if-add { color: #7bd88a; } .if-del { color: #ff7b7b; }
-.iflist a { color: #9a9a9a; text-decoration: none; border-bottom: 1px dotted #666;
-            cursor: pointer; }
-.iflist a:hover { color: #fff; }
-.ifnote { font-size: 12px; color: #7fb3d9; margin: 2px 0 8px; }
-code { background: #2b2c30; padding: 1px 5px; border-radius: 4px; }
-details.file { margin: 10px 0; border: 1px solid #333; border-radius: 6px; background: #232427; }
+.if-add { color: var(--st-add); } .if-del { color: var(--st-real); }
+.iflist a { color: var(--fg-dim); text-decoration: none;
+            border-bottom: 1px dotted var(--link-underline); cursor: pointer; }
+.iflist a:hover { color: var(--link-hover); }
+.ifnote { font-size: 12px; color: var(--mv-fg); margin: 2px 0 8px; }
+code { background: var(--panel-3); padding: 1px 5px; border-radius: 4px; }
+details.file { margin: 10px 0; border: 1px solid var(--border); border-radius: 6px;
+               background: var(--panel); }
 details.file > summary { list-style: none; cursor: pointer; padding: 10px 14px;
-    font-size: 15px; color: #e8e8e8; display: flex; align-items: center; gap: 10px; user-select: none; }
+    font-size: 15px; color: var(--fg-strong); display: flex; align-items: center; gap: 10px;
+    user-select: none; }
 details.file > summary::-webkit-details-marker { display: none; }
-details.file > summary::before { content: '▶'; font-size: 10px; color: #8a8a8a; transition: transform .15s; }
+details.file > summary::before { content: '▶'; font-size: 10px; color: var(--fg-muted);
+                                 transition: transform .15s; }
 details.file[open] > summary::before { transform: rotate(90deg); }
-details.file > summary:hover { background: #2a2b2f; }
+details.file > summary:hover { background: var(--panel-hover); }
 details.file > .body { padding: 0 14px 12px; }
-summary .hcount { color: #8a8a8a; font-size: 12px; font-weight: normal; }
+summary .hcount { color: var(--fg-muted); font-size: 12px; font-weight: normal; }
 summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 11px; }
-.tag-real { background: #6e2b2b; color: #ffb3b3; } .tag-ign { background: #3a3b40; color: #c3c7cd; }
-.tag-cmt { background: #33353a; color: #b9bec6; }
-.tag-add { background: #2b5232; color: #a8e6b0; } .tag-del { background: #4a2b52; color: #d9a8e6; }
-.tag-err { background: #7a1f1f; color: #ffc2c2; }
-.hunklabel { color: #9aa1ad; font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
+.tag-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
+.tag-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
+.tag-cmt { background: var(--tag-cmt-bg); color: var(--tag-cmt-fg); }
+.tag-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
+.tag-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
+.tag-err { background: var(--tag-err-bg); color: var(--tag-err-fg); }
+.hunklabel { color: var(--st-ign); font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
              letter-spacing: .5px; }
 .toolbar { margin: 4px 0 16px; }
-.toolbar button { background: #2b2c30; color: #d4d4d4; border: 1px solid #444; border-radius: 4px;
+.toolbar button { background: var(--btn-bg); color: var(--btn-fg);
+    border: 1px solid var(--btn-border); border-radius: 4px;
     padding: 4px 10px; font-size: 12px; cursor: pointer; margin-right: 6px; }
-.toolbar button:hover { background: #35363b; }
-#flt { background: #2b2c30; color: #d4d4d4; border: 1px solid #444; border-radius: 4px;
-       padding: 4px 10px; font-size: 12px; width: 280px; margin-left: 10px; }
-#flt:focus { outline: none; border-color: #6a6a6a; }
+.toolbar button:hover { background: var(--btn-hover); }
+#flt { background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border);
+       border-radius: 4px; padding: 4px 10px; font-size: 12px; width: 280px; margin-left: 10px; }
+#flt:focus { outline: none; border-color: var(--btn-focus); }
+/* the dark/light switch. Fixed, top right, out of the reading column: it is a
+   preference about the page, not a fact about the compare, so it must not sit
+   among the verdict badges where it would read as one. */
+#thm { position: fixed; top: 14px; right: 18px; z-index: 9; background: var(--btn-bg);
+       color: var(--btn-fg); border: 1px solid var(--btn-border); border-radius: 6px;
+       padding: 4px 10px; font-size: 12px; cursor: pointer;
+       font-family: Segoe UI, Arial, sans-serif; }
+#thm:hover { background: var(--btn-hover); }
 table.ov { border-collapse: collapse; font-size: 13px; margin: 4px 0 22px; }
-table.ov th { text-align: left; color: #8a8a8a; font-weight: normal; font-size: 12px;
-              padding: 3px 18px 4px 0; border-bottom: 1px solid #3a3b40; }
-table.ov td { padding: 5px 18px 5px 0; border-bottom: 1px solid #2c2d31; vertical-align: top; }
-table.ov a { color: #dcdcaa; text-decoration: none; border-bottom: 1px dotted #666;
-             cursor: pointer; }
-table.ov a:hover { color: #fff; }
+table.ov th { text-align: left; color: var(--fg-muted); font-weight: normal; font-size: 12px;
+              padding: 3px 18px 4px 0; border-bottom: 1px solid var(--border-strong); }
+table.ov td { padding: 5px 18px 5px 0; border-bottom: 1px solid var(--border-soft);
+              vertical-align: top; }
+table.ov a { color: var(--accent); text-decoration: none;
+             border-bottom: 1px dotted var(--link-underline); cursor: pointer; }
+table.ov a:hover { color: var(--link-hover); }
 .cnt { margin-right: 10px; white-space: nowrap; }
-.cnt-real { color: #ffb3b3; } .cnt-add { color: #a8e6b0; } .cnt-del { color: #d9a8e6; }
-.cnt-ign { color: #c3c7cd; } .cnt-id { color: #8a8a8a; } .cnt-err { color: #ff9d9d; font-weight: 700; }
-.cnt-cmt { color: #b9bec6; }
-.aut { color: #9a9a9a; }
-.aut .a-add { color: #7bd88a; } .aut .a-del { color: #ff7b7b; } .aut .a-chg { color: #7fb3d9; }
-.ifgroup { color: #8a8a8a; font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
-           margin: 8px 0 2px; }
+.cnt-real { color: var(--tag-real-fg); } .cnt-add { color: var(--tag-add-fg); }
+.cnt-del { color: var(--tag-del-fg); }
+.cnt-ign { color: var(--tag-ign-fg); } .cnt-id { color: var(--st-id); }
+.cnt-err { color: var(--st-err); font-weight: 700; }
+.cnt-cmt { color: var(--st-cmt-text); }
+.aut { color: var(--fg-dim); }
+.aut .a-add { color: var(--st-add); } .aut .a-del { color: var(--st-real); }
+.aut .a-chg { color: var(--mv-fg); }
+.ifgroup { color: var(--fg-muted); font-size: 11px; text-transform: uppercase;
+           letter-spacing: .5px; margin: 8px 0 2px; }
 .iflist .ifgroup:first-child { margin-top: 0; }
-.if-chg { color: #7fb3d9; }
-details.model { margin: 16px 0; border: 1px solid #3a3b40; border-radius: 8px;
-                background: #202124; }
+.if-chg { color: var(--mv-fg); }
+details.model { margin: 16px 0; border: 1px solid var(--border-strong); border-radius: 8px;
+                background: var(--panel-alt); }
 details.model > summary { list-style: none; cursor: pointer; padding: 9px 14px;
-    font-size: 15px; color: #dcdcaa; user-select: none; display: flex;
+    font-size: 15px; color: var(--accent); user-select: none; display: flex;
     align-items: center; gap: 10px; }
 details.model > summary::-webkit-details-marker { display: none; }
-details.model > summary::before { content: '▶'; font-size: 10px; color: #8a8a8a;
+details.model > summary::before { content: '▶'; font-size: 10px; color: var(--fg-muted);
                                   transition: transform .15s; }
 details.model[open] > summary::before { transform: rotate(90deg); }
-details.model > summary:hover { background: #26272b; }
+details.model > summary:hover { background: var(--panel-2); }
 details.model > .mbody { padding: 0 12px 10px; }
 summary .mcounts { font-size: 12px; font-weight: normal; }
-.b-rev { background: #274a45; color: #9fe0cf; }
-.rvnote { background: #22302e; border-left: 3px solid #3f8f7a; border-radius: 4px;
-          padding: 6px 10px; margin: 8px 0 2px; font-size: 12px; color: #cfe6df;
-          white-space: pre-wrap; }
-.rvnote .rvtag { color: #7fd3ba; font-weight: 700; margin-right: 8px; }
-.rvnote .rvwhere { color: #7d8f8b; margin-right: 8px; font-family: Consolas, monospace; }
-.rvnote.pending { background: #2d2b21; border-left-color: #8a7a3f; color: #e6dcc0; }
-.rvnote.pending .rvtag { color: #d8c07a; }
-.rvcheck { color: #5f9e8b; }
+.b-rev { background: var(--tag-rev-bg); color: var(--tag-rev-fg); }
+.rvnote { background: var(--note-bg); border-left: 3px solid var(--note-border);
+          border-radius: 4px; padding: 6px 10px; margin: 8px 0 2px; font-size: 12px;
+          color: var(--note-fg); white-space: pre-wrap; }
+.rvnote .rvtag { color: var(--note-tag); font-weight: 700; margin-right: 8px; }
+.rvnote .rvwhere { color: var(--note-where); margin-right: 8px;
+                   font-family: Consolas, monospace; }
+.rvnote.pending { background: var(--note-pending-bg);
+                  border-left-color: var(--note-pending-border); color: var(--note-pending-fg); }
+.rvnote.pending .rvtag { color: var(--note-pending-tag); }
+.rvcheck { color: var(--note-check); }
 /* the Reviewed badge hides what has already been signed off, so the next pass
    shows only what is left. It starts SHOWN: the report is the record, and a
    record that opens with real changes already hidden is not one. */
 body.hide-rev .grp-rev, body.hide-rev details.file.file-rev { display: none; }
 """
+
+# the switch itself, plus the script behind it. A saved preference wins over
+# the flag the report was built with: the flag is the author's default for
+# somebody who has never expressed one, and after that it is the reader's eyes.
+_THEME_BUTTON = ('<button id="thm" type="button" onclick="tgtheme()" '
+                 'title="Switch this page between dark and light">&#9788; '
+                 'Light</button>')
+_THEME_JS = (
+    'function sttheme(t){document.documentElement.setAttribute("data-theme",t);'
+    'var b=document.getElementById("thm");'
+    'if(b)b.innerHTML=(t==="dark"?"\\u2600 Light":"\\u263e Dark");'
+    'try{localStorage.setItem("cgc-theme",t);}catch(e){}}'
+    'function tgtheme(){sttheme(document.documentElement.getAttribute("data-theme")'
+    '==="dark"?"light":"dark");}'
+    '(function(){var t=null;try{t=localStorage.getItem("cgc-theme");}catch(e){}'
+    'sttheme(t==="dark"||t==="light"?t'
+    ':document.documentElement.getAttribute("data-theme"));})();')
+
+
+def _head(title, initial, body_class=''):
+    """Everything up to and including the opening ``<body>``.
+
+    BOTH palettes go into the page: a report is mailed around and opened on a
+    machine that may have no network, so the dark/light switch has to be an
+    attribute flip with nothing left to fetch. ``initial`` only decides which
+    one the page opens with.
+    """
+    cls = ' class="{}"'.format(body_class) if body_class else ''
+    return ('<!DOCTYPE html><html data-theme="{}"><head><meta charset="utf-8">'
+            '<title>{}</title><style>:root{{{}}}html[data-theme="light"]{{{}}}'
+            '{}</style></head><body{}>{}'
+            .format(theme.normalize(initial), title,
+                    theme.css_vars(theme.DARK), theme.css_vars(theme.LIGHT),
+                    _CSS, cls, _THEME_BUTTON))
 
 
 def _esc(s):
@@ -949,12 +1024,14 @@ def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
                   '</div></details>'.format(_esc(type(e).__name__), _esc(str(e))))
 
 
-def build_arxml_report(results, old_root, new_root, old_label=None):
+def build_arxml_report(results, old_root, new_root, old_label=None,
+                       theme_name=theme.DEFAULT):
     """Compact ARXML / A2L update report: did the AUTOSAR model or the
     calibration surface change, and how.
 
     ``old_label`` names the OLD side when its folder does not -- see
-    :func:`build_report`.
+    :func:`build_report`. ``theme_name`` is which palette the page opens with;
+    both are always embedded, and the reader can switch.
 
     Only .arxml/.xml/.a2l files are considered; other files in `results`
     are ignored ('error' entries of any extension always count -- a failed
@@ -974,9 +1051,7 @@ def build_arxml_report(results, old_root, new_root, old_label=None):
     counts = summarize(ax)
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     parts = []
-    parts.append('<!DOCTYPE html><html><head><meta charset="utf-8">'
-                 '<title>ARXML / A2L Update Report</title><style>{}</style></head>'
-                 '<body>'.format(_CSS))
+    parts.append(_head('ARXML / A2L Update Report', theme_name))
     parts.append('<h1>ARXML / A2L Update Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
         _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
@@ -1048,16 +1123,22 @@ def build_arxml_report(results, old_root, new_root, old_label=None):
                      'timestamps / comments / whitespace).</p>')
 
     parts.append(_autosar_section(ax, {}))
+    parts.append('<script>{}</script>'.format(_THEME_JS))
     parts.append('</body></html>')
     return ''.join(parts)
 
 
-def build_report(results, old_root, new_root, reviews=None, old_label=None):
+def build_report(results, old_root, new_root, reviews=None, old_label=None,
+                 theme_name=theme.DEFAULT):
     """Full self-contained HTML report.
 
     ``old_label`` names the OLD side when its folder does not: comparing
     against a commit checks it out to a temp folder, and the record has to say
     which commit that was.
+
+    ``theme_name`` is which palette the page opens with (``--theme`` on the
+    CLI). Both are embedded either way, so the reader's own button -- and their
+    saved preference -- can override it without the file changing.
 
     ``reviews`` is a :class:`compare_tool.review.ReviewStore` or None. When
     given, every change the reviewer signed off carries its note, and a
@@ -1110,9 +1191,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None):
                                              anchors, rv))
 
     parts = []
-    parts.append('<!DOCTYPE html><html><head><meta charset="utf-8">'
-                 '<title>AUTOSAR Code Generation Report</title><style>{}</style></head>'
-                 '<body class="hide-ign">'.format(_CSS))
+    parts.append(_head('AUTOSAR Code Generation Report', theme_name,
+                       body_class='hide-ign'))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
         _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
@@ -1205,6 +1285,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None):
                  'var any=!q;if(!any)mo.querySelectorAll("details.file").forEach(function(d){'
                  'if(d.style.display!=="none")any=true;});'
                  'mo.style.display=any?"":"none";});}'
+                 + _THEME_JS +
                  '</script>')
     parts.append('</body></html>')
     return ''.join(parts)

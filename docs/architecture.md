@@ -35,6 +35,7 @@ flowchart TD
     end
     subgraph shared[Shared seams]
         VM[view_model.py<br/>mode_of · char_span · aligned_rows]
+        TH[theme.py<br/>dark/light palettes by role]
         RV[review.py<br/>notes keyed by content]
         SY[syntax.py<br/>token spans, Qt-free]
     end
@@ -50,6 +51,8 @@ flowchart TD
     QT --> RP
     RP --> VM
     QT --> VM
+    RP --> TH
+    QT --> TH
     QT --> SY
     RP --> RV
     QT --> RV
@@ -58,7 +61,7 @@ flowchart TD
 Two rules hold this shape:
 
 **The core imports nothing but the standard library.** `scanner`, `diff_engine`,
-the three rule modules, `report`, `review`, `view_model`, `syntax` and
+the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax` and
 `gitsource` are what ships in `compare_tool.pyz` — ~110 KB, no install, the
 documented fallback for machines where antivirus blocks the `.exe`. One
 third-party import in `scanner.py` and the zipapp stops running there. PySide6
@@ -66,8 +69,9 @@ lives only under `compare_tool/qtviewer/` and is imported lazily, when the
 viewer opens, so the test suite runs headless.
 
 **Arrows only point down.** The core never imports a front end. `syntax.py`
-says *what* a stretch of text is and never what colour it gets, so the Qt layer
-and any second surface can reuse it without the mapping being written twice.
+says *what* a stretch of text is and never what colour it gets — that is
+`theme.py`'s job, answered once for both surfaces — so the Qt layer and any
+second surface can reuse it without the mapping being written twice.
 
 ## Data flow of one compare
 
@@ -152,6 +156,13 @@ than mutates, so the rules can be toggled back and forth. The viewer keeps the
 untouched scan in `MainWindow._raw_results` and folds into `self.results` for
 display.
 
+Folding a category changes two things, and only these two: the file's
+**verdict** (it comes back `identical`, or `real-change` if something real
+remains) and how its rows are **painted** — `view_model.mute_rows` greys them,
+the minimap stops striping them and `F7`/`F8` never stopped on them anyway. The
+lines themselves stay on screen. The hunks are never touched, so the exported
+report, built from `_raw_results`, cannot notice that a category was folded.
+
 ## The result dict is the contract
 
 Everything downstream — CLI summary, HTML report, viewer tree, review store —
@@ -190,10 +201,17 @@ until someone adds a new kind to one of them.
 - **`view_model.char_span`** — the intra-line highlight as plain character
   offsets. The report wraps them in a `<span>`; the viewer applies a
   `QTextCharFormat` over the same numbers.
-- **`view_model.aligned_rows` / `collapse_rows`** — whole-file two-pane
-  alignment, and folding a run of noise rows into one `⋯ N uuid lines hidden`
-  placeholder that reads as context on both sides so the panes stay in scroll
-  lockstep. The count is always stated: this hides noise, it does not drop it.
+- **`view_model.aligned_rows` / `mute_rows`** — whole-file two-pane alignment,
+  and playing a switched-off noise category *down* rather than away: the rows
+  keep their place, their line numbers and their text, and come back with mode
+  `muted` for the renderer to paint flat grey. Muting moves no row, so
+  navigation stops and find hits stay valid without translation, and the
+  reviewer keeps the context the surviving hunks have to be read in.
+- **`theme.py`** — every colour as a named role, one value per theme. The
+  report emits the whole palette as CSS custom properties and uses
+  `var(--role)`; the Qt widgets look the same role up with `theme.c`. Adding a
+  role means adding it to **both** palettes — an import-time assert says so,
+  because the alternative is a `KeyError` on whichever surface nobody opened.
 - **`review.py`** — notes and sign-offs keyed by a hash of the change's own
   text, not by line number, so an unrelated edit elsewhere in the file does not
   detach them on the next scan.
@@ -246,6 +264,9 @@ quick-changes rollup.
 **The HTML report is self-contained.** CSS and JS inline, no CDN, nothing
 fetched when the file is opened. It gets mailed around and opened on machines
 with no internet; a report that renders blank there is worse than no report.
+That is also why the page carries *both* palettes rather than the one
+`--theme` asked for: the reader's dark/light button has to be an attribute
+flip, with nothing left to download.
 
 **Cosmetic failures degrade, the compare does not.** A missing icon leaves a
 button with its text label (`resources.py` getters return `None` and callers
@@ -272,5 +293,6 @@ un-hidden on a crash.
 | New file type | `RULES` in `diff_engine.py`, a `*_rules.py` module, shadow + variants |
 | New semantic extraction | `*_rules.py` extractor, wire into `scanner.compare_file` and `_single_info`, then a `summarize_*` rollup |
 | Anything both renderers show | `view_model.py` — never inline in one of them |
+| A colour, anywhere | `theme.py`, as a role in **both** palettes; the report uses `var(--role)`, Qt uses `theme.c(role)` |
 | New verdict | `diff_engine._status_of`, and decide explicitly whether it belongs in `scanner.FOLDABLE` (default: no) |
 | Viewer layout or colour | render it and look at it (`widget.grab().save(png)` under `QT_QPA_PLATFORM=offscreen`), then a real window |

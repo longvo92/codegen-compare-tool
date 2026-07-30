@@ -50,12 +50,25 @@ place, `diff_engine._status_of`.
 Only noise verdicts are foldable (`scanner.FOLDABLE`). `real-change`, `added`,
 `deleted` and `error` can **never** be folded away by a UI toggle.
 
+Folding a category in the viewer changes the file's verdict and **greys** its
+rows (`view_model.mute_rows`) — it does not remove them. The lines stay
+readable, and only the "where should I look next" surfaces (minimap, F7/F8)
+stop counting them. Collapsing them to a `⋯ N lines hidden` placeholder was
+tried and reverted: a regenerated file is mostly banner churn, so it took the
+context the surviving hunks have to be read in.
+
 ## 3. One seam per shared decision
 
 Any fact two renderers need lives in **one** module they both import.
-`compare_tool/view_model.py` holds `mode_of`, `char_span` and `aligned_rows`;
-the HTML report and the Qt viewer both consume them, so they cannot disagree
-about what changed or how it is coloured.
+`compare_tool/view_model.py` holds `mode_of`, `char_span`, `aligned_rows` and
+`mute_rows`; `compare_tool/theme.py` holds every colour as a named role, one
+value per theme. The HTML report and the Qt viewer both consume them, so they
+cannot disagree about what changed or how it is coloured.
+
+A colour literal outside `theme.py` is a bug: it paints one theme correctly and
+the other by accident. Add a role to **both** palettes (an import-time assert
+enforces it), then use `var(--role)` in the report's CSS or `theme.c(role)` in
+Qt.
 
 Re-implementing a mapping inline "because it is only four lines" is the bug:
 the copies drift the moment a new kind is added. If you find a duplicated

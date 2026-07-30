@@ -35,6 +35,7 @@ flowchart TD
     end
     subgraph shared[Seam dùng chung]
         VM[view_model.py<br/>mode_of · char_span · aligned_rows]
+        TH[theme.py<br/>palette sáng/tối theo role]
         RV[review.py<br/>note khoá theo nội dung]
         SY[syntax.py<br/>token span, không dính Qt]
     end
@@ -50,6 +51,8 @@ flowchart TD
     QT --> RP
     RP --> VM
     QT --> VM
+    RP --> TH
+    QT --> TH
     QT --> SY
     RP --> RV
     QT --> RV
@@ -58,15 +61,16 @@ flowchart TD
 Hai luật giữ cho hình dạng này đứng vững:
 
 **Core không import gì ngoài standard library.** `scanner`, `diff_engine`, ba module
-rule, `report`, `review`, `view_model`, `syntax` và `gitsource` là những gì ship
+rule, `report`, `review`, `view_model`, `theme`, `syntax` và `gitsource` là những gì ship
 trong `compare_tool.pyz` — ~110 KB, không cần cài, và là phương án dự phòng đã được
 ghi rõ cho các máy bị antivirus chặn `.exe`. Chỉ cần một import thư viện ngoài trong
 `scanner.py` là zipapp hết chạy ở đó. PySide6 chỉ nằm dưới `compare_tool/qtviewer/`
 và được import lười, lúc viewer mở, nên bộ test chạy headless được.
 
 **Mũi tên chỉ đi xuống.** Core không bao giờ import front end. `syntax.py` nói một
-đoạn text *là gì* chứ không nói nó tô màu gì, nên lớp Qt và bất kỳ surface thứ hai
-nào cũng dùng lại được mà không phải viết mapping đó hai lần.
+đoạn text *là gì* chứ không nói nó tô màu gì — màu là việc của `theme.py`, trả lời
+một lần cho cả hai surface — nên lớp Qt và bất kỳ surface thứ hai nào cũng dùng lại
+được mà không phải viết mapping đó hai lần.
 
 ## Luồng dữ liệu của một lần compare
 
@@ -148,6 +152,13 @@ cái đó là phí công. Nó copy chứ không sửa tại chỗ, nên bật t�
 mái. Viewer giữ nguyên lần scan gốc trong `MainWindow._raw_results` và fold vào
 `self.results` để hiển thị.
 
+Fold một nhóm chỉ đổi đúng hai thứ: **verdict** của file (thành `identical`, hoặc
+`real-change` nếu còn thay đổi thật) và cách các dòng đó được **tô** —
+`view_model.mute_rows` làm chúng xám đi, minimap thôi kẻ vạch cho chúng, còn
+`F7`/`F8` thì vốn đã không dừng ở đó. Bản thân các dòng vẫn nằm trên màn hình. Hunk
+không bị đụng tới, nên report xuất ra từ `_raw_results` không thể biết là có nhóm
+nào đã bị fold.
+
 ## Result dict là contract
 
 Mọi thứ ở phía sau — summary của CLI, HTML report, cây của viewer, review store —
@@ -186,11 +197,15 @@ khớp nhau hoàn hảo cho tới lúc ai đó thêm một kind mới vào một
 - **`view_model.char_span`** — vùng highlight trong dòng, dưới dạng offset ký tự
   trần. Report bọc nó trong một `<span>`; viewer áp `QTextCharFormat` lên đúng những
   con số đó.
-- **`view_model.aligned_rows` / `collapse_rows`** — canh dòng hai pane cho cả file,
-  và gộp một chuỗi dòng noise thành một placeholder `⋯ N uuid lines hidden`, đọc
-  như context ở cả hai bên nên hai pane giữ được cuộn đồng bộ. Số lượng luôn được
-  ghi ra: cái này giấu noise, không vứt noise, và reviewer phải thấy được là có gì
-  đó đã bị gộp và gộp bao nhiêu.
+- **`view_model.aligned_rows` / `mute_rows`** — canh dòng hai pane cho cả file, và
+  làm *mờ* một nhóm noise bị tắt thay vì bỏ nó đi: dòng giữ nguyên vị trí, số dòng
+  và nội dung, chỉ đổi mode thành `muted` để renderer tô một màu xám phẳng. Vì mute
+  không dời dòng nào, các mốc điều hướng và kết quả tìm kiếm vẫn đúng chỉ số, và
+  reviewer giữ được phần code xung quanh — thứ giúp đọc được những hunk còn lại.
+- **`theme.py`** — mọi màu là một role có tên, mỗi theme một giá trị. Report xuất
+  cả palette ra CSS custom property rồi dùng `var(--role)`; widget Qt tra cùng role
+  đó bằng `theme.c`. Thêm role nghĩa là thêm vào **cả hai** palette — có assert lúc
+  import bắt việc này, vì nếu không thì mặt nào không ai mở sẽ nổ `KeyError`.
 - **`review.py`** — note và sign-off khoá theo hash nội dung của chính change đó,
   không theo số dòng, nên một sửa đổi không liên quan ở chỗ khác trong file không
   làm chúng rớt ra ở lần scan sau.
@@ -240,7 +255,9 @@ theo đúng luật đó.
 
 **HTML report là self-contained.** CSS và JS nội tuyến, không CDN, mở file không tải
 gì về. Nó bị gửi email lòng vòng và mở trên máy không có internet; một report render
-ra trắng bóc ở đó còn tệ hơn là không có report.
+ra trắng bóc ở đó còn tệ hơn là không có report. Cũng vì thế mà trang nhúng *cả hai*
+palette chứ không chỉ cái `--theme` yêu cầu: nút sáng/tối của người đọc phải chỉ là
+đổi một attribute, không còn gì để tải.
 
 **Hỏng phần trang trí thì xuống cấp, hỏng phần compare thì kêu to.** Thiếu icon thì
 nút còn lại chữ (`resources.py` trả `None`, phía gọi tự lo); không có PySide6 thì
@@ -265,5 +282,6 @@ chờ tiến trình nữa và vứt mất exit code, tức là gãy CI gate. Nê
 | Loại file mới | `RULES` trong `diff_engine.py`, một module `*_rules.py`, shadow + variant |
 | Trích ngữ nghĩa mới | extractor trong `*_rules.py`, nối vào `scanner.compare_file` và `_single_info`, rồi một rollup `summarize_*` |
 | Thứ cả hai renderer cùng hiện | `view_model.py` — đừng bao giờ viết thẳng vào một trong hai |
+| Một màu bất kỳ | `theme.py`, thành role có trong **cả hai** palette; report dùng `var(--role)`, Qt dùng `theme.c(role)` |
 | Verdict mới | `diff_engine._status_of`, và quyết định rõ ràng xem nó có thuộc `scanner.FOLDABLE` không (mặc định: không) |
 | Layout hay màu của viewer | render ra rồi nhìn tận mắt (`widget.grab().save(png)` dưới `QT_QPA_PLATFORM=offscreen`), sau đó mở cửa sổ thật |

@@ -97,6 +97,7 @@ Những gì lần scan tìm được vẫn được in ra.
 | `--exit-zero` | Luôn exit 0 kể cả khi có thay đổi thật (chế độ chỉ ghi report cho pipeline). Lỗi compare vẫn exit 2 |
 | `--arxml-only` | Chỉ scan `.arxml`/`.xml`/`.a2l` và ghi report gọn theo từng loại file (mặc định `arxml_update.html`) — luôn được ghi, kể cả khi không có gì đổi |
 | `--review FILE` | Render note và sign-off từ review file (`codegen-review.json`, do viewer ghi) ngay cạnh change tương ứng, kèm badge `Reviewed` để ẩn các change đã ký duyệt. Phải chỉ tên tường minh — một report không được vô tình mang sign-off của người khác; không có tác dụng với `--arxml-only` |
+| `--theme dark\|light` | Bảng màu lúc mở của report và viewer (mặc định `dark`). Report mang sẵn **cả hai** và có nút đổi riêng, nên cờ này chỉ quyết định người đọc thấy màu nào trước |
 | `--qt`, `--viewer` | Mở viewer trên hai thư mục truyền ở command line, thay vì so sánh trong terminal. Cần extra `viewer` (xem dưới) |
 
 Bỏ `old_dir`/`new_dir` thì viewer mở. `--gui` (panel tkinter) đã bị bỏ ở 1.1.0.
@@ -132,6 +133,12 @@ mục đó, lấy commit bạn chọn ra một thư mục tạm (read-only — w
   identifier xuyên suốt lần compare được.
 - `Hide identical` chỉ để lại các file có khác biệt trên cây. Đây là view: verdict,
   số đếm và report export ra đều không đổi.
+- Bỏ tick `Comment` / `Unimportant` sẽ **làm mờ các dòng đó** chứ không xoá đi:
+  chúng ở nguyên chỗ cũ, giữ số dòng, mất màu đỏ/xanh, và biến khỏi minimap lẫn
+  `F7`/`F8`. Phần code xung quanh mới là thứ giúp đọc được một change, mà file
+  regenerate thì phần lớn là banner churn — gộp chúng lại là gộp mất gần cả file.
+- `☀ Light` / `☾ Dark` trên toolbar đổi bảng màu; `--theme` chọn màu lúc mở. C,
+  ARXML và A2L đều được tô cú pháp ở cả hai theme.
 
 `Review mode` bật hộp note và cột `Review` trên cây — xanh khi mọi change trong
 dòng đã ký duyệt, hổ phách khi mới một phần, xám khi chưa cái nào. Ký duyệt một
@@ -234,7 +241,9 @@ model nào rơi vào nhóm cuối **Shared / other**.
 
 File self-contained, mỗi lần compare một file: badge bật/tắt, cây thư mục, ô lọc,
 diff xếp gọn được theo từng file. Mở lên với `Unimportant` đã ẩn và `Modified` đã
-mở, để mở ra là thấy ngay cái đáng xem.
+mở, để mở ra là thấy ngay cái đáng xem. Nút `☀ Light` / `☾ Dark` nằm ở góc trên bên
+phải — cả hai palette đều nhúng sẵn trong file, nên đổi màu không tải gì và chạy
+được trên máy không có internet.
 
 ![Report viewer](../../resources/pic/report_page.png)
 
@@ -307,7 +316,8 @@ compare_tool/
 ├── arxml_rules.py   # rule ARXML: UUID, ADMIN-DATA, DATE, comment + trích port interface, SWC (port/runnable/event)
 ├── a2l_rules.py     # rule A2L: bóc comment kiểu C + trích CHARACTERISTIC/MEASUREMENT
 ├── view_model.py    # view model không phụ thuộc renderer (paint mode, span trong dòng, canh dòng) dùng chung cho report và viewer
-├── syntax.py        # token span C / XML theo từng dòng, không dính Qt nên ship được trong .pyz
+├── theme.py         # palette sáng và tối dưới dạng role có tên, dùng chung cho CSS của report và mọi mặt Qt
+├── syntax.py        # token span C / XML / A2L theo từng dòng, không dính Qt nên ship được trong .pyz
 ├── review.py        # note và sign-off của reviewer, khoá theo nội dung change nên sống sót qua lần scan sau
 ├── gitsource.py     # `git archive` read-only một commit ra thư mục tạm, để commit đóng vai bên OLD
 └── report.py        # HTML report self-contained (badge bật/tắt, tổng quan theo model, nhóm, lọc, diff xếp gọn)
@@ -315,9 +325,9 @@ compare_tool/
 
 [architecture.md](architecture.md) nói các mảnh này ghép với nhau ra sao và tại
 sao: hai lượt diff, chỗ verdict được quyết định, các seam dùng chung và contract
-của result dict. Cái gì cả hai renderer đều cần thì nằm ở `view_model.py` — viết
-lại một mapping ngay tại chỗ là cách để HTML report và viewer trôi lệch nhau về
-chuyện cái gì đã đổi.
+của result dict. Cái gì cả hai renderer đều cần thì nằm ở `view_model.py` (cái gì
+đã đổi) hoặc `theme.py` (nó mang màu gì) — viết lại một mapping ngay tại chỗ là
+cách để HTML report và viewer trôi lệch nhau.
 
 Thêm một rule: viết hàm strip trong `c_rules.py` / `arxml_rules.py` / `a2l_rules.py`,
 nối nó vào shadow của ruleset đó, đăng ký một variant có nhãn trong

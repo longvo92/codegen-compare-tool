@@ -8,12 +8,14 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
 
+from .. import theme
 from .summary_model import summary_sections
 
 REL_ROLE = Qt.UserRole
 KEY_ROLE = Qt.UserRole + 1
 
-_SIGN_COLOR = {'+': '#7bd88a', '−': '#ff7b7b', '~': '#7fb3d9'}
+# added / removed / changed, in the same colours the tree and the report use
+_SIGN_COLOR = {'+': 'st-add', '−': 'st-real', '~': 'mv-fg'}
 _EMPTY = 'No AUTOSAR / A2L changes'
 
 
@@ -34,8 +36,15 @@ class SummaryPanel(QTreeWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         self.itemClicked.connect(self._on_click)
+        self._results = {}
+
+    def apply_theme(self):
+        """Item colours are set per row, so a theme switch has to rebuild them
+        -- from the results the panel was last given, never from the widget."""
+        self.set_results(self._results)
 
     def set_results(self, results):
+        self._results = results
         self.clear()
         sections = summary_sections(results) if results else []
         if not sections:
@@ -46,14 +55,14 @@ class SummaryPanel(QTreeWidget):
             font = head.font(0)
             font.setBold(True)
             head.setFont(0, font)
-            head.setForeground(0, QBrush(QColor('#dcdcaa')))
+            head.setForeground(0, QBrush(QColor(theme.c('accent'))))
             self.addTopLevelItem(head)
             for row in rows:
                 item = QTreeWidgetItem(['{} {}'.format(row.sign, row.name),
                                         row.detail])
-                item.setForeground(0, QBrush(QColor(_SIGN_COLOR.get(row.sign,
-                                                                    '#d4d4d4'))))
-                item.setForeground(1, QBrush(QColor('#9a9a9a')))
+                item.setForeground(0, QBrush(QColor(theme.c(
+                    _SIGN_COLOR.get(row.sign, 'fg')))))
+                item.setForeground(1, QBrush(QColor(theme.c('fg-dim'))))
                 item.setToolTip(0, row.rel)
                 item.setData(0, REL_ROLE, row.rel)
                 item.setData(0, KEY_ROLE, row.key)

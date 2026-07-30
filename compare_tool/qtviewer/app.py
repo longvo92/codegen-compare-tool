@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import gitsource, review
+from .. import gitsource, review, theme
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
@@ -31,7 +31,8 @@ from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
 from .summary import SummaryPanel
-from .tree import REVIEW_COLOR, STATUS, build_nodes, filter_nodes, review_state
+from .tree import (STATUS, build_nodes, filter_nodes, review_color,
+                   review_state, status_color)
 from .worker import ScanWorker
 
 REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
@@ -89,8 +90,11 @@ class _NoteEdit(QPlainTextEdit):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, old=None, new=None, exclude=(), arxml_only=False):
+    def __init__(self, old=None, new=None, exclude=(), arxml_only=False,
+                 theme_name=theme.DEFAULT):
         super().__init__()
+        self._theme = theme.set_current(theme_name)
+        self._state = ('idle', 'Ready')
         self.old = old
         self.new = new
         self.exclude = tuple(exclude)
@@ -117,8 +121,6 @@ class MainWindow(QMainWindow):
         self.banner = QLabel()
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
-        self.banner.setStyleSheet('background:#4a1d1d; color:#ffd6d6; padding:6px 10px;'
-                                  'font-weight:bold; border-bottom:1px solid #b04a4a;')
 
         self.tree = QTreeWidget()
         # the Review column exists at all times but is hidden until review mode
@@ -236,7 +238,6 @@ class MainWindow(QMainWindow):
         self.state_label.setStyleSheet('padding:0 8px;')
         self.statusBar().addWidget(self.state_label)
         self.counts_label = QLabel('')
-        self.counts_label.setStyleSheet('color:#9aa1ad; padding:0 8px;')
         self.statusBar().addPermanentWidget(self.counts_label)
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(240)
@@ -245,6 +246,7 @@ class MainWindow(QMainWindow):
         self._set_state('idle', 'Ready')
 
         self._build_toolbar()
+        self._style_widgets()
 
         if self.old and self.new:
             self._start_scan()
@@ -259,14 +261,66 @@ class MainWindow(QMainWindow):
 
     # tool-state chip on the status bar: a coloured dot plus a word, so the
     # reviewer can tell at a glance whether a result is final or still coming
-    _STATE_DOT = {'idle': '#8a8f98', 'busy': '#e2c16b',
-                  'ready': '#7bd88a', 'error': '#ff7b7b'}
+    _STATE_DOT = {'idle': 'state-idle', 'busy': 'state-busy',
+                  'ready': 'state-ready', 'error': 'state-error'}
 
     def _set_state(self, kind, text):
-        dot = self._STATE_DOT.get(kind, '#8a8f98')
+        dot = theme.c(self._STATE_DOT.get(kind, 'state-idle'))
+        self._state = (kind, text)
         self.state_label.setText(
             '<span style="color:{}; font-size:15px;">●</span>&nbsp; {}'
             .format(dot, text))
+
+    # --- theme ---
+
+    def _style_widgets(self):
+        """The stylesheets this window sets by hand (the rest is the app-wide
+        QSS). One place, so a theme switch is one call."""
+        self.banner.setStyleSheet(
+            'background:{}; color:{}; padding:6px 10px; font-weight:bold; '
+            'border-bottom:1px solid {};'.format(
+                theme.c('err-bg'), theme.c('err-fg'), theme.c('err-border')))
+        self.counts_label.setStyleSheet('color:{}; padding:0 8px;'
+                                        .format(theme.c('st-ign')))
+        self.review_where.setStyleSheet('color:{}; font-size:11px;'
+                                        .format(theme.c('state-idle')))
+        self._show_review_file()  # owns review_file's colour: normal or warning
+
+    def _toggle_theme(self):
+        self._set_theme(theme.other())
+
+    def _set_theme(self, name):
+        """Repaint the whole window in `name`.
+
+        Every surface that stamps a colour into a widget rather than reading it
+        from the stylesheet has to be told: the tree's verdict colours, the
+        quick-changes rows, the diff pane's block formats, the tinted icons.
+        Missing one leaves half the window in the old theme, which is why they
+        are listed here and not discovered by walking children.
+        """
+        if theme.set_current(name) == self._theme:
+            return
+        self._theme = theme.current()
+        apply_theme(QApplication.instance())
+        self._style_widgets()
+        self._set_state(*self._state)
+        self._apply_icons()
+        self.summary.apply_theme()
+        self.diff.apply_theme()
+        self._refresh_tree_keep_selection()  # verdict colours are per item
+        self.act_theme.setText(self._theme_label())
+        self.act_theme.setChecked(self._theme == theme.LIGHT)
+
+    @staticmethod
+    def _theme_label():
+        return '☀ Light' if theme.current() == theme.DARK else '☾ Dark'
+
+    def _apply_icons(self):
+        """Re-tint every shipped glyph for the current chrome."""
+        self.act_open.setIcon(std_icon(self, QStyle.SP_DirOpenIcon))
+        for act, glyph, role in self._icon_actions:
+            act.setIcon(icon(glyph, role) if role else icon(glyph))
+        self.help_button.setIcon(icon('report'))
 
     # --- actions, toolbar, bottom action bar ---
 
@@ -274,6 +328,10 @@ class MainWindow(QMainWindow):
         """Every command the window offers, in one place. The bottom bar and
         the toolbar are just two views of these actions, so a button and its
         shortcut can never drift apart."""
+        # (action, glyph, role): what _apply_icons re-tints after a theme
+        # switch. A QIcon carries baked pixels, so it cannot follow a palette
+        # by itself.
+        self._icon_actions = []
         self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon),
                                 'Open folders…', self)
         self.act_open.setToolTip('Choose the BASELINE and CURRENT folders — or '
@@ -287,6 +345,7 @@ class MainWindow(QMainWindow):
         self.act_git.setToolTip('Compare a folder against one of its own '
                                 'commits — no second folder to choose')
         self.act_git.triggered.connect(self._pick_commit)
+        self._icon_actions.append((self.act_git, 'git-commit', None))
 
         # First/Last stay inside the open file -- they mean "this file's ends".
         # Previous/Next run off them into the next file with something to
@@ -305,6 +364,7 @@ class MainWindow(QMainWindow):
             act.setToolTip('{} ({}) — noise is skipped, {}'.format(text, key, scope))
             act.triggered.connect(slot)
             setattr(self, attr, act)
+            self._icon_actions.append((act, glyph, None))
         # these four live in the diff pane's own header, beside the file name
         # they step through -- a bar of their own at the bottom repeated the
         # same "change k of N" the header already shows
@@ -317,6 +377,7 @@ class MainWindow(QMainWindow):
         self.act_export.setToolTip('Write the full HTML report (Ctrl+E) — always '
                                    'the complete scan, never the folded view')
         self.act_export.triggered.connect(self._export_report)
+        self._icon_actions.append((self.act_export, 'export', ACCENT))
 
         # signing off is a second pass, not part of reading a diff, so the note
         # box stays out of the way until it is asked for -- it was taking a
@@ -326,6 +387,17 @@ class MainWindow(QMainWindow):
         self.act_review_mode.setToolTip('Show the note box and sign-off for the '
                                         'current change')
         self.act_review_mode.toggled.connect(self._set_review_mode)
+        self._icon_actions.append((self.act_review_mode, 'review-comment', None))
+
+        # text and a sun/moon glyph, no shipped icon: the label names where the
+        # click GOES, and reusing another button's glyph for it would make two
+        # different commands look like the same one
+        self.act_theme = QAction(self._theme_label(), self)
+        self.act_theme.setCheckable(True)
+        self.act_theme.setChecked(self._theme == theme.LIGHT)
+        self.act_theme.setToolTip('Switch the viewer between the dark and the '
+                                  'light colour scheme')
+        self.act_theme.triggered.connect(self._toggle_theme)
 
         # no button of its own: the tick in the review bar IS the button. The
         # shortcut exists so a review pass can stay on the keyboard -- F8, tick,
@@ -344,10 +416,12 @@ class MainWindow(QMainWindow):
         self.act_guide.setShortcut('F1')
         self.act_guide.setToolTip('How to use the viewer (F1)')
         self.act_guide.triggered.connect(lambda: show_user_guide(self))
+        self._icon_actions.append((self.act_guide, 'report', None))
 
         self.act_notes = QAction(icon('review-resolved'), 'Release notes', self)
         self.act_notes.setToolTip("What changed in this and earlier versions")
         self.act_notes.triggered.connect(lambda: show_release_notes(self))
+        self._icon_actions.append((self.act_notes, 'review-resolved', None))
 
         self.act_about = QAction(app_icon(), 'About', self)
         self.act_about.setToolTip('Version, author and license')
@@ -375,6 +449,9 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
+        # over on the right with Help: both are about the tool, not about the
+        # compare, and the left half of the bar is for the latter
+        tb.addAction(self.act_theme)
         # the three help pages behind one menu on the right: they are read once
         # and then never again, so three permanent buttons were spending the
         # top bar on the rarest thing in the window
@@ -445,9 +522,7 @@ class MainWindow(QMainWindow):
         self.btn_file_reviewed.setCursor(Qt.PointingHandCursor)
         self.btn_file_reviewed.clicked.connect(self._toggle_file_reviewed)
         self.review_where = QLabel('')
-        self.review_where.setStyleSheet('color:#8a8f98; font-size:11px;')
         self.review_file = QLabel('')
-        self.review_file.setStyleSheet('color:#6f757e; font-size:11px;')
 
         side = QVBoxLayout()
         side.setContentsMargins(0, 0, 0, 0)
@@ -584,14 +659,16 @@ class MainWindow(QMainWindow):
             return
         if self._reviews.error:
             self.review_file.setText('⚠ {}'.format(path.name))
-            self.review_file.setStyleSheet('color:#ff9d9d; font-size:11px;')
+            self.review_file.setStyleSheet('color:{}; font-size:11px;'
+                                           .format(theme.c('st-err')))
             self.review_file.setToolTip('{}\n\n{}\n\nNothing is loaded from it '
                                         'and nothing will be written over it. '
                                         'Fix or remove the file, then rescan.'
                                         .format(path, self._reviews.error))
         else:
             self.review_file.setText(path.name)
-            self.review_file.setStyleSheet('color:#6f757e; font-size:11px;')
+            self.review_file.setStyleSheet('color:{}; font-size:11px;'
+                                           .format(theme.c('fg-muted')))
             self.review_file.setToolTip('Notes and sign-offs are saved to\n{}'
                                         .format(path))
 
@@ -759,10 +836,12 @@ class MainWindow(QMainWindow):
 
     # --- scan lifecycle ---
 
-    # a folded category disappears from BOTH places it shows: the file's verdict
-    # (status -> Identical/Modified) and the lines in the diff panes. Leaving a
-    # wall of coloured rows in the code after saying those do not count was
-    # the worst of both.
+    # switching a category off changes BOTH places it shows: the file's verdict
+    # (status -> Identical/Modified) and how its lines are painted in the diff
+    # panes -- greyed out, and dropped from the minimap and from F7/F8. Leaving
+    # a wall of red and green in the code after saying those do not count was
+    # the worst of both; taking the lines away instead cost the context the
+    # remaining changes have to be read in.
     _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
     def _fold(self):
@@ -840,7 +919,7 @@ class MainWindow(QMainWindow):
         keep = self._selected_rel()
         fold = self._fold()
         self.results = apply_fold(self._raw_results, fold)
-        self.diff.set_fold_modes([self._FOLD_MODE[f] for f in fold])
+        self.diff.set_muted_modes([self._FOLD_MODE[f] for f in fold])
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
         if self._autoselect:
@@ -898,15 +977,19 @@ class MainWindow(QMainWindow):
                 # the ARXML/A2L report lists files, not individual changes, so
                 # there is nothing for a per-change note to attach to
                 page = build_arxml_report(self._raw_results, self.old, self.new,
-                                          old_label=self._old_label)
+                                          old_label=self._old_label,
+                                          theme_name=self._theme)
             else:
                 # only pass the store when it holds something: an untouched
                 # review would otherwise add a "0 of N Reviewed" badge to every
                 # report, for a feature that run never used
                 store = self._reviews if (self._reviews.any_entries()
                                           or self._reviews.error) else None
+                # the report opens in whatever the viewer is showing, and
+                # carries both palettes so the reader can still switch
                 page = build_report(self._raw_results, self.old, self.new, store,
-                                    old_label=self._old_label)
+                                    old_label=self._old_label,
+                                    theme_name=self._theme)
             Path(out).write_text(page, encoding='utf-8')
         except Exception as e:
             QMessageBox.critical(self, 'Export failed',
@@ -944,9 +1027,9 @@ class MainWindow(QMainWindow):
 
     def _fill_tree(self, nodes):
         def add(parent, node, prefix):
-            marker, label, color = STATUS[node.status]
+            marker, label, _role = STATUS[node.status]
             item = QTreeWidgetItem(['{}  {}'.format(marker, node.name), label])
-            brush = QBrush(QColor(color))
+            brush = QBrush(QColor(status_color(node.status)))
             item.setForeground(0, brush)
             item.setForeground(1, brush)
             rel = node.rel or (prefix + node.name)
@@ -1016,11 +1099,11 @@ class MainWindow(QMainWindow):
             # or NOT-compared file has nothing anyone could have read, and a
             # free "done" on it is exactly the false all-clear to avoid.
             item.setText(REVIEW_COL, '—')
-            item.setForeground(REVIEW_COL, QBrush(QColor('#5a5d63')))
+            item.setForeground(REVIEW_COL, QBrush(QColor(theme.c('fg-muted'))))
             item.setToolTip(REVIEW_COL, 'Nothing here can be signed off.')
             return
         item.setText(REVIEW_COL, '{}/{}'.format(done, total))
-        item.setForeground(REVIEW_COL, QBrush(QColor(REVIEW_COLOR[state])))
+        item.setForeground(REVIEW_COL, QBrush(QColor(review_color(state))))
         item.setToolTip(REVIEW_COL, '{} of {} change(s) reviewed'.format(done, total))
 
     # --- right-click: open the file where it really lives ---
@@ -1178,60 +1261,69 @@ class MainWindow(QMainWindow):
 
 # chrome styling. Deliberately narrow: the diff editors, the minimap and the
 # per-file tree colours are painted in code, and a stylesheet rule on their
-# items would override those verdict colours.
+# items would override those verdict colours. Colours are named as theme roles
+# and filled in by apply_theme, so there is one QSS for both schemes.
 _QSS = """
-QToolBar#main { background:#25262a; border:0; border-bottom:1px solid #34363c;
-                padding:4px 12px 4px 6px; spacing:2px; }
+QToolBar#main {{ background:{chrome-bg}; border:0; border-bottom:1px solid {border};
+                padding:4px 12px 4px 6px; spacing:2px; }}
 /* the Help button carries a menu: without room for it the arrow is clipped
    against the window edge */
-QToolBar#main QToolButton::menu-indicator { subcontrol-position: right center;
-                subcontrol-origin: padding; right:-2px; }
-QToolBar#main QToolButton { padding:5px 10px; border-radius:6px; color:#d7d7d7; }
-QToolBar#main QToolButton:hover { background:#34363c; }
-QToolBar#main QToolButton:pressed { background:#3d404a; }
+QToolBar#main QToolButton::menu-indicator {{ subcontrol-position: right center;
+                subcontrol-origin: padding; right:-2px; }}
+QToolBar#main QToolButton {{ padding:5px 10px; border-radius:6px; color:{icon-tint}; }}
+QToolBar#main QToolButton:hover {{ background:{chrome-hover}; }}
+QToolBar#main QToolButton:pressed {{ background:{chrome-pressed}; }}
 /* Review mode is a MODE: without a lit checked state the button looks the same
    on as off, and the note box appearing is the only clue it worked */
-QToolBar#main QToolButton:checked { background:#343a63; color:#e8e8ff; }
-QToolBar#main QToolButton:checked:hover { background:#454c80; }
-QFrame#reviewbar { background:#212226; border-top:1px solid #34363c; }
-QFrame#reviewbar QPlainTextEdit { background:#232427; border:1px solid #3a3c42;
-            border-radius:6px; padding:4px 6px; color:#d4d4d4; }
-QFrame#reviewbar QPlainTextEdit:focus { border:1px solid #7c8cf8; }
-QFrame#reviewbar QPlainTextEdit:disabled { background:#1f2023; color:#6a6a6a;
-            border:1px solid #2f3136; }
-QToolButton#primary { background:#343a63; }
-QToolButton#primary:hover { background:#454c80; }
-QToolButton#primary:disabled { background:#2b2d33; }
-QTreeWidget { border:1px solid #34363c; border-radius:6px; }
-QTreeWidget::item { padding:2px 0; }
-QTreeWidget::item:selected { background:#3a4a7a; }
-QHeaderView::section { background:#2a2c31; color:#b9b9b9; border:0;
-                       border-right:1px solid #34363c; padding:4px 6px; }
-QLineEdit { background:#232427; border:1px solid #3a3c42; border-radius:6px;
-            padding:5px 8px; }
-QLineEdit:focus { border:1px solid #7c8cf8; }
-QSplitter::handle { background:#34363c; }
-QSplitter::handle:horizontal { width:3px; }
-QSplitter::handle:vertical { height:3px; }
-QStatusBar { background:#25262a; color:#b0b0b0; border-top:1px solid #34363c; }
-QProgressBar { background:#232427; border:1px solid #3a3c42; border-radius:6px;
-               text-align:center; color:#d0d0d0; }
-QProgressBar::chunk { background:#4F46E5; border-radius:5px; }
-QCheckBox { spacing:6px; }
+QToolBar#main QToolButton:checked {{ background:{chrome-checked-bg};
+                color:{chrome-checked-fg}; }}
+QToolBar#main QToolButton:checked:hover {{ background:{chrome-checked-hover}; }}
+QFrame#reviewbar {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
+QFrame#reviewbar QPlainTextEdit {{ background:{code-bg}; border:1px solid {border};
+            border-radius:6px; padding:4px 6px; color:{fg}; }}
+QFrame#reviewbar QPlainTextEdit:focus {{ border:1px solid {accent-2}; }}
+QFrame#reviewbar QPlainTextEdit:disabled {{ background:{chrome-disabled-bg};
+            color:{chrome-disabled-fg}; border:1px solid {border}; }}
+QToolButton#primary {{ background:{chrome-checked-bg}; color:{chrome-checked-fg}; }}
+QToolButton#primary:hover {{ background:{chrome-checked-hover}; }}
+QToolButton#primary:disabled {{ background:{chrome-disabled-bg};
+            color:{chrome-disabled-fg}; }}
+QTreeWidget {{ border:1px solid {border}; border-radius:6px; }}
+QTreeWidget::item {{ padding:2px 0; }}
+QTreeWidget::item:selected {{ background:{tree-selected}; }}
+QHeaderView::section {{ background:{header-bg}; color:{header-fg}; border:0;
+                       border-right:1px solid {border}; padding:4px 6px; }}
+QLineEdit {{ background:{code-bg}; border:1px solid {border}; border-radius:6px;
+            padding:5px 8px; }}
+QLineEdit:focus {{ border:1px solid {accent-2}; }}
+QSplitter::handle {{ background:{border}; }}
+QSplitter::handle:horizontal {{ width:3px; }}
+QSplitter::handle:vertical {{ height:3px; }}
+QStatusBar {{ background:{chrome-bg}; color:{status-fg}; border-top:1px solid {border}; }}
+QProgressBar {{ background:{code-bg}; border:1px solid {border}; border-radius:6px;
+               text-align:center; color:{fg}; }}
+QProgressBar::chunk {{ background:{progress-chunk}; border-radius:5px; }}
+QCheckBox {{ spacing:6px; }}
 /* find strip: a band of its own between the header and the code, so it reads
    as a tool over the diff rather than as part of the file being read */
-QWidget#findbar { background:#212226; border-top:1px solid #34363c;
-                  border-bottom:1px solid #34363c; }
-QWidget#findbar QToolButton { color:#9aa1ad; padding:2px 6px; border-radius:4px; }
-QWidget#findbar QToolButton:hover { background:#34363c; color:#e8e8e8; }
+QWidget#findbar {{ background:{chrome-bar-bg}; border-top:1px solid {border};
+                  border-bottom:1px solid {border}; }}
+QWidget#findbar QToolButton {{ color:{st-ign}; padding:2px 6px; border-radius:4px; }}
+QWidget#findbar QToolButton:hover {{ background:{chrome-hover}; color:{fg-strong}; }}
 """
 
 
-def _apply_dark(app):
-    """Fusion dark palette so the viewer matches the report's dark identity."""
+def apply_theme(app):
+    """Palette and stylesheet for the whole application, in the current theme.
+
+    Fusion in both directions: the native Windows style ignores most of a
+    palette, so a light run under it would come out as a half-themed window
+    rather than a light one.
+    """
     app.setStyle('Fusion')
     p = QPalette()
-    bg, base, text = QColor('#1e1f22'), QColor('#232427'), QColor('#d4d4d4')
+    bg, base, text = (QColor(theme.c('bg')), QColor(theme.c('code-bg')),
+                      QColor(theme.c('fg')))
     p.setColor(QPalette.Window, bg)
     p.setColor(QPalette.Base, base)
     p.setColor(QPalette.AlternateBase, bg)
@@ -1239,13 +1331,15 @@ def _apply_dark(app):
     p.setColor(QPalette.WindowText, text)
     p.setColor(QPalette.Button, base)
     p.setColor(QPalette.ButtonText, text)
-    p.setColor(QPalette.Highlight, QColor('#3a5a7a'))
-    p.setColor(QPalette.HighlightedText, QColor('#ffffff'))
+    p.setColor(QPalette.ToolTipBase, base)
+    p.setColor(QPalette.ToolTipText, text)
+    p.setColor(QPalette.Highlight, QColor(theme.c('tree-selected')))
+    p.setColor(QPalette.HighlightedText, QColor(theme.c('fg-strong')))
     # the filter box's "Filter by path…" placeholder: Fusion fades it so far it
-    # is barely legible on the dark field, so set an explicit, readable grey
-    p.setColor(QPalette.PlaceholderText, QColor('#9aa1ad'))
+    # is barely legible, so set an explicit, readable grey
+    p.setColor(QPalette.PlaceholderText, QColor(theme.c('st-ign')))
     app.setPalette(p)
-    app.setStyleSheet(_QSS)
+    app.setStyleSheet(_QSS.format(**theme.palette()))
 
 
 def _taskbar_identity():
@@ -1259,16 +1353,18 @@ def _taskbar_identity():
         pass  # not Windows, or the call is unavailable: cosmetic either way
 
 
-def run_viewer(old=None, new=None, exclude=(), arxml_only=False):
+def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
+               theme_name=theme.DEFAULT):
     app = QApplication.instance()
     owns = app is None
     if owns:
         _taskbar_identity()
         app = QApplication(sys.argv[:1])
-    _apply_dark(app)
+    theme.set_current(theme_name)
+    apply_theme(app)
     app.setApplicationName('CodeGen Compare')
     app.setWindowIcon(app_icon())
-    win = MainWindow(old, new, exclude, arxml_only)
+    win = MainWindow(old, new, exclude, arxml_only, theme_name)
     win.show()
     return app.exec() if owns else 0
 

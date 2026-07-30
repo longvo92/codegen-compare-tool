@@ -268,8 +268,17 @@ class TestOneColourLanguage(unittest.TestCase):
     still has to see which hunks count."""
 
     @staticmethod
-    def _bg(selector):
-        """The background colour a CSS rule sets, as (r, g, b)."""
+    def _rgb(value):
+        h = value.lstrip('#')
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    def _bg(self, selector, theme_name):
+        """The background colour a CSS rule sets in one theme, as (r, g, b).
+
+        The rules name theme roles, so the var has to be resolved against the
+        palette the page would be showing -- which is also what makes these
+        claims testable in BOTH themes instead of only the dark one."""
+        from compare_tool import theme
         from compare_tool.report import _CSS
         # comments carry commas of their own, which would land inside the
         # selector list of the rule that follows them
@@ -278,27 +287,42 @@ class TestOneColourLanguage(unittest.TestCase):
             head, _, body = block.partition('{')
             if selector not in [s.strip() for s in head.split(',')]:
                 continue
-            m = re.search(r'background:\s*#([0-9a-fA-F]{6})', body)
+            m = re.search(r'background:\s*var\(--([\w-]+)\)', body)
             if m:
-                h = m.group(1)
-                return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+                return self._rgb(theme.color(m.group(1), theme_name))
         raise AssertionError('no background for ' + selector)
 
+    def _themes(self):
+        from compare_tool import theme
+        return theme.THEMES
+
     def test_removed_rows_are_red_on_every_category(self):
-        for sel in ('td.del', 'td.delm', 'td.delc'):
-            r, g, b = self._bg(sel)
-            self.assertGreater(r, g, sel)
-            self.assertGreater(r, b, sel)
+        for name in self._themes():
+            for sel in ('td.del', 'td.delm', 'td.delc'):
+                r, g, b = self._bg(sel, name)
+                self.assertGreater(r, g, (name, sel))
+                self.assertGreater(r, b, (name, sel))
 
     def test_added_rows_are_green_on_every_category(self):
-        for sel in ('td.add', 'td.addm', 'td.addc'):
-            r, g, b = self._bg(sel)
-            self.assertGreater(g, r, sel)
-            self.assertGreater(g, b, sel)
+        for name in self._themes():
+            for sel in ('td.add', 'td.addm', 'td.addc'):
+                r, g, b = self._bg(sel, name)
+                self.assertGreater(g, r, (name, sel))
+                self.assertGreater(g, b, (name, sel))
 
     def test_noise_is_dimmer_than_a_real_change(self):
-        self.assertLess(sum(self._bg('td.delm')), sum(self._bg('td.del')))
-        self.assertLess(sum(self._bg('td.addm')), sum(self._bg('td.add')))
+        # 'dimmer' means nearer the page: darker on the dark theme, paler on
+        # the light one, so the claim is distance from the background, not
+        # brightness
+        from compare_tool import theme
+        for name in self._themes():
+            page = self._rgb(theme.color('bg', name))
+
+            def gap(sel):
+                return sum(abs(a - b) for a, b in zip(self._bg(sel, name), page))
+
+            self.assertLess(gap('td.delm'), gap('td.del'), name)
+            self.assertLess(gap('td.addm'), gap('td.add'), name)
 
     def test_the_legend_no_longer_offers_a_noise_swatch(self):
         # a swatch for a colour the reader cannot tell from 'real change'
@@ -347,6 +371,55 @@ class TestOldSideNaming(unittest.TestCase):
                             old_label='fix <script>alert(1)</script>')
         self.assertNotIn('<script>alert(1)</script>', page)
         self.assertIn('&lt;script&gt;', page)
+
+
+class TestPageTheme(unittest.TestCase):
+    """The report carries BOTH palettes and a switch between them.
+
+    It is mailed around and opened on machines with no internet, so the switch
+    cannot fetch a stylesheet; and the flag the report was built with is only
+    a default, because whoever opens it is the one looking at it.
+    """
+
+    def setUp(self):
+        self.results = scan(FIX / 'old', FIX / 'new')
+
+    def _page(self, **kw):
+        return build_report(self.results, FIX / 'old', FIX / 'new', **kw)
+
+    def test_the_default_is_dark(self):
+        from compare_tool import theme
+        self.assertEqual(theme.DEFAULT, theme.DARK)
+        self.assertIn('<html data-theme="dark">', self._page())
+
+    def test_the_flag_chooses_which_one_it_opens_with(self):
+        self.assertIn('<html data-theme="light">', self._page(theme_name='light'))
+
+    def test_an_unknown_theme_name_falls_back_instead_of_raising(self):
+        self.assertIn('<html data-theme="dark">', self._page(theme_name='puce'))
+
+    def test_both_palettes_are_embedded_whichever_one_it_opens_with(self):
+        from compare_tool import theme
+        for name in (None, 'light'):
+            page = self._page() if name is None else self._page(theme_name=name)
+            self.assertIn(theme.color('bg', theme.DARK), page)
+            self.assertIn(theme.color('bg', theme.LIGHT), page)
+            self.assertIn('html[data-theme="light"]', page)
+
+    def test_the_switch_is_on_the_page_and_needs_nothing_downloaded(self):
+        page = self._page()
+        self.assertIn('id="thm"', page)
+        self.assertIn('tgtheme()', page)
+        # the compared files' own text is full of URLs (xmlns=…), so what is
+        # checked is the ways a PAGE fetches something, not the string http
+        for fetch in ('<link', '<script src', '@import', 'url('):
+            self.assertNotIn(fetch, page, fetch)
+
+    def test_the_arxml_report_switches_too(self):
+        page = build_arxml_report(self.results, FIX / 'old', FIX / 'new',
+                                  theme_name='light')
+        self.assertIn('<html data-theme="light">', page)
+        self.assertIn('id="thm"', page)
 
 
 class TestModelGrouping(unittest.TestCase):
