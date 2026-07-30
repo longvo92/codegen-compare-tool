@@ -141,7 +141,7 @@ A shorter name can stop an argument wrapping at 80 columns, so the two sides hol
 
 Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` → `SIG_TORQUE_MAX` and `CFG_TIMEOUT_MS` → `CFG_TIMEOUT_US` are real changes, and so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. In the HTML report, `Comment` and `Unimportant` are each a badge of their own — see [HTML report](#html-report).
 
 ## Moved block detection
 
@@ -175,7 +175,9 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming 
 
 ## HTML report
 
-Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden and `Modified` expanded, so it opens on what matters. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
+Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` and `Comment` hidden, `Modified` expanded, so it opens on what matters. Clicking either badge reveals the actual comment/noise lines — painted flat grey rather than red/green, so a revealed category still reads as "does not count" instead of looking like another change. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
+
+A whole file with nothing but comment differences still gets no detail section of its own (there is nothing beyond the comment lines to show); it keeps its own `≉` mark and `Comment` count in the folder tree either way.
 
 ![Report viewer](resources/pic/report_page.png)
 

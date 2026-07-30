@@ -32,6 +32,7 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--f
 .badge.off { opacity: .35; text-decoration: line-through; }
 .b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
 .b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
+.b-cmt { background: var(--tag-cmt-bg); color: var(--tag-cmt-fg); }
 .b-id { background: var(--tag-id-bg); color: var(--tag-id-fg); }
 /* added and deleted share one control: both are "a whole file appeared or
    vanished", and a reviewer flips them together */
@@ -83,49 +84,38 @@ table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
-/* Noise (comment, uuid, rename, whitespace) uses the SAME red/green as a real
-   change, one notch dimmer -- one colour language instead of three. Yellow and
-   purple were a third and fourth hue competing with the syntax colours for the
-   reader's attention, and a diff that needs a legend to be read is too loud.
-   Dimmer, not identical: inside a Modified file the reviewer still has to see
-   which hunks are the ones that count. */
-td.delm, td.delc { background: var(--del-bg-dim); }
-td.addm, td.addc { background: var(--add-bg-dim); }
+/* Comment and Unimportant hide behind their own badge, default OFF -- the
+   report opens on real changes, a click reveals the rest. Revealed rows are
+   flat neutral grey, not a dim red/green: a toggled-open noise section still
+   has to read as "off to the side", off the one-colour-language rule real
+   changes and moved blocks use, not a quieter member of it. No character-level
+   highlight either (see _row) -- marking what changed inside a line nobody
+   was asked to read closely would be noise on noise. */
+td.delm, td.delc, td.addm, td.addc { background: var(--muted-bg); color: var(--muted-fg); }
 td.mvd, td.mva { background: var(--mv-bg); }
 td.ctx { color: var(--fg-dim); }
 td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg); font-weight: 700;
                   border-radius: 2px; }
 td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg); font-weight: 700;
                   border-radius: 2px; }
-td.delm .chg-seg, td.delc .chg-seg { background: var(--seg-del-dim-bg);
-                                     color: var(--seg-del-dim-fg); font-weight: 700;
-                                     border-radius: 2px; }
-td.addm .chg-seg, td.addc .chg-seg { background: var(--seg-add-dim-bg);
-                                     color: var(--seg-add-dim-fg); font-weight: 700;
-                                     border-radius: 2px; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
       margin: 0 4px 0 2px; vertical-align: -1px; }
 .sw-del { background: var(--seg-del-bg); } .sw-add { background: var(--seg-add-bg); }
-.sw-mv { background: var(--seg-mv-bg); }
+.sw-mv { background: var(--seg-mv-bg); } .sw-mut { background: var(--muted-bg); }
 tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2);
             font-size: 11px; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
-body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }
-tr.minorph { display: none; }
+/* Comment and Unimportant rows hide per ROW, not per group: a group used to
+   be wrapped whole and hidden together, which took the placeholder below and
+   the ordinary context lines around it down with it -- a noise-only file
+   opened to an empty box under its own summary line. */
+body.hide-ign tr.minor { display: none; }
+body.hide-cmt tr.comment { display: none; }
+tr.minorph, tr.commentph { display: none; }
 body.hide-ign tr.minorph { display: table-row; }
-/* Comment churn is not a reported category here at all -- a regenerated banner
-   is the noisiest and least informative thing a codegen diff produces. The rows
-   stay IN the file, because the report is the record, but they are never shown;
-   the placeholder always states how many lines were folded, so nothing is
-   silently dropped. (The viewer still shows them in full -- it is the reading
-   surface, this is the record to send.) */
-tr.comment, .grp-cmt { display: none; }
-/* the folded-run placeholders. NOT --muted-fg: that one is the viewer's greyed
-   line, on the editor background, and tuning it for that band dragged these
-   rows down with it. Different surface, different role. */
-tr.commentph { display: table-row; color: var(--st-cmt); }
-tr.minorph td { color: var(--st-cmt); }
+body.hide-cmt tr.commentph { display: table-row; }
+tr.minorph td, tr.commentph td { color: var(--st-cmt); }
 .filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
 .renames { font-size: 12px; color: var(--st-ign); margin: 2px 0 8px; }
 .iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
@@ -424,29 +414,20 @@ def _group_notes(group, notes):
 
 
 def _groups_html(old_lines, new_lines, hunks, notes=None):
-    """All hunk groups of one file. A group with no real/moved hunk is
-    wrapped in .grp-min so the Unimportant badge hides it (label + context
-    included); minor rows inside mixed groups hide individually via tr.minor.
+    """All hunk groups of one file. Comment and Unimportant rows hide behind
+    their own badge individually (``tr.comment`` / ``tr.minor`` in the CSS) --
+    a group used to be wrapped whole and hidden together when every hunk in it
+    was noise, which took the placeholder and the ordinary context lines
+    around it down with the rest: a noise-only file opened to an empty box.
     Moved blocks never hide: they are real changes, just shown in blue.
 
-    A group whose every real/moved hunk is signed off also gets .grp-rev, so
-    the Reviewed badge can fold it away -- with its notes, which belong to the
+    A group whose every real/moved hunk is signed off gets .grp-rev, so the
+    Reviewed badge can fold it away -- with its notes, which belong to the
     changes being hidden."""
     out = []
     for g in _group_hunks(hunks):
-        kinds = {h['kind'] for h in g}
-        # a group hides as a whole only when it is ONE hideable category; a
-        # group mixing comment with other noise would otherwise vanish behind
-        # a single badge, so its rows hide individually instead
-        if kinds == {'comment'}:
-            cls = ' grp-cmt'
-        elif not (kinds & {'real', 'moved'}):
-            cls = ' grp-min'
-        else:
-            cls = ''
         notes_html, done = _group_notes(g, notes)
-        if done:
-            cls += ' grp-rev'
+        cls = ' grp-rev' if done else ''
         out.append('<div class="grp{}">'.format(cls))
         if any(h['kind'] != 'real' for h in g):
             out.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
@@ -490,7 +471,9 @@ def _row(o_no, o_txt, n_no, n_txt, mode):
         dcls, acls = _MODE_CLS[mode]
         lcls = dcls if o_txt is not None else ''
         rcls = acls if n_txt is not None else ''
-        if o_txt is not None and n_txt is not None:
+        # comment/minor rows are muted grey, not a diff colour, when revealed
+        # -- so there is no changed SPAN to point at inside them either
+        if o_txt is not None and n_txt is not None and mode not in _MODE_TR:
             l, r = _char_diff(o_txt, n_txt)
         else:
             l = _esc(o_txt) if o_txt is not None else ''
@@ -1199,7 +1182,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
 
     parts = []
     parts.append(_head('AUTOSAR Code Generation Report', theme_name,
-                       body_class='hide-ign'))
+                       body_class='hide-ign hide-cmt'))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
         _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
@@ -1228,11 +1211,13 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     parts.append('<div class="summary"><span class="bgroup">' + err_badge +
                  '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} Modified</span>'
                  '<span class="badge b-ign off" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
+                 '<span class="badge b-cmt off" onclick="tg(this,\'cmt\')">{comment-only} Comment</span>'
                  '<span class="badge b-adddel" onclick="tg2(this,\'add\',\'del\')">'
                  '{added} Added / {deleted} Deleted</span>'
                  '</span>'.format(**counts) + rev_group + '</div>')
-    hint = ('Click a badge to show/hide a category. Unimportant starts hidden '
-            '&mdash; only real changes are shown.')
+    hint = ('Click a badge to show/hide a category. Unimportant and Comment '
+            'start hidden and, revealed, show in grey rather than red/green '
+            '&mdash; only real changes keep that colour.')
     if rev_group:
         hint += (' <b>Reviewed</b> starts shown: click it to hide the changes '
                  'already signed off.')
@@ -1254,12 +1239,10 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
 
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
-        # two entries only: noise now shares the red/green of a real change, so
-        # a swatch for it would describe a colour the reader cannot tell apart,
-        # and comment rows are never displayed here at all
         parts.append('<div class="legend">'
                      '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>removed / added&emsp;'
-                     '<span class="sw sw-mv"></span>moved block</div>')
+                     '<span class="sw sw-mv"></span>moved block&emsp;'
+                     '<span class="sw sw-mut"></span>Comment / Unimportant, revealed</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=false)">Collapse all</button>'

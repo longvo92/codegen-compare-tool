@@ -55,7 +55,9 @@ class TestGrouping(unittest.TestCase):
         self.assertIn('class="addm"', table)
         self.assertNotIn('class="del"', table)
         self.assertNotIn('class="add"', table)
-        self.assertIn('chg-seg', table)  # char-level highlight kept
+        # revealed minor rows are flat grey, not a diff colour, so there is no
+        # changed SPAN inside them to point at either
+        self.assertNotIn('chg-seg', table)
 
     def test_context_is_three_lines(self):
         table = _group_table(self.old, self.new, _group_hunks(self.r['hunks'])[0])
@@ -95,7 +97,9 @@ class TestRealPlusMinor(unittest.TestCase):
 
 
 class TestUnimportantToggle(unittest.TestCase):
-    """Unimportant badge must also hide minor changes inside Modified files."""
+    """Comment and Unimportant each hide behind their own badge -- per ROW, not
+    per group, so a pure-noise group still shows its context and its
+    placeholder while collapsed (see TestNoisyGroupNeverEmpty)."""
 
     MIXED_OLD = "/* gen Mon */\nint lim = 5;\nint keep = 0;\n"
     MIXED_NEW = "/* gen Tue */\nint lim = 10;\nint keep = 0;\n"
@@ -120,24 +124,45 @@ class TestUnimportantToggle(unittest.TestCase):
         self.assertIn('commentph', table)
         self.assertIn('1 comment line hidden', table)
 
-    def test_minor_only_group_wrapped_grp_min(self):
-        r = compare_pair(OLD_ARXML, NEW_ARXML, 'f.arxml')
-        out = _groups_html(OLD_ARXML.split('\n'), NEW_ARXML.split('\n'), r['hunks'])
-        self.assertIn('<div class="grp grp-min">', out)
+    def test_no_group_is_wrapped_for_hiding_any_more(self):
+        # a whole-group wrapper (grp-min / grp-cmt) used to carry the
+        # display:none for a pure-noise group, and took its placeholder and
+        # its own context lines down with it -- hiding is per row now, so no
+        # group-level class drives visibility at all (grp-rev, for a fully
+        # reviewed group, is unrelated and still applies)
+        for old, new, rel in ((OLD_ARXML, NEW_ARXML, 'f.arxml'),
+                              (self.MIXED_OLD, self.MIXED_NEW, 'f.c')):
+            r = compare_pair(old, new, rel)
+            out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
+            self.assertIn('<div class="grp">', out)
+            self.assertNotIn('grp-min', out)
+            self.assertNotIn('grp-cmt', out)
 
-    def test_mixed_group_not_wrapped_grp_min(self):
-        r = compare_pair(self.MIXED_OLD, self.MIXED_NEW, 'f.c')
-        out = _groups_html(self.MIXED_OLD.split('\n'), self.MIXED_NEW.split('\n'),
-                           r['hunks'])
-        self.assertIn('<div class="grp">', out)
-        self.assertNotIn('grp-min', out)
-
-    def test_css_hides_minor_on_toggle(self):
+    def test_css_hides_minor_and_comment_rows_on_toggle(self):
         results = scan(FIX / 'old', FIX / 'new')
         page = build_report(results, FIX / 'old', FIX / 'new')
-        self.assertIn('body.hide-ign tr.minor, body.hide-ign .grp-min { display: none; }',
-                      page)
+        self.assertIn('body.hide-ign tr.minor { display: none; }', page)
+        self.assertIn('body.hide-cmt tr.comment { display: none; }', page)
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
+        self.assertIn('body.hide-cmt tr.commentph { display: table-row; }', page)
+
+
+class TestNoisyGroupNeverEmpty(unittest.TestCase):
+    """Regression: a group whose every hunk is noise must still show its
+    leading/trailing context and its placeholder while collapsed.
+
+    It used to be wrapped whole in a hideable div, so a file that was ENTIRELY
+    Unimportant (e.g. uuid_only.arxml) rendered nothing at all under its own
+    summary line until the reviewer clicked the badge -- not even the count
+    the placeholder is supposed to state. Hiding moved to the row level to fix
+    this; this test is what would have caught the bug."""
+
+    def test_a_pure_noise_group_still_shows_context_and_a_placeholder(self):
+        r = compare_pair(OLD_ARXML, NEW_ARXML, 'f.arxml')
+        out = _groups_html(OLD_ARXML.split('\n'), NEW_ARXML.split('\n'), r['hunks'])
+        self.assertIn('class="ctx"', out)       # the lines around the change
+        self.assertIn('class="gap minorph"', out)
+        self.assertIn('<tr class="minor">', out)  # in the record, just hidden
 
 
 class TestCharDiff(unittest.TestCase):
@@ -180,9 +205,10 @@ class TestCleanDefaults(unittest.TestCase):
         results = scan(FIX / 'old', FIX / 'new')
         cls.page = build_report(results, FIX / 'old', FIX / 'new')
 
-    def test_unimportant_hidden_by_default(self):
-        self.assertIn('<body class="hide-ign">', self.page)
+    def test_unimportant_and_comment_hidden_by_default(self):
+        self.assertIn('<body class="hide-ign hide-cmt">', self.page)
         self.assertRegex(self.page, r'badge b-ign off[^>]*>\d+ Unimportant<')
+        self.assertRegex(self.page, r'badge b-cmt off[^>]*>\d+ Comment<')
 
     def test_added_and_deleted_share_one_badge(self):
         self.assertRegex(self.page,
@@ -191,21 +217,26 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertNotIn('class="badge b-add"', self.page)
         self.assertNotIn('class="badge b-del"', self.page)
 
-    def test_comment_and_identical_are_not_reported_categories(self):
-        # no badge, no toggle, no detail section -- but the files keep their row
-        # and verdict mark in the folder tree, so nothing goes unaccounted for
-        self.assertNotIn('b-cmt', self.page)
+    def test_comment_only_files_still_have_no_detail_section(self):
+        # a whole file whose only differences are comments still gets no
+        # section of its own -- there is nothing beyond the comment lines to
+        # show it, and it keeps its row and verdict mark in the folder tree
+        # either way, so nothing goes unaccounted for. Individual comment
+        # HUNKS mixed into a real-change or Unimportant file's section are a
+        # separate thing and DO show, behind the Comment badge (see below).
         self.assertNotIn('badge b-id', self.page)
         self.assertNotIn('<h2>Identical files</h2>', self.page)
         self.assertNotIn('<details class="file sec-cmt"', self.page)
         self.assertIn('<div class="tf tc-cmt"', self.page)
         self.assertIn('<div class="tf tc-id"', self.page)
 
-    def test_comment_rows_stay_in_the_record_though_never_shown(self):
-        # the report is the record: the lines are in the file, CSS hides them,
-        # and the placeholder says how many were folded
-        self.assertIn('tr.comment, .grp-cmt { display: none; }', self.page)
+    def test_comment_rows_stay_in_the_record_and_reveal_behind_their_badge(self):
+        # the report is the record: the lines are always in the file. Default
+        # state hides them behind a placeholder that states the count;
+        # clicking Comment reveals the actual lines, grey rather than red/green
+        self.assertIn('body.hide-cmt tr.comment { display: none; }', self.page)
         self.assertRegex(self.page, r'class="gap commentph"')
+        self.assertIn('<tr class="comment">', self.page)
 
     def test_modified_files_expanded_by_default(self):
         self.assertRegex(self.page, r'<details class="file sec-real" id="f0"[^>]* open>')
@@ -259,13 +290,14 @@ class TestIfaceSection(unittest.TestCase):
 
 
 class TestOneColourLanguage(unittest.TestCase):
-    """Every category of difference is red on the left and green on the right.
+    """Real changes and moved blocks are red / green / blue, always visible.
 
-    Noise used to get a yellow and a purple of its own. With syntax colours in
-    the panes that made four hues compete, and a diff whose colours need a
-    legend is not readable at a glance. Noise is now the same red/green, dimmer
-    -- dimmer and not identical, because inside a Modified file the reviewer
-    still has to see which hunks count."""
+    Comment and Unimportant used to share that same red/green, one notch
+    dimmer, so a diff never needed a legend to be read. They are hidden by
+    default now and, when a badge reveals them, painted a flat NEUTRAL grey
+    instead -- on purpose: unlike a permanently-visible dim tint, a
+    toggled-open noise section has to read as "off to the side", not as a
+    quieter member of the same red/green language real changes own."""
 
     @staticmethod
     def _rgb(value):
@@ -296,41 +328,55 @@ class TestOneColourLanguage(unittest.TestCase):
         from compare_tool import theme
         return theme.THEMES
 
-    def test_removed_rows_are_red_on_every_category(self):
+    def test_removed_rows_are_red(self):
         for name in self._themes():
-            for sel in ('td.del', 'td.delm', 'td.delc'):
-                r, g, b = self._bg(sel, name)
-                self.assertGreater(r, g, (name, sel))
-                self.assertGreater(r, b, (name, sel))
+            r, g, b = self._bg('td.del', name)
+            self.assertGreater(r, g, name)
+            self.assertGreater(r, b, name)
 
-    def test_added_rows_are_green_on_every_category(self):
+    def test_added_rows_are_green(self):
         for name in self._themes():
-            for sel in ('td.add', 'td.addm', 'td.addc'):
-                r, g, b = self._bg(sel, name)
-                self.assertGreater(g, r, (name, sel))
-                self.assertGreater(g, b, (name, sel))
+            r, g, b = self._bg('td.add', name)
+            self.assertGreater(g, r, name)
+            self.assertGreater(g, b, name)
 
-    def test_noise_is_dimmer_than_a_real_change(self):
-        # 'dimmer' means nearer the page: darker on the dark theme, paler on
-        # the light one, so the claim is distance from the background, not
-        # brightness
+    def test_revealed_noise_is_neutral_grey_not_red_or_green(self):
+        # neither channel dominates -- unlike td.del/td.add, this colour makes
+        # no claim about removed or added. A slight cool cast is fine (that's
+        # what makes a grey read as UI chrome rather than paper); a channel
+        # spread anywhere near a real red/green background's (~150+) is not.
+        for name in self._themes():
+            for sel in ('td.delm', 'td.delc', 'td.addm', 'td.addc'):
+                r, g, b = self._bg(sel, name)
+                self.assertLessEqual(max(r, g, b) - min(r, g, b), 12, (name, sel))
+
+    def test_every_noise_selector_shares_the_same_grey(self):
+        # comment and minor rows share one muted role: two greys would be its
+        # own small violation of "one colour per meaning"
+        for name in self._themes():
+            shades = {self._bg(sel, name)
+                     for sel in ('td.delm', 'td.delc', 'td.addm', 'td.addc')}
+            self.assertEqual(len(shades), 1, name)
+
+    def test_revealed_noise_is_visibly_off_the_page(self):
+        # 'muted' still has to mean something visible, not a wash one shade
+        # from invisible against the panel it sits on
         from compare_tool import theme
         for name in self._themes():
-            page = self._rgb(theme.color('bg', name))
+            panel = self._rgb(theme.color('panel', name))
+            grey = self._bg('td.delm', name)
+            gap = sum(abs(a - b) for a, b in zip(grey, panel))
+            self.assertGreater(gap, 15, name)
 
-            def gap(sel):
-                return sum(abs(a - b) for a, b in zip(self._bg(sel, name), page))
-
-            self.assertLess(gap('td.delm'), gap('td.del'), name)
-            self.assertLess(gap('td.addm'), gap('td.add'), name)
-
-    def test_the_legend_no_longer_offers_a_noise_swatch(self):
-        # a swatch for a colour the reader cannot tell from 'real change'
-        # explains nothing
+    def test_the_legend_still_has_no_noise_colour_swatch_for_it(self):
+        # the muted grey gets its own swatch (sw-mut) now that noise can be
+        # revealed; what it must NOT do is reuse or resemble the real-change
+        # red/green swatches, which is what sw-min / sw-cmt would have implied
         page = build_report(scan(FIX / 'old', FIX / 'new'), FIX / 'old', FIX / 'new')
         legend = page.split('class="legend"')[1].split('</div>')[0]
         self.assertNotIn('sw-min', legend)
         self.assertNotIn('sw-cmt', legend)
+        self.assertIn('sw-mut', legend)
 
 
 class TestOldSideNaming(unittest.TestCase):
