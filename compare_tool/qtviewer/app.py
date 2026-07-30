@@ -298,16 +298,24 @@ class MainWindow(QMainWindow):
         Missing one leaves half the window in the old theme, which is why they
         are listed here and not discovered by walking children.
         """
-        if theme.set_current(name) == self._theme:
-            return
+        changed = theme.set_current(name) != self._theme
         self._theme = theme.current()
-        apply_theme(QApplication.instance())
-        self._style_widgets()
-        self._set_state(*self._state)
-        self._apply_icons()
-        self.summary.apply_theme()
-        self.diff.apply_theme()
-        self._refresh_tree_keep_selection()  # verdict colours are per item
+        if changed:
+            # taken FIRST and handed back LAST: rebuilding the tree re-selects
+            # the open file, which re-renders it and parks on its first change.
+            # Restoring inside the pane alone would be undone a line later.
+            at = self.diff.reading_position()
+            apply_theme(QApplication.instance())
+            self._style_widgets()
+            self._set_state(*self._state)
+            self._apply_icons()
+            self.summary.apply_theme()
+            self.diff.apply_theme()
+            self._refresh_tree_keep_selection()  # verdict colours are per item
+            self.diff.restore_reading_position(at)
+        # outside the guard: the toolbar button is checkable, so Qt has already
+        # flipped its state by the time this runs. Skipping the repaint must
+        # not leave the button claiming a theme the window is not in.
         self.act_theme.setText(self._theme_label())
         self.act_theme.setChecked(self._theme == theme.LIGHT)
 
@@ -655,7 +663,12 @@ class MainWindow(QMainWindow):
     def _show_review_file(self):
         path = self._reviews.path
         if path is None:
+            # the stylesheet is set even with nothing to show: this label is
+            # red while a review file is broken, and a theme switch that left
+            # the old red behind would outlive the state that earned it
             self.review_file.setText('')
+            self.review_file.setStyleSheet('color:{}; font-size:11px;'
+                                           .format(theme.c('fg-muted')))
             return
         if self._reviews.error:
             self.review_file.setText('⚠ {}'.format(path.name))

@@ -28,7 +28,7 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--f
 .summary { margin: 14px 0 22px; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px;
          margin-right: 8px; cursor: pointer; user-select: none; border: 1px solid transparent; }
-.badge:hover { border-color: var(--border-strong); }
+.badge:hover { border-color: var(--fg-muted); }
 .badge.off { opacity: .35; text-decoration: line-through; }
 .b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
 .b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
@@ -121,8 +121,11 @@ body.hide-ign tr.minorph { display: table-row; }
    silently dropped. (The viewer still shows them in full -- it is the reading
    surface, this is the record to send.) */
 tr.comment, .grp-cmt { display: none; }
-tr.commentph { display: table-row; color: var(--muted-fg); }
-tr.minorph td { color: var(--muted-fg); }
+/* the folded-run placeholders. NOT --muted-fg: that one is the viewer's greyed
+   line, on the editor background, and tuning it for that band dragged these
+   rows down with it. Different surface, different role. */
+tr.commentph { display: table-row; color: var(--st-cmt); }
+tr.minorph td { color: var(--st-cmt); }
 .filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
 .renames { font-size: 12px; color: var(--st-ign); margin: 2px 0 8px; }
 .iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
@@ -228,16 +231,20 @@ body.hide-rev .grp-rev, body.hide-rev details.file.file-rev { display: none; }
 _THEME_BUTTON = ('<button id="thm" type="button" onclick="tgtheme()" '
                  'title="Switch this page between dark and light">&#9788; '
                  'Light</button>')
+# `save` is only true on a click. Persisting on load as well would turn the
+# --theme flag INTO the reader's preference the first time they open a report
+# built with it -- silently answering, on their behalf, a question they never
+# answered.
 _THEME_JS = (
-    'function sttheme(t){document.documentElement.setAttribute("data-theme",t);'
+    'function sttheme(t,save){document.documentElement.setAttribute("data-theme",t);'
     'var b=document.getElementById("thm");'
     'if(b)b.innerHTML=(t==="dark"?"\\u2600 Light":"\\u263e Dark");'
-    'try{localStorage.setItem("cgc-theme",t);}catch(e){}}'
+    'if(save){try{localStorage.setItem("cgc-theme",t);}catch(e){}}}'
     'function tgtheme(){sttheme(document.documentElement.getAttribute("data-theme")'
-    '==="dark"?"light":"dark");}'
+    '==="dark"?"light":"dark",true);}'
     '(function(){var t=null;try{t=localStorage.getItem("cgc-theme");}catch(e){}'
     'sttheme(t==="dark"||t==="light"?t'
-    ':document.documentElement.getAttribute("data-theme"));})();')
+    ':document.documentElement.getAttribute("data-theme"),false);})();')
 
 
 def _head(title, initial, body_class=''):

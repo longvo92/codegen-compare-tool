@@ -651,6 +651,21 @@ class TestThemeSwitch(unittest.TestCase):
         self.assertEqual(self.win._selected_rel(), 'src/real_change.c')
         self.assertEqual(self.win.diff._rel, 'src/real_change.c')
 
+    def test_the_change_being_read_survives_the_switch(self):
+        # re-rendering the file parks on change 1; a colour switch is not a
+        # navigation command, so the reviewer must come back to where they were
+        self.win._reselect('src/rename_conflict.c')
+        self._settle_ui()
+        self.assertTrue(self.win.diff.next_change())
+        self._settle_ui()
+        row = self.win.diff._drive.textCursor().blockNumber()
+        idx = self.win.diff._cur_idx
+        self.assertGreater(idx, 0)
+        self.win._set_theme(self.theme.LIGHT)
+        self._settle_ui()
+        self.assertEqual(self.win.diff._drive.textCursor().blockNumber(), row)
+        self.assertEqual(self.win.diff._cur_idx, idx)
+
     def test_the_toggle_goes_back_and_forth(self):
         self.win._toggle_theme()
         self.assertEqual(self.theme.current(), self.theme.LIGHT)

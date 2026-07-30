@@ -404,12 +404,40 @@ class DiffPane(QStackedWidget):
             editor.apply_theme()
             hl.apply_theme()
         self.minimap.update()
-        if self._last is not None and self.currentIndex() == 1:
-            # re-rendering parks on change 1 again; put the reviewer back where
-            # they were reading -- a colour switch is not a navigation command
-            at = self._drive.verticalScrollBar().value()
-            self.show_file(*self._last)
-            self._drive.verticalScrollBar().setValue(at)
+        if self._last is None or self.currentIndex() != 1:
+            return
+        at = self.reading_position()
+        self.show_file(*self._last)
+        self.restore_reading_position(at)
+
+    def reading_position(self):
+        """Where the reviewer is in the file on screen, as an opaque token.
+
+        Re-rendering a file parks on its first change, and a repaint is not a
+        navigation command -- so anything that re-renders has to take this
+        first and hand it back afterwards. None when there is no file to hold
+        a position in."""
+        if self.currentIndex() != 1:
+            return None
+        return (self._rel, self._drive.textCursor().blockNumber(),
+                self._drive.verticalScrollBar().value())
+
+    def restore_reading_position(self, at):
+        """Put the cursor, the current-change overlay, the `change k of N` and
+        the scroll back where :meth:`reading_position` found them.
+
+        Ignored when the file changed underneath it: landing a stale row number
+        on a different file would scroll somewhere arbitrary."""
+        if not at or at[0] != self._rel or self.currentIndex() != 1:
+            return
+        _rel, row, scroll = at
+        if row < len(self.rows):
+            self._drive.setTextCursor(
+                QTextCursor(self._drive.document().findBlockByNumber(row)))
+            self._highlight_block(row)
+            self._update_position(row)
+        self._drive.verticalScrollBar().setValue(scroll)
+        self.unitChanged.emit()
 
     @staticmethod
     def _pane(banner, editor):

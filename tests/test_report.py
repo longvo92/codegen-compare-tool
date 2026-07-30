@@ -415,6 +415,22 @@ class TestPageTheme(unittest.TestCase):
         for fetch in ('<link', '<script src', '@import', 'url('):
             self.assertNotIn(fetch, page, fetch)
 
+    def test_opening_a_report_does_not_answer_the_preference_for_the_reader(self):
+        """The flag must not become a saved preference behind the reader's back.
+
+        Persisting on load too would mean: open one `--theme light` report and
+        every later report opens light, because the page wrote a choice the
+        reader never made.
+        """
+        page = self._page(theme_name='light')
+        js = page[page.rindex('<script>'):]
+        # the load-time call passes save=false; only the click passes true
+        self.assertIn('sttheme(t==="dark"||t==="light"?t', js)
+        self.assertIn('),false);})();', js)
+        self.assertIn('"dark",true);}', js)
+        self.assertEqual(js.count('localStorage.setItem'), 1)
+        self.assertIn('if(save){try{localStorage.setItem', js)
+
     def test_the_arxml_report_switches_too(self):
         page = build_arxml_report(self.results, FIX / 'old', FIX / 'new',
                                   theme_name='light')
