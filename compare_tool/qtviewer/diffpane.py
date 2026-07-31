@@ -33,8 +33,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
 from .. import review, theme
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
-from ..view_model import (MUTED, Row, aligned_rows, char_span, hunk_row_starts,
-                          mute_rows, row_with)
+from ..view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows, char_span,
+                          hunk_row_starts, mute_rows, row_with)
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
 from .minimap import Minimap
@@ -62,10 +62,9 @@ def _semantic_summary(result):
     s = result.get('swc')
     if s:
         chips.append(_pm('SWC', len(s['swcs']['added']), len(s['swcs']['removed'])))
-        for cat, label in (('ports', 'port'), ('runnables', 'runnable'),
-                           ('events', 'event')):
-            chips.append(_pm(label, len(s[cat]['added']), len(s[cat]['removed']),
-                             len(s[cat]['changed'])))
+        for cat in SWC_DISPLAY:
+            chips.append(_pm(cat.noun, len(s[cat.key]['added']),
+                             len(s[cat.key]['removed']), len(s[cat.key]['changed'])))
     d = result.get('ifaces')
     if d:
         chips.append(_pm('interface', len(d['added']), len(d['removed'])))

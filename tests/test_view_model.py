@@ -5,10 +5,28 @@ char-span primitive stays byte-identical to the report's old highlighter."""
 
 import unittest
 
+from compare_tool.arxml_rules import SWC_CATEGORIES
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import _char_diff
-from compare_tool.view_model import (MUTED, Row, aligned_rows, char_span,
-                                     hunk_row_starts, mute_rows, row_with)
+from compare_tool.main import summary_lines
+from compare_tool.qtviewer.summary_model import summary_sections
+from compare_tool.report import _char_diff, _swc_note
+from compare_tool.scanner import summarize
+from compare_tool.view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows,
+                                     char_span, hunk_row_starts, mute_rows,
+                                     row_with)
+
+
+def _swc_change():
+    """A per-file `swc` diff with every category populated. The fixtures only
+    ever change ports and events, so a surface that dropped `runnables` would
+    pass the whole suite -- which is the drift SWC_DISPLAY exists to stop."""
+    return {'swcs': {'added': ['/Comp/New'], 'removed': []},
+            'ports': {'added': [('/Comp/Ctrl', 'In1', 'uint8')],
+                      'removed': [], 'changed': []},
+            'runnables': {'added': [('/Comp/Ctrl', 'Run_Step', '10ms')],
+                          'removed': [], 'changed': []},
+            'events': {'added': [('/Comp/Ctrl', 'Ev_Init', 'init')],
+                       'removed': [], 'changed': []}}
 
 
 class TestCharSpan(unittest.TestCase):
@@ -254,3 +272,31 @@ class TestRowWith(unittest.TestCase):
         rows = self._rows(('a', 'b', 'real'))
         self.assertIsNone(row_with(rows, 'Nope'))
         self.assertIsNone(row_with(rows, ''))
+
+
+class TestSwcDisplayVocabulary(unittest.TestCase):
+    """One list of SWC categories, three surfaces spelling it. The report, the
+    quick-changes panel and the terminal summary each used to carry their own
+    copy, so a category added to the rules could reach two of them and be
+    missing from the third with nothing failing."""
+
+    def test_display_covers_exactly_the_categories_the_rules_produce(self):
+        self.assertEqual(tuple(c.key for c in SWC_DISPLAY), SWC_CATEGORIES)
+
+    def test_the_report_note_names_every_category(self):
+        note = _swc_note({'swc': _swc_change()})
+        for cat in SWC_DISPLAY:
+            self.assertIn(cat.noun, note)
+
+    def test_the_quick_changes_panel_has_a_section_per_category(self):
+        sections = dict(summary_sections({'a.arxml': {'swc': _swc_change()}}))
+        for cat in SWC_DISPLAY:
+            self.assertIn(cat.title, sections)
+
+    def test_the_terminal_summary_names_every_category(self):
+        results = {'a.arxml': {'status': 'real-change', 'swc': _swc_change(),
+                               'hunks': [], 'notes': [], 'binary': False,
+                               'renames': {}}}
+        text = '\n'.join(summary_lines(results, summarize(results)))
+        for cat in SWC_DISPLAY:
+            self.assertIn(cat.noun, text)

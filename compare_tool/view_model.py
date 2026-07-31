@@ -15,9 +15,16 @@ consume them:
   shorter side so old and new stay row-for-row aligned. This is the natural
   Beyond-Compare two-pane model. (The HTML report keeps its own grouped
   context-window rendering; it only shares ``char_span``.)
+
+Plus the AUTOSAR display vocabulary -- ``SWC_CATEGORIES``, ``iface_kind``,
+``short_name`` and ``swc_item``. How a semantic fact is SPELLED is a display
+decision, so it belongs beside the other two rather than in the scanner that
+found the fact.
 """
 
 from collections import namedtuple
+
+from .arxml_rules import SWC_CATEGORIES
 
 # mode: how a row is painted. 'ctx' = equal line (context), 'real' = real
 # change (red/green), 'comment' = comment-only noise, 'minor' = the other
@@ -37,6 +44,37 @@ FOLDABLE_MODES = ('comment', 'minor')
 # what a muted row's mode becomes. Its `kind` is left alone, so the row still
 # says WHY it was played down (uuid, comment, rename, …).
 MUTED = 'muted'
+
+# How the SWC sub-categories are SPELLED, in the two forms the surfaces need:
+# `title` heads a section, `noun` sits inline in a chip or a one-line note.
+# Six places used to spell this list out -- the report's AUTOSAR rollup, its
+# per-file note and its per-model chips, the quick-changes panel, the viewer's
+# file header and the terminal summary -- so adding a category meant
+# remembering all six, and forgetting one dropped it from that surface alone.
+#
+# The keys are NOT restated here: they come from the rules module that produces
+# them, and a key with no label raises at import. A category added there can be
+# missed loudly, never silently.
+SwcCategory = namedtuple('SwcCategory', 'key title noun')
+_SWC_LABELS = {'ports': ('Ports', 'port'),
+               'runnables': ('Runnables', 'runnable'),
+               'events': ('Events', 'event')}
+SWC_DISPLAY = tuple(SwcCategory(key, *_SWC_LABELS[key]) for key in SWC_CATEGORIES)
+
+
+def iface_kind(tag):
+    """'SENDER-RECEIVER-INTERFACE' -> 'SENDER-RECEIVER' for display."""
+    return tag.replace('-INTERFACE', '')
+
+
+def short_name(path):
+    """'/Interfaces/If_Torque' -> 'If_Torque', the SHORT-NAME in the file."""
+    return path.rsplit('/', 1)[-1]
+
+
+def swc_item(swc, name):
+    """'/Comp/Ctrl', 'In2' -> 'Ctrl.In2' (short SWC name keeps rows compact)."""
+    return '{}.{}'.format(short_name(swc), name)
 
 
 def char_span(old_txt, new_txt):
