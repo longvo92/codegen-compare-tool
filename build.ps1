@@ -10,7 +10,7 @@
 #                           and the exit code; the viewer hides the console
 #                           window at runtime (see packaging\entry.py).
 #
-#   dist\compare_tool.pyz   optional tiny zipapp (~110 KB) for machines that
+#   dist\compare_tool.pyz   optional tiny zipapp for machines that
 #                           already have Python 3.8+. Stdlib only, so the CLI
 #                           works anywhere; the viewer additionally needs
 #                           PySide6 installed on that machine.

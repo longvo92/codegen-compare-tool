@@ -58,8 +58,11 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     try:
         if out.exists():
             out.unlink()
+    # `from None` here and below: _write_hint already folds the OSError into a
+    # sentence, and the caller prints that sentence and exits 2 -- the chained
+    # cause would only add a traceback to an error that is handled
     except OSError as e:
-        raise ReportWriteError(_write_hint(out, e))
+        raise ReportWriteError(_write_hint(out, e)) from None
     include = tuple('*' + ext for ext, rs in RULES.items()
                     if rs in ('arxml', 'a2l')) if arxml_only else ()
     results = scan(old_root, new_root, progress=progress, exclude=exclude,
@@ -76,7 +79,7 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     try:
         out.write_text(page, encoding='utf-8')
     except OSError as e:
-        raise ReportWriteError(_write_hint(out, e), results, counts)
+        raise ReportWriteError(_write_hint(out, e), results, counts) from None
     return results, counts
 
 

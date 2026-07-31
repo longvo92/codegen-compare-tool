@@ -91,7 +91,7 @@ any dev script take whatever they need; no need to ask first.
 
 The exception is **what ships in `compare_tool.pyz`**: the scan, the rules, the
 diff, the report, the review store and `gitsource` import stdlib only. That
-zipapp is ~110 KB, needs nothing installed, and is the documented fallback for
+zipapp needs nothing installed, and is the documented fallback for
 the machines where antivirus blocks the `.exe` — one third-party import in
 `scanner.py` and it stops running there, which is a shipped promise broken by
 an import nobody reviewed.
@@ -188,7 +188,13 @@ decision; the frozen entry point asks it rather than re-deriving it.
 - **Commit per phase / per goal batch.** The message explains *why*, not what
   the diff already shows.
 - **Run the suite before every commit**: `python -m unittest discover -s tests`.
-  Add a test for any new rule.
+  Add a test for any new rule. `python -m ruff check .` too — it is a CI gate,
+  and it is what catches a `list[str]` or `X | Y` that a modern interpreter
+  accepts and 3.8 does not.
+- **A green suite is not the same as a suite that ran.** Qt tests skip
+  themselves when PySide6 is absent, so CI installs it on the 3.11 legs and
+  asserts the import. The 3.8 legs stay dependency-free on purpose: they are
+  the proof that the stdlib-only core still runs with nothing installed.
 - **Say when you reinterpreted a request.** "Remove rescan" was implemented as
   removing both the button and rescan-on-toggle, because folding is a pure
   function of the hunks — that reading was stated, not assumed silently.
@@ -201,6 +207,7 @@ decision; the frozen entry point asks it rather than re-deriving it.
 ```bash
 python -m compare_tool <old_gen> <new_gen> --report out.html
 python -m unittest discover -s tests        # unittest, NOT pytest
+python -m ruff check .                      # correctness gate, incl. the 3.8 promise
 .\build.ps1                                 # dist\compare-tool.exe (needs pyinstaller + PySide6)
 .\build.ps1 -Pyz                            # plus dist\compare_tool.pyz
 .\build.ps1 -PyzOnly                        # zipapp only, no build dependencies

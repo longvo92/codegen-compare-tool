@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Report file headers now use the same wording as the diff below them for a
+  comment-only change.
+
 ## [1.3.0] — 2026-07-31
 
 Read the diff in whichever colour scheme suits the screen, with A2L coloured

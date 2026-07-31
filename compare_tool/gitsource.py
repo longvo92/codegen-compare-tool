@@ -49,10 +49,12 @@ def _run(root, args, timeout=30, capture_to=None):
         p = subprocess.run(
             cmd, stdout=(capture_to or subprocess.PIPE), stderr=subprocess.PIPE,
             timeout=timeout, creationflags=_NO_WINDOW)
+    # `from None`: GitError already carries the sentence the user needs, and
+    # chaining the original would print a second traceback under it
     except FileNotFoundError:
-        raise GitError('git is not installed, or not on PATH')
+        raise GitError('git is not installed, or not on PATH') from None
     except subprocess.TimeoutExpired:
-        raise GitError('git {} timed out after {}s'.format(args[0], timeout))
+        raise GitError('git {} timed out after {}s'.format(args[0], timeout)) from None
     if p.returncode != 0:
         err = (p.stderr or b'').decode('utf-8', 'replace').strip()
         raise GitError(err or 'git {} failed ({})'.format(args[0], p.returncode))

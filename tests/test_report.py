@@ -6,8 +6,9 @@ from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
 from compare_tool.report import (_char_diff, _group_hunks, _group_label,
-                                 _group_table, _groups_html, _model_groups,
-                                 build_arxml_report, build_report)
+                                 _group_table, _groups_html, _hunk_count_note,
+                                 _model_groups, build_arxml_report,
+                                 build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -88,6 +89,37 @@ class TestRealPlusMinor(unittest.TestCase):
         # the Unimportant badge can hide one of them
         self.assertIn('class="delc"', table)
         self.assertIn('class="del"', table)
+
+    def test_header_note_names_a_comment_hunk_comment(self):
+        # the group label right below the header reads 'comment + real'; the
+        # header used to call the same hunk 'minor'
+        self.assertEqual(_hunk_count_note([{'kind': 'comment'}, {'kind': 'real'}]),
+                         '(1 hunk + 1 comment)')
+
+    def test_header_note_keeps_comment_and_other_noise_apart(self):
+        note = _hunk_count_note([{'kind': 'real'}, {'kind': 'real'},
+                                 {'kind': 'moved'}, {'kind': 'comment'},
+                                 {'kind': 'uuid'}, {'kind': 'rename'}])
+        self.assertEqual(note, '(2 hunks + 1 moved + 1 comment + 2 minor)')
+
+    def test_header_note_counts_every_hunk(self):
+        # a kind the note forgets is a change the header hides: whatever
+        # mode_of maps a kind to, the totals still have to add up
+        hunks = [{'kind': k} for k in ('real', 'moved', 'comment', 'uuid',
+                                       'whitespace', 'rename', 'real')]
+        counted = sum(int(n) for n in re.findall(r'(\d+) ', _hunk_count_note(hunks)))
+        self.assertEqual(counted, len(hunks))
+
+    def test_report_header_note_matches_the_group_label(self):
+        results = scan(FIX / 'old', FIX / 'new')
+        page = build_report(results, FIX / 'old', FIX / 'new')
+        # the folder tree names the file too, so anchor on the file SECTION
+        sect = next(s for s in page.split('<details class="file')
+                    if s.startswith(' sec-real" id="f') and
+                    'data-p="src/real_change.c"' in s).split('</details>')[0]
+        self.assertIn('(1 hunk + 1 comment)', sect)
+        self.assertIn('comment + real', sect)  # the label a few pixels below
+        self.assertNotIn('1 minor', sect)
 
     def test_report_shows_minor_hunks_in_modified_files(self):
         results = scan(FIX / 'old', FIX / 'new')
