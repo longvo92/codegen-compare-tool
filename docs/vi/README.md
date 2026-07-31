@@ -236,8 +236,8 @@ File có XML parse lỗi bị bỏ khỏi phần summary này (text diff của n
 ## Nhóm theo model / SWC
 
 File được nhóm theo **model Simulink** dựa trên quy ước đặt tên AUTOSAR của Embedded
-Coder (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, bộ ARXML modular, …). File không khớp
-model nào rơi vào nhóm cuối **Shared / other**.
+Coder (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, bộ ARXML modular, …). File
+không khớp model nào rơi vào nhóm cuối **Shared / other**.
 
 ## HTML report
 

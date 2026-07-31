@@ -141,7 +141,7 @@ A shorter name can stop an argument wrapping at 80 columns, so the two sides hol
 
 Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` → `SIG_TORQUE_MAX` and `CFG_TIMEOUT_MS` → `CFG_TIMEOUT_US` are real changes, and so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. In the HTML report, `Comment` and `Unimportant` are each a badge of their own — see [HTML report](#html-report).
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The viewer has a rule toggle for each; the HTML report gives `Unimportant` a badge and leaves comment lines out altogether — see [HTML report](#html-report).
 
 ## Moved block detection
 
@@ -171,7 +171,7 @@ A file whose XML fails to parse is skipped from this summary (its text diff stil
 
 ## Grouping by model / SWC
 
-Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, the modular ARXML set, …). Files that match no model land in a final **Shared / other** group.
+Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, the modular ARXML set, …). Files that match no model land in a final **Shared / other** group.
 
 ## HTML report
 

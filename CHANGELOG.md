@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-07-31
+
+Read the diff in whichever colour scheme suits the screen, with A2L coloured
+like the rest and noise pushed out of the way instead of out of the file.
+
 ### Added
 
 - **Light and dark colour schemes.** Both the viewer and the report can be read
@@ -22,6 +27,16 @@ All notable changes to this project are documented here. Versions follow
   of removing them.** They keep their place and their line numbers, so the code
   around a real change is still there to read it in, and they no longer count
   as changes on the minimap or when stepping through changes.
+- **The report shows unimportant differences when you click their badge**, in
+  grey rather than red or green, so a revealed category still reads as one that
+  does not count. Comment differences stay out of the report entirely — only
+  the count of hidden lines is shown — while the viewer keeps showing them.
+
+### Fixed
+
+- **A model's `_data` companion file is filed under that model** in the report
+  instead of landing in Shared / other, so everything generated for one
+  component is read in one place.
 
 ## [1.2.0] — 2026-07-29
 
