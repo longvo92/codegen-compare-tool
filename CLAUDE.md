@@ -183,6 +183,34 @@ at runtime instead, and un-hidden on a crash.
 `main.viewer_requested()` owns the "which front end does this argv want"
 decision; the frozen entry point asks it rather than re-deriving it.
 
+### Cutting a release
+
+Two moves, and the repo is only edited by the first one.
+
+1. A normal PR bumps `compare_tool.__version__` and moves the CHANGELOG
+   `[Unreleased]` entries under `## [X.Y.Z] — <date>`. A human merges it.
+2. `.github/workflows/release.yml` builds and publishes:
+
+   ```bash
+   python packaging/release_check.py 1.3.1            # same check the workflow runs
+   gh workflow run release.yml --ref main -f version=1.3.1                 # rehearsal
+   gh workflow run release.yml --ref main -f version=1.3.1 -f publish=true # for real
+   ```
+
+**The default does not publish.** A run without `publish` builds both
+artifacts, runs each one against the fixtures and stops, so the expensive half
+can be proven without creating a tag that cannot be taken back. Both runs
+upload the binaries, because the point of a rehearsal is to be able to look at
+what would have shipped.
+
+`packaging/release_check.py` owns every precondition — version matches
+`__init__.py`, the CHANGELOG has that section, nothing is left under
+`[Unreleased]` — and prints what to change rather than just failing. It is one
+script so the answer is the same locally and in CI. The workflow adds the two
+facts a file cannot know: the ref is `main`, and the tag is not taken.
+
+Releases are not moved. A published version is refused, never overwritten.
+
 ## 10. Workflow
 
 - **Commit per phase / per goal batch.** The message explains *why*, not what
