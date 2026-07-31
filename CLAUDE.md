@@ -91,7 +91,7 @@ any dev script take whatever they need; no need to ask first.
 
 The exception is **what ships in `compare_tool.pyz`**: the scan, the rules, the
 diff, the report, the review store and `gitsource` import stdlib only. That
-zipapp is ~110 KB, needs nothing installed, and is the documented fallback for
+zipapp is ~120 KB, needs nothing installed, and is the documented fallback for
 the machines where antivirus blocks the `.exe` — one third-party import in
 `scanner.py` and it stops running there, which is a shipped promise broken by
 an import nobody reviewed.

@@ -1,26 +1,32 @@
-# Azure DevOps pipeline: diff codegen MỚI (đã commit, đè lên bản cũ) với codegen CŨ
-# (bản git trước), report HTML đi cùng codegen.
+# Azure DevOps pipeline: diff the NEW codegen (committed over the old one)
+# against the OLD codegen (the previous git revision), and ship an HTML report
+# alongside the generated code.
 #
-# Cách hoạt động
-#   - OLD: PR build -> merge-base với target branch; CI build -> commit trước (HEAD~1).
-#     Lấy ra bằng `git worktree add`, không cần lưu artifact hay snapshot gì thêm.
-#   - NEW: working tree hiện tại (codegen mới đã commit đè).
-#   - Tool chạy với --exit-zero: codegen đổi là bình thường, pipeline không fail,
-#     report để reviewer xem (summary + ARXML interface added/removed).
-#   - Report:
-#       1. publish làm build artifact `codegen` cùng thư mục codegen;
-#       2. CI build (không phải PR) commit report ngược vào repo với [skip ci].
+# How it works
+#   - OLD: on a PR build, the merge-base with the target branch; on a CI build,
+#     the previous commit (HEAD~1). Checked out with `git worktree add`, so no
+#     extra artifact or snapshot has to be stored anywhere.
+#   - NEW: the current working tree (the regenerated code, already committed).
+#   - The tool runs with --exit-zero: codegen changing is normal here, so the
+#     pipeline does not fail on it. The report is what the reviewer reads
+#     (summary + ARXML interfaces added/removed).
+#   - The report is then:
+#       1. published as build artifact `codegen`, together with the code;
+#       2. on CI builds (not PRs) committed back into the repo with [skip ci].
 #
-# Setup một lần
-#   - Sửa 2 chỗ đánh dấu <<SỬA>> bên dưới (tên repo tool, đường dẫn codegen).
-#   - Nếu compare_tool nằm ngay TRONG repo codegen: xóa block resources +
-#     2 step checkout thay bằng `- checkout: self` (giữ fetchDepth/persistCredentials),
-#     và bỏ biến TOOL_DIR (PYTHONPATH trỏ về $(Build.SourcesDirectory)).
-#   - Cho bước commit report: Project Settings > Repositories > <repo codegen> >
-#     Security > "<Project> Build Service" -> Contribute = Allow.
+# One-time setup
+#   - Edit the 2 places marked <<EDIT>> below (the tool repo name, the codegen
+#     path).
+#   - If compare_tool already lives INSIDE the codegen repo: delete the
+#     `resources` block and both checkout steps, replace them with a single
+#     `- checkout: self` (keeping fetchDepth / persistCredentials), and drop
+#     the TOOL_DIR variable (point PYTHONPATH at $(Build.SourcesDirectory)).
+#   - For the commit-report step to be allowed to push: Project Settings >
+#     Repositories > <codegen repo> > Security > "<Project> Build Service" ->
+#     Contribute = Allow.
 
 parameters:
-  - name: codegenPath          # <<SỬA>> thư mục codegen trong repo (đường dẫn tương đối)
+  - name: codegenPath          # <<EDIT>> codegen folder in the repo (relative path)
     type: string
     default: 'codegen'
 
@@ -33,7 +39,7 @@ pr:
     include: ['*']
 
 pool:
-  vmImage: ubuntu-latest       # windows-latest cũng chạy được (script dùng bash task)
+  vmImage: ubuntu-latest       # windows-latest works too (the steps are bash tasks)
 
 variables:
   CODE_DIR: $(Pipeline.Workspace)/s/code
@@ -44,19 +50,19 @@ resources:
   repositories:
     - repository: compare_tool_repo
       type: git
-      name: MyProject/code-review        # <<SỬA>> project/repo chứa compare_tool
+      name: MyProject/code-review        # <<EDIT>> project/repo holding compare_tool
       ref: refs/heads/main
 
 steps:
   - checkout: self
-    fetchDepth: 0              # cần history để lấy bản cũ
-    persistCredentials: true   # cần cho bước commit report
+    fetchDepth: 0              # history is needed to reach the previous revision
+    persistCredentials: true   # needed by the commit-report step
     path: s/code
 
   - checkout: compare_tool_repo
     path: s/tool
 
-  # OLD = bản git trước
+  # OLD = the previous git revision
   - bash: |
       set -e
       cd "$(CODE_DIR)"
@@ -69,11 +75,12 @@ steps:
       fi
       echo "OLD = $BASE ($(git log -1 --format='%s' $BASE))"
       git worktree add "$(OLD_DIR)" "$BASE"
-      # lần đầu chưa có thư mục codegen ở bản cũ -> tạo rỗng, mọi file tính Added
+      # on the very first run the old revision has no codegen folder yet ->
+      # create an empty one so every file counts as Added
       mkdir -p "$(OLD_DIR)/${{ parameters.codegenPath }}"
-    displayName: 'Checkout code cu tu git'
+    displayName: 'Check out the previous codegen from git'
 
-  # Diff + sinh report ngay trong thư mục codegen
+  # Diff, and write the report straight into the codegen folder
   - bash: |
       set -e
       python3 -m compare_tool \
@@ -82,18 +89,19 @@ steps:
         --report "$(CODE_DIR)/${{ parameters.codegenPath }}/compare_report.html" \
         --exclude compare_report.html \
         --exit-zero
-    displayName: 'Diff codegen cu vs moi'
+    displayName: 'Diff old vs new codegen'
     env:
       PYTHONPATH: $(TOOL_DIR)
 
-  # Report + codegen publish chung một artifact
+  # code and report published as one artifact
   - task: PublishBuildArtifacts@1
     inputs:
       PathtoPublish: '$(CODE_DIR)/${{ parameters.codegenPath }}'
       ArtifactName: 'codegen'
     displayName: 'Publish codegen + report'
 
-  # CI build: commit report vào repo, [skip ci] để không tự kích hoạt lại
+  # CI build: commit the report back into the repo. [skip ci] keeps this commit
+  # from triggering the pipeline again.
   - bash: |
       set -e
       cd "$(CODE_DIR)"
@@ -101,10 +109,10 @@ steps:
       git config user.email "pipeline@dev.azure.com"
       git add "${{ parameters.codegenPath }}/compare_report.html"
       if git diff --cached --quiet; then
-        echo "Report khong doi, bo qua commit."
+        echo "Report unchanged, nothing to commit."
       else
         git commit -m "Update codegen compare report [skip ci]"
         git push origin "HEAD:${BUILD_SOURCEBRANCH#refs/heads/}"
       fi
-    displayName: 'Commit report vao repo'
+    displayName: 'Commit the report into the repo'
     condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))

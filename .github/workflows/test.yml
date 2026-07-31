@@ -20,6 +20,51 @@ jobs:
       # to execute the offending line
       - run: python -m ruff check .
 
+  zipapp:
+    # compare_tool.pyz is the documented fallback for the Windows boxes where
+    # antivirus blocks the .exe. Nothing built it here, so a staging regression
+    # -- a subpackage that stops being copied, an entry point that stops
+    # importing -- would have been found by a user on a locked-down machine
+    # instead of by CI. Built on Windows because that is where the fallback is
+    # used, and because build.ps1 writes Windows path separators.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"  # the floor in requires-python
+      - name: Build the zipapp
+        shell: pwsh
+        run: .\build.ps1 -PyzOnly
+
+      # deliberately no pip install anywhere in this job: "needs nothing
+      # installed" is the whole claim being tested
+      - name: Run it with nothing installed
+        shell: bash
+        run: |
+          set +e
+          python dist/compare_tool.pyz tests/fixtures/old tests/fixtures/new --report pyz.html
+          code=$?
+          set -e
+          test "$code" -eq 1   # fixtures hold real changes
+          test -s pyz.html     # exit code alone would pass on an empty record
+
+      - name: The viewer has to be inside it, and it has to stay small
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys, zipfile
+          names = zipfile.ZipFile('dist/compare_tool.pyz').namelist()
+          if not any(n.startswith('compare_tool/qtviewer/') for n in names):
+              sys.exit('qtviewer is missing: the .pyz would refuse --qt even '
+                       'on a machine that has PySide6')
+          kb = os.path.getsize('dist/compare_tool.pyz') / 1024
+          print('{:.0f} KB, {} entries'.format(kb, len(names)))
+          if kb > 250:
+              sys.exit('the zipapp is meant to stay tiny; something large got '
+                       'bundled')
+          PY
+
   test:
     strategy:
       matrix:
