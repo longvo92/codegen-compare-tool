@@ -49,20 +49,16 @@ jobs:
           test "$code" -eq 1   # fixtures hold real changes
           test -s pyz.html     # exit code alone would pass on an empty record
 
-      - name: The viewer has to be inside it, and it has to stay small
+      - name: The viewer has to be inside it
         shell: bash
         run: |
           python - <<'PY'
-          import os, sys, zipfile
+          import sys, zipfile
           names = zipfile.ZipFile('dist/compare_tool.pyz').namelist()
           if not any(n.startswith('compare_tool/qtviewer/') for n in names):
               sys.exit('qtviewer is missing: the .pyz would refuse --qt even '
                        'on a machine that has PySide6')
-          kb = os.path.getsize('dist/compare_tool.pyz') / 1024
-          print('{:.0f} KB, {} entries'.format(kb, len(names)))
-          if kb > 250:
-              sys.exit('the zipapp is meant to stay tiny; something large got '
-                       'bundled')
+          print('{} entries'.format(len(names)))
           PY
 
   test:

@@ -62,7 +62,7 @@ Hai luật giữ cho hình dạng này đứng vững:
 
 **Core không import gì ngoài standard library.** `scanner`, `diff_engine`, ba module
 rule, `report`, `review`, `view_model`, `theme`, `syntax` và `gitsource` là những gì ship
-trong `compare_tool.pyz` — ~120 KB, không cần cài, và là phương án dự phòng đã được
+trong `compare_tool.pyz` — không cần cài, và là phương án dự phòng đã được
 ghi rõ cho các máy bị antivirus chặn `.exe`. Chỉ cần một import thư viện ngoài trong
 `scanner.py` là zipapp hết chạy ở đó. PySide6 chỉ nằm dưới `compare_tool/qtviewer/`
 và được import lười, lúc viewer mở, nên bộ test chạy headless được.

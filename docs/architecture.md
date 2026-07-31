@@ -62,7 +62,7 @@ Two rules hold this shape:
 
 **The core imports nothing but the standard library.** `scanner`, `diff_engine`,
 the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax` and
-`gitsource` are what ships in `compare_tool.pyz` — ~120 KB, no install, the
+`gitsource` are what ships in `compare_tool.pyz` — no install, the
 documented fallback for machines where antivirus blocks the `.exe`. One
 third-party import in `scanner.py` and the zipapp stops running there. PySide6
 lives only under `compare_tool/qtviewer/` and is imported lazily, when the

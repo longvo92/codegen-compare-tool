@@ -277,7 +277,7 @@ ra bằng `git worktree`, NEW là working tree).
 
 ```powershell
 .\build.ps1           # dist\compare-tool.exe  - một file, máy đích không cần cài gì
-.\build.ps1 -Pyz      # thêm dist\compare_tool.pyz (~120 KB) cho máy đã có Python 3.8+
+.\build.ps1 -Pyz      # thêm dist\compare_tool.pyz cho máy đã có Python 3.8+
 .\build.ps1 -PyzOnly  # chỉ zipapp (build cái này không cần PyInstaller / PySide6)
 ```
 
@@ -296,7 +296,7 @@ Viewer ẩn cửa sổ console lúc runtime — double-click sẽ thấy nó lo�
 crash thì console được hiện lại để thấy lỗi.
 
 - **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Ưu
-  tiên dùng khi máy có sẵn Python — ~120 KB, không cần dependency lúc build, không
+  tiên dùng khi máy có sẵn Python — nhỏ gọn, không cần dependency lúc build, không
   bị antivirus tuýt còi. CLI chạy ở đâu cũng được; viewer cần thêm PySide6 trên máy
   đó (không có thì tool nói ra, không mở).
 - **`.exe` (PyInstaller onefile, ~47 MB)**: máy đích không cần Python. Build cần

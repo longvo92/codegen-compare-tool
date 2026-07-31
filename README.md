@@ -197,7 +197,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 ```powershell
 .\build.ps1           # dist\compare-tool.exe  - one file, nothing to install on the target
-.\build.ps1 -Pyz      # also dist\compare_tool.pyz (~120 KB) for machines that have Python 3.8+
+.\build.ps1 -Pyz      # also dist\compare_tool.pyz for machines that have Python 3.8+
 .\build.ps1 -PyzOnly  # zipapp only (building it needs no PyInstaller / PySide6)
 ```
 
@@ -211,7 +211,7 @@ See [azure-pipelines.yml](azure-pipelines.yml) for a working example (OLD checke
 
 Built as a **console** application so terminal runs keep their exit code (`1` = real changes, `2` = compare incomplete) for the CI gate. The viewer hides the console window at runtime — you'll see a brief flash on double-click. A crash un-hides the console so the error is visible.
 
-- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — ~120 KB, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
+- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer it when Python is available — tiny, no build dependencies, not flagged by antivirus. The CLI works anywhere; the viewer additionally needs PySide6 on that machine (without it, the tool says so instead of opening).
 - **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target. Building needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs them), and the binary only runs on the OS it was built on. PyInstaller executables are sometimes blocked by antivirus or AppLocker — fall back to the `.pyz` there.
 
 Every CLI flag behaves identically in the packaged builds. `build/` and `dist/` are already in `.gitignore`.
