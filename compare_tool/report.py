@@ -353,6 +353,25 @@ def _group_label(group):
     return ' + '.join(kinds)
 
 
+def _hunk_count_note(hunks):
+    """'(2 hunks + 1 comment + 3 minor)' -- the file header's rollup of what a
+    Modified file actually contains.
+
+    The counts go through ``mode_of``, the same kind->mode mapping the rows,
+    the group labels and the viewer use, so a comment hunk is named *comment*
+    here too. Lumping it under 'minor' printed one word on the header and
+    another ('comment + real') on the group label a few pixels below, for the
+    same hunk."""
+    modes = [mode_of(h['kind']) for h in hunks]
+    n_real = modes.count('real')
+    tail = ''
+    for mode in ('moved', 'comment', 'minor'):
+        n = modes.count(mode)
+        if n:
+            tail += ' + {} {}'.format(n, mode)
+    return '({} hunk{}{})'.format(n_real, '' if n_real == 1 else 's', tail)
+
+
 def _group_table(old_lines, new_lines, group):
     """One continuous side-by-side table for a run of nearby hunks: leading /
     trailing CONTEXT lines, the equal lines between hunks shown once, real
@@ -950,12 +969,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append('<div class="filenote">{}</div>'.format(_esc(note)))
     elif status == 'real-change':
         hunks = r['hunks'] if not r['binary'] else []
-        n_real = sum(1 for h in hunks if h['kind'] == 'real')
-        n_moved = sum(1 for h in hunks if h['kind'] == 'moved')
-        n_min = len(hunks) - n_real - n_moved
-        extra = '({} hunk{}{}{})'.format(n_real, '' if n_real == 1 else 's',
-                                         ' + {} moved'.format(n_moved) if n_moved else '',
-                                         ' + {} minor'.format(n_min) if n_min else '')
+        extra = _hunk_count_note(hunks)
         old_lines = new_lines = None
         if r['binary']:
             notes = rv.annotate(rel, r, blob=review.blob_digest(Path(new_root) / rel))
