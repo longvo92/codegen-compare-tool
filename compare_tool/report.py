@@ -714,7 +714,7 @@ def _overview_table(groups, results, model_anchors):
 def _agg_status(node, results):
     """Folder status = most significant child status."""
     best = 'identical'
-    for key, val in node.items():
+    for val in node.values():
         st = _agg_status(val, results) if isinstance(val, dict) else results[val]['status']
         if _PRIO[st] > _PRIO[best]:
             best = st

@@ -41,3 +41,19 @@ packages = ["compare_tool", "compare_tool.qtviewer"]
 
 [tool.setuptools.dynamic]
 version = { attr = "compare_tool.__version__" }
+
+# Lint is a correctness gate, not a style gate. The point is the 3.8 promise:
+# FA catches `list[str]` or `X | Y` written without `from __future__ import
+# annotations`, which passes locally on a modern interpreter and dies on the
+# 3.8 CI leg -- at import time, in front of a user. F and B catch the rest of
+# what actually breaks. ruff reads requires-python above for its target
+# version, so the two can never drift apart.
+[tool.ruff]
+exclude = ["resources/gen"]  # one-off icon generator, not part of the tool
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "FA"]
+# `l` is this codebase's name for a line of text, used consistently in the
+# diff hot paths. Renaming 9 call sites to satisfy a legibility rule that
+# nobody here has been confused by is churn, not a fix.
+ignore = ["E741"]

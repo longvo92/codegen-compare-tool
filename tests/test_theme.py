@@ -40,14 +40,14 @@ class TestPalettes(unittest.TestCase):
     def test_text_contrasts_with_its_own_background(self):
         # not a WCAG check, just the failure that actually happens: a role
         # copied from the other theme and left there
+        def lum(role, name):
+            h = theme.color(role, name).lstrip('#')
+            return sum(int(h[i:i + 2], 16) for i in (0, 2, 4)) / 3
+
         for name in theme.THEMES:
             for fg, bg in (('fg', 'bg'), ('code-fg', 'code-bg'),
                            ('muted-fg', 'muted-bg')):
-                def lum(role):
-                    h = theme.color(role, name).lstrip('#')
-                    return sum(int(h[i:i + 2], 16) for i in (0, 2, 4)) / 3
-
-                self.assertGreater(abs(lum(fg) - lum(bg)), 40,
+                self.assertGreater(abs(lum(fg, name) - lum(bg, name)), 40,
                                    '{} {} on {}'.format(name, fg, bg))
 
 
