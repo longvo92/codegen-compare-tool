@@ -521,6 +521,12 @@ SHARED_GROUP = 'Shared / other'
 _ARXML_SPLIT_RE = re.compile(
     r'(.+)_(component|datatypes?|interfaces?|implementation|behavior|timing)$',
     re.IGNORECASE)
+# Embedded Coder companion file: <Model>_data.c holds the model's constant/
+# calibration tables. Without this, "SWC_data.c" is its own candidate model
+# name and -- being longer than "SWC" -- wins the match against itself,
+# splitting off into its own (usually <3-file, so Shared) group instead of
+# joining SWC's.
+_C_ROLE_SPLIT_RE = re.compile(r'(.+)_data$', re.IGNORECASE)
 # which statuses get a detail section, and in what order. 'comment-only' and
 # 'identical' are absent: neither is a reported category in this report, so a
 # section for them would be markup nothing could ever reveal. Both keep their
@@ -536,13 +542,16 @@ def _stem(rel):
 
 
 def _detect_models(paths):
-    """Model-name candidates: X for any X.c, plus X for the modular arxml
-    export names (X_component.arxml, X_interface.arxml, ...)."""
+    """Model-name candidates: X for any X.c (X_data.c counts as X, not
+    X_data), plus X for the modular arxml export names (X_component.arxml,
+    X_interface.arxml, ...)."""
     cands = set()
     for rel in paths:
         low = rel.lower()
         if low.endswith('.c'):
-            cands.add(_stem(rel))
+            stem = _stem(rel)
+            m = _C_ROLE_SPLIT_RE.match(stem)
+            cands.add(m.group(1) if m else stem)
         elif low.endswith('.arxml'):
             m = _ARXML_SPLIT_RE.match(_stem(rel))
             if m:

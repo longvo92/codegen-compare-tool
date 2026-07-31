@@ -518,6 +518,15 @@ class TestModelGrouping(unittest.TestCase):
     def test_no_models_returns_none(self):
         self.assertIsNone(_model_groups(self._results(['readme.txt', 'a.h'])))
 
+    def test_data_companion_joins_its_model_not_shared(self):
+        # SWC_data.c used to out-rank "SWC" as its own (longer) candidate
+        # model, splitting it into a <3-file group that fell to Shared.
+        paths = ['SWC.c', 'SWC.h', 'SWC_types.h', 'SWC_data.c',
+                 'SWC_data.h', 'Rte_SWC.h']
+        g = _model_groups(self._results(paths))
+        self.assertEqual(list(g), ['SWC'])
+        self.assertEqual(g['SWC'], sorted(paths))
+
 
 class TestModelReport(unittest.TestCase):
     """Full report over the model fixtures: overview table, grouped details,
