@@ -142,9 +142,14 @@ class TestUnimportantToggle(unittest.TestCase):
         results = scan(FIX / 'old', FIX / 'new')
         page = build_report(results, FIX / 'old', FIX / 'new')
         self.assertIn('body.hide-ign tr.minor { display: none; }', page)
-        self.assertIn('tr.comment { display: none; }', page)
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
-        self.assertIn('tr.commentph { display: table-row; }', page)
+        self.assertIn('\ntr.comment { display: none; }', page)
+        self.assertIn('\ntr.commentph { display: table-row; }', page)
+        # decisive: the comment rules carry NO body.hide-cmt qualifier, so
+        # there is no state in which they turn back on. Asserting the bare
+        # rule alone would not prove it -- it is a substring of the
+        # qualified one.
+        self.assertNotIn('hide-cmt', page)
 
 
 class TestNoisyGroupNeverEmpty(unittest.TestCase):
@@ -234,10 +239,11 @@ class TestCleanDefaults(unittest.TestCase):
         # the report is the record: the lines are always in the HTML, in a
         # tr.comment row -- CSS just always hides that row, unconditionally,
         # with no badge to reveal it. Only the placeholder count is visible.
-        self.assertIn('tr.comment { display: none; }', self.page)
+        self.assertIn('\ntr.comment { display: none; }', self.page)
         self.assertRegex(self.page, r'class="gap commentph"')
         self.assertIn('<tr class="comment">', self.page)
         self.assertNotIn('class="badge b-cmt', self.page)
+        self.assertNotIn('hide-cmt', self.page)
 
     def test_modified_files_expanded_by_default(self):
         self.assertRegex(self.page, r'<details class="file sec-real" id="f0"[^>]* open>')
@@ -527,6 +533,24 @@ class TestModelGrouping(unittest.TestCase):
         g = _model_groups(self._results(paths))
         self.assertEqual(list(g), ['SWC'])
         self.assertEqual(g['SWC'], sorted(paths))
+
+    def test_data_companion_named_from_an_arxml_model_too(self):
+        paths = ['SWC_component.arxml', 'SWC_interface.arxml',
+                 'SWC_data.c', 'SWC_data.h']
+        g = _model_groups(self._results(paths))
+        self.assertEqual(list(g), ['SWC'])
+        self.assertEqual(g['SWC'], sorted(paths))
+
+    def test_a_model_genuinely_named_x_data_keeps_its_own_name(self):
+        # the _data suffix is only stripped when the base name is evidenced
+        # elsewhere. With no Foo.c anywhere, Foo_data IS the model: stripping
+        # it would label the group after a model that does not exist and
+        # leave Rte_Foo_data.h matching nothing.
+        paths = ['Foo_data.c', 'Foo_data.h', 'Foo_data_types.h',
+                 'Rte_Foo_data.h']
+        g = _model_groups(self._results(paths))
+        self.assertEqual(list(g), ['Foo_data'])
+        self.assertEqual(g['Foo_data'], sorted(paths))
 
 
 class TestModelReport(unittest.TestCase):

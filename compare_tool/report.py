@@ -529,8 +529,11 @@ _ARXML_SPLIT_RE = re.compile(
 # calibration tables. Without this, "SWC_data.c" is its own candidate model
 # name and -- being longer than "SWC" -- wins the match against itself,
 # splitting off into its own (usually <3-file, so Shared) group instead of
-# joining SWC's.
-_C_ROLE_SPLIT_RE = re.compile(r'(.+)_data$', re.IGNORECASE)
+# joining SWC's. Dropped only when the base name is evidenced by ANOTHER
+# file: a model genuinely called Foo_data, with no Foo.c beside it, keeps
+# its own name -- otherwise Rte_Foo_data.h would match nothing and the
+# group would be labelled with a model that does not exist.
+_C_DATA_RE = re.compile(r'(.+)_data$', re.IGNORECASE)
 # which statuses get a detail section, and in what order. 'comment-only' and
 # 'identical' are absent: neither is a reported category in this report, so a
 # section for them would be markup nothing could ever reveal. Both keep their
@@ -546,20 +549,23 @@ def _stem(rel):
 
 
 def _detect_models(paths):
-    """Model-name candidates: X for any X.c (X_data.c counts as X, not
-    X_data), plus X for the modular arxml export names (X_component.arxml,
-    X_interface.arxml, ...)."""
+    """Model-name candidates: X for any X.c, plus X for the modular arxml
+    export names (X_component.arxml, X_interface.arxml, ...). X_data is then
+    dropped whenever X itself is a candidate, so SWC_data.c joins SWC instead
+    of out-ranking it -- see _C_DATA_RE."""
     cands = set()
     for rel in paths:
         low = rel.lower()
         if low.endswith('.c'):
-            stem = _stem(rel)
-            m = _C_ROLE_SPLIT_RE.match(stem)
-            cands.add(m.group(1) if m else stem)
+            cands.add(_stem(rel))
         elif low.endswith('.arxml'):
             m = _ARXML_SPLIT_RE.match(_stem(rel))
             if m:
                 cands.add(m.group(1))
+    for c in list(cands):
+        m = _C_DATA_RE.match(c)
+        if m and m.group(1) in cands:
+            cands.discard(c)
     return cands
 
 
