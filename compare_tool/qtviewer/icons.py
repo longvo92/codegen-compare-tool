@@ -13,11 +13,14 @@ keeps its text label.
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
+from .. import theme
 from ..resources import icon_file, logo_file
 
-# icon tint on the dark chrome, and the accent used for the primary action
-TINT = '#d7d7d7'
-ACCENT = '#7c8cf8'
+# theme roles: the icon tint, and the accent the primary action wears. Roles,
+# not literals, because the tint has to flip with the chrome -- a light grey
+# glyph is invisible on the light theme's toolbar.
+TINT = 'icon-tint'
+ACCENT = 'accent-2'
 
 _cache = {}
 
@@ -31,8 +34,12 @@ def _tinted(pm, color):
     return out
 
 
-def icon(name, color=TINT, size=20):
-    """Tinted :class:`QIcon` for a shipped glyph; empty when it is missing."""
+def icon(name, role=TINT, size=20):
+    """Tinted :class:`QIcon` for a shipped glyph; empty when it is missing.
+
+    ``role`` is a theme role, resolved now -- so the same call made again after
+    a theme switch returns a glyph tinted for the new chrome."""
+    color = theme.c(role)
     key = (name, color, size)
     if key in _cache:
         return _cache[key]
@@ -46,14 +53,14 @@ def icon(name, color=TINT, size=20):
     return ico
 
 
-def std_icon(widget, standard_pixmap, color=TINT, size=20):
+def std_icon(widget, standard_pixmap, role=TINT, size=20):
     """A Qt built-in icon, tinted to match the shipped set.
 
     Windows' own icons are full colour (a blue folder, a red help ring) and
     would read as decorations dropped into an otherwise monochrome toolbar.
     """
     pm = widget.style().standardIcon(standard_pixmap).pixmap(size, size)
-    return QIcon(_tinted(pm, color)) if not pm.isNull() else QIcon()
+    return QIcon(_tinted(pm, theme.c(role))) if not pm.isNull() else QIcon()
 
 
 def app_icon():
@@ -68,22 +75,24 @@ def app_icon():
 
 
 # The shipped lockup's wordmark is near-black on transparent -- correct on a
-# white page, all but invisible on this app's dark chrome. So the SVG twin of
-# logo-full.png is re-rendered with a light wordmark; the gradient mark itself
-# is untouched. The PNG stays the fallback when Qt's SVG module is absent.
+# white page, all but invisible on the dark chrome. So on the dark theme the
+# SVG twin of logo-full.png is re-rendered with a light wordmark; the gradient
+# mark itself is untouched, and the light theme wants the asset as shipped. The
+# PNG stays the fallback when Qt's SVG module is absent.
 _DARK_WORDMARK = (('fill="#0f172a"', 'fill="#e9edf5"'),
                   ('fill="#475569"', 'fill="#9fb0c6"'))
 
 
-def _dark_lockup(width):
+def _svg_lockup(width):
     path = logo_file('logo-full.svg')
     if path is None:
         return None
     try:
         from PySide6.QtSvg import QSvgRenderer
         svg = path.read_text(encoding='utf-8')
-        for old, new in _DARK_WORDMARK:
-            svg = svg.replace(old, new)
+        if theme.current() == theme.DARK:
+            for old, new in _DARK_WORDMARK:
+                svg = svg.replace(old, new)
         r = QSvgRenderer(QByteArray(svg.encode('utf-8')))
         if not r.isValid():
             return None
@@ -103,7 +112,7 @@ def _dark_lockup(width):
 def logo_pixmap(width=320, name='logo-full.png'):
     """Horizontal lockup for the landing page and the About box; None if the
     asset is not shipped with this install."""
-    pm = _dark_lockup(width)
+    pm = _svg_lockup(width)
     if pm is not None:
         return pm
     path = logo_file(name)

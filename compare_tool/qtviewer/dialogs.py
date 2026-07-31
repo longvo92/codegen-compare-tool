@@ -56,20 +56,27 @@ GUIDE = """
 ## 4. Fold the noise
 
 - Untick `Comment` / `Unimportant` -- affected files re-judge instantly
-- Folded lines collapse to `⋯ N lines hidden`
-- Tick back on to bring them back
+- Those lines are **greyed out, not removed**: they stay where they are, keep
+  their line numbers, and lose their red/green
+- They also drop off the minimap and out of `F7` / `F8`, so nothing sends you
+  back to them
+- Tick back on to bring the colour back
 - Real changes can never be folded away
 
 ## 5. Read the diff
 
 - Baseline on the left, Current on the right, scrolled in lockstep
 - Minimap on the right edge -- click or drag to jump
-- C and ARXML are syntax-coloured; the code colours never use red or green
+- C, ARXML and A2L are syntax-coloured; the code colours never use red or green
+- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme. Start in one
+  with `--theme dark|light`; an exported report opens in the same one and
+  carries its own switch
 
 | Row colour | Meaning |
 |---|---|
 | red / green | removed / added |
 | dim red / green | noise: comment, UUID, rename, whitespace |
+| flat grey | a category you switched off -- shown, but not a change |
 | blue | moved block |
 
 ## 6. Navigate, find and export

@@ -505,5 +505,173 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         self.assertEqual(set(self.win._raw_results), set(raw))
 
 
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestMutedCategories(unittest.TestCase):
+    """Switching a noise category off greys its lines instead of removing them.
+
+    Two claims have to hold together. The lines stay -- they are the context
+    the surviving changes are read in, and a regenerated file is mostly banner
+    churn, so dropping them left the real hunks floating. And they stop
+    counting as changes everywhere that answers "where should I look next":
+    the minimap and F7/F8.
+    """
+
+    REL = 'a2l/cal.a2l'  # one comment hunk and one real one
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.addCleanup(self.pane.deleteLater)
+
+    def _show(self, muted=()):
+        self.pane.set_muted_modes(muted)
+        self.pane.show_file(self.REL, self.results[self.REL],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+        return self.pane.rows
+
+    def test_no_line_is_taken_away(self):
+        plain = [(r.old_no, r.old_txt, r.new_no, r.new_txt) for r in self._show()]
+        muted = [(r.old_no, r.old_txt, r.new_no, r.new_txt)
+                 for r in self._show(('comment',))]
+        self.assertEqual(muted, plain)
+
+    def test_the_comment_rows_lose_their_diff_colour(self):
+        from compare_tool import theme
+        from compare_tool.view_model import MUTED
+        rows = self._show()
+        i = next(k for k, r in enumerate(rows) if r.mode == 'comment')
+        doc = self.pane.old_edit.document()
+        before = doc.findBlockByNumber(i).blockFormat().background().color().name()
+        self.assertEqual(before, theme.c('del-bg-dim'))
+        rows = self._show(('comment',))
+        self.assertEqual(rows[i].mode, MUTED)
+        doc = self.pane.old_edit.document()
+        after = doc.findBlockByNumber(i).blockFormat().background().color().name()
+        self.assertEqual(after, theme.c('muted-bg'))
+
+    def test_a_muted_row_carries_no_inline_highlight(self):
+        i = next(k for k, r in enumerate(self._show()) if r.mode == 'comment')
+        self._show(('comment',))
+        self.assertEqual(_backgrounds(self.pane.old_edit)[i], ['block'])
+
+    def test_the_minimap_stops_marking_them_as_changes(self):
+        self._show()
+        with_noise = [k for k, r in enumerate(self.pane.minimap._rows)
+                      if r.mode not in ('ctx', 'muted')]
+        self._show(('comment',))
+        without = [k for k, r in enumerate(self.pane.minimap._rows)
+                   if r.mode not in ('ctx', 'muted')]
+        self.assertLess(len(without), len(with_noise))
+        self.assertTrue(without, 'the real change must still be on the map')
+
+    def test_the_real_change_still_stops_where_it_did(self):
+        # muting moves no row, so a navigation stop needs no translation --
+        # this is the assertion that would catch it if one ever did
+        before = list(self._show()) and list(self.pane._stops)
+        self._show(('comment', 'minor'))
+        self.assertEqual(self.pane._stops, before)
+        self.assertTrue(self.pane._stops)
+
+    def test_a_real_change_is_never_muted(self):
+        from compare_tool.view_model import MUTED
+        rows = self._show(('real', 'moved', 'comment', 'minor'))
+        self.assertIn('real', [r.mode for r in rows])
+        self.assertNotIn(MUTED, [r.mode for r in rows if r.kind == 'real'])
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestThemeSwitch(unittest.TestCase):
+    """The light theme has to reach every surface that stamps a colour in.
+
+    Row backgrounds are block formats inside the document and tree colours are
+    per item, so neither follows a stylesheet swap -- the failure mode is half
+    a window in the old theme, which no assertion about the palette alone
+    would catch.
+    """
+
+    def setUp(self):
+        from compare_tool import theme
+        from compare_tool.qtviewer.app import MainWindow
+        self.theme = theme
+        self.app = _app()
+        self.addCleanup(theme.set_current, theme.DEFAULT)
+        self.win = MainWindow(str(FIX / 'old'), str(FIX / 'new'))
+        self.win.resize(1200, 800)
+        self.win.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.win.show()
+        self.addCleanup(self.win.close)
+        _settle(self.app, self.win)
+
+    def _settle_ui(self):
+        for _ in range(5):
+            self.app.processEvents()
+
+    def _row_bgs(self):
+        doc = self.win.diff.old_edit.document()
+        return {doc.findBlockByNumber(i).blockFormat().background().color().name()
+                for i in range(doc.blockCount())}
+
+    def test_the_viewer_opens_in_the_theme_it_was_asked_for(self):
+        from compare_tool.qtviewer.app import MainWindow
+        win = MainWindow(str(FIX / 'old'), str(FIX / 'new'),
+                         theme_name=self.theme.LIGHT)
+        self.addCleanup(win.close)
+        self.assertEqual(self.theme.current(), self.theme.LIGHT)
+
+    def test_switching_repaints_the_diff_rows_not_just_the_chrome(self):
+        self.win._reselect('src/real_change.c')
+        self._settle_ui()
+        dark = self._row_bgs()
+        self.assertIn(self.theme.color('del-bg', self.theme.DARK), dark)
+        self.win._set_theme(self.theme.LIGHT)
+        self._settle_ui()
+        light = self._row_bgs()
+        self.assertIn(self.theme.color('del-bg', self.theme.LIGHT), light)
+        self.assertNotIn(self.theme.color('del-bg', self.theme.DARK), light)
+
+    def test_switching_repaints_the_tree_verdict_colours(self):
+        def first_colour():
+            item = self.win.tree.topLevelItem(0)
+            return item.foreground(0).color().name()
+
+        dark = first_colour()
+        self.win._set_theme(self.theme.LIGHT)
+        self._settle_ui()
+        self.assertNotEqual(first_colour(), dark)
+
+    def test_the_file_on_screen_survives_the_switch(self):
+        self.win._reselect('src/real_change.c')
+        self._settle_ui()
+        self.win._set_theme(self.theme.LIGHT)
+        self._settle_ui()
+        self.assertEqual(self.win._selected_rel(), 'src/real_change.c')
+        self.assertEqual(self.win.diff._rel, 'src/real_change.c')
+
+    def test_the_change_being_read_survives_the_switch(self):
+        # re-rendering the file parks on change 1; a colour switch is not a
+        # navigation command, so the reviewer must come back to where they were
+        self.win._reselect('src/rename_conflict.c')
+        self._settle_ui()
+        self.assertTrue(self.win.diff.next_change())
+        self._settle_ui()
+        row = self.win.diff._drive.textCursor().blockNumber()
+        idx = self.win.diff._cur_idx
+        self.assertGreater(idx, 0)
+        self.win._set_theme(self.theme.LIGHT)
+        self._settle_ui()
+        self.assertEqual(self.win.diff._drive.textCursor().blockNumber(), row)
+        self.assertEqual(self.win.diff._cur_idx, idx)
+
+    def test_the_toggle_goes_back_and_forth(self):
+        self.win._toggle_theme()
+        self.assertEqual(self.theme.current(), self.theme.LIGHT)
+        self.win._toggle_theme()
+        self.assertEqual(self.theme.current(), self.theme.DARK)
+
+
 if __name__ == '__main__':
     unittest.main()

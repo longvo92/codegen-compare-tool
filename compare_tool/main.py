@@ -2,14 +2,14 @@
 
 Usage:
     python -m compare_tool <old_dir> <new_dir> [--report out.html] [--arxml-only]
-    python -m compare_tool                     # side-by-side viewer
+    python -m compare_tool [--theme light]     # side-by-side viewer
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-from . import review
+from . import review, theme
 from .diff_engine import RULES
 from .report import build_arxml_report, build_report
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
@@ -47,7 +47,7 @@ def default_report_name(arxml_only):
 
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
-                progress=None, reviews=None):
+                progress=None, reviews=None, theme_name=theme.DEFAULT):
     """Scan two trees and write the HTML report.
     Returns (results, counts). Raises :class:`ReportWriteError` when the report
     could not be written -- a run whose record does not exist is not a run that
@@ -68,9 +68,11 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     if arxml_only:
         # ALWAYS written: "no changes" must be an explicit statement, never
         # a silently absent file (indistinguishable from a run that died)
-        page = build_arxml_report(results, old_root, new_root)
+        page = build_arxml_report(results, old_root, new_root,
+                                  theme_name=theme_name)
     else:
-        page = build_report(results, old_root, new_root, reviews)
+        page = build_report(results, old_root, new_root, reviews,
+                            theme_name=theme_name)
     try:
         out.write_text(page, encoding='utf-8')
     except OSError as e:
@@ -184,6 +186,12 @@ def _parser():
                          'diff report; the report is ALWAYS written -- when '
                          'nothing real changed it states "no changes" '
                          'explicitly per file type')
+    ap.add_argument('--theme', choices=theme.THEMES, default=theme.DEFAULT,
+                    help='colour scheme the viewer opens with, and the one the '
+                         'HTML report opens with (default: dark). The report '
+                         'always carries both, so its own button switches with '
+                         'nothing to download; the viewer has the same button '
+                         'in its toolbar')
     ap.add_argument('--exclude', metavar='PATTERN', action='append', default=[],
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
@@ -230,7 +238,7 @@ def main(argv=None):
         from .qtviewer import run_viewer  # deferred: PySide6 may be absent
         try:
             return run_viewer(args.old_dir, args.new_dir, exclude=args.exclude,
-                              arxml_only=args.arxml_only)
+                              arxml_only=args.arxml_only, theme_name=args.theme)
         except ImportError as e:
             # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
             # Say so plainly instead of dumping a traceback.
@@ -275,7 +283,7 @@ def main(argv=None):
     try:
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
                                       exclude=args.exclude, progress=progress,
-                                      reviews=reviews)
+                                      reviews=reviews, theme_name=args.theme)
     except ReportWriteError as e:
         # what WAS scanned still goes to the terminal -- the compare itself may
         # have been fine, it is only the record that is missing

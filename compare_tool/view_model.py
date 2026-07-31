@@ -22,16 +22,21 @@ from collections import namedtuple
 # mode: how a row is painted. 'ctx' = equal line (context), 'real' = real
 # change (red/green), 'comment' = comment-only noise, 'minor' = the other
 # ignorable noise (both painted in the same red/green, dimmer), 'moved' =
-# moved block (blue). Comments get
+# moved block (blue), 'muted' = a noise row the current compare rules do not
+# report (see mute_rows). Comments get
 # their own mode for the same reason they get their own file verdict: banner
 # churn reads very differently from a renamed identifier. kind = the
 # underlying hunk kind ('equal' for ctx rows, otherwise straight from the hunk).
 Row = namedtuple('Row', 'old_no old_txt new_no new_txt mode kind')
 
-# the only row modes a caller may collapse out of sight. 'real' and 'moved' are
-# absent by construction: a UI toggle must never be able to fold away a change
-# the reviewer has not seen.
+# the only row modes a caller may mute. 'real' and 'moved' are absent by
+# construction: a UI toggle must never be able to play down a change the
+# reviewer has not seen.
 FOLDABLE_MODES = ('comment', 'minor')
+
+# what a muted row's mode becomes. Its `kind` is left alone, so the row still
+# says WHY it was played down (uuid, comment, rename, …).
+MUTED = 'muted'
 
 
 def char_span(old_txt, new_txt):
@@ -64,46 +69,30 @@ def mode_of(kind):
     return 'minor'
 
 
-def collapse_rows(rows, modes):
-    """Fold every run of noise rows into ONE placeholder row.
+def mute_rows(rows, modes):
+    """Play noise rows DOWN instead of taking them away.
 
-    ``modes`` names the paint modes to fold (see :data:`FOLDABLE_MODES`; any
-    other mode passed in is ignored, so `real` and `moved` can never be folded
-    away by a caller's mistake). Each run becomes a single row carrying the same
-    ``⋯ N uuid lines hidden`` text on BOTH sides -- identical text, so it reads
-    as context rather than as a difference, and the two panes keep the same
-    block count and stay in scroll lockstep.
+    ``modes`` names the paint modes to mute (see :data:`FOLDABLE_MODES`; any
+    other mode passed in is ignored, so `real` and `moved` can never be muted
+    by a caller's mistake). Each matching row keeps its line numbers and its
+    text and comes back with mode :data:`MUTED`; the renderer paints it in a
+    flat grey with no diff colour, so it reads as "still here, does not count".
 
-    The count is always stated: this hides noise, it does not drop it, and a
-    reviewer must be able to see that something was folded and how much.
+    Collapsing those runs into a ``⋯ N lines hidden`` placeholder is what this
+    used to do, and it cost the reviewer the one thing a side-by-side view is
+    for: the code around a change. A regenerated file is mostly banner churn,
+    so folding it removed most of the file and left the surviving hunks without
+    context to read them in. Greying keeps the line count, the scroll position
+    and the shape of the file intact -- and, because row indices no longer
+    move, whatever the caller holds (navigation stops, find hits) stays valid.
 
-    Returns ``(rows, row_map)``. ``row_map[i]`` is where original row *i* now
-    lives, so a caller holding row indices (navigation stops) can move them
-    across; a folded row maps to its placeholder.
+    Returns a new list; the input is untouched, so the modes can be toggled
+    back and forth off one alignment.
     """
     modes = tuple(m for m in modes if m in FOLDABLE_MODES)
     if not modes:
-        return list(rows), list(range(len(rows)))
-    out, row_map = [], [0] * len(rows)
-    i = 0
-    while i < len(rows):
-        if rows[i].mode not in modes:
-            row_map[i] = len(out)
-            out.append(rows[i])
-            i += 1
-            continue
-        j, kinds = i, []
-        while j < len(rows) and rows[j].mode in modes:
-            if rows[j].kind not in kinds:
-                kinds.append(rows[j].kind)
-            row_map[j] = len(out)
-            j += 1
-        n = j - i
-        label = '{}   {} {} line{} hidden'.format(
-            '⋯', n, ' + '.join(kinds), '' if n == 1 else 's')
-        out.append(Row(None, label, None, label, 'folded', ' + '.join(kinds)))
-        i = j
-    return out, row_map
+        return list(rows)
+    return [r._replace(mode=MUTED) if r.mode in modes else r for r in rows]
 
 
 def hunk_row_starts(hunks):

@@ -7,30 +7,45 @@ to walk the returned Node list and paint it.
 
 from collections import namedtuple
 
-# status -> (tree marker, display label, hex colour). Mirrors the HTML
+from .. import theme
+
+# status -> (tree marker, display label, theme role). Mirrors the HTML
 # report's verdict vocabulary (Modified / Unimportant / Added / Deleted /
-# Identical) and its colours so the viewer and the report read the same.
+# Identical) and reads its colours from the SAME roles the report's CSS does,
+# so the viewer and the report cannot disagree about what Modified looks like
+# -- in either theme.
 STATUS = {
-    'real-change':    ('≠', 'Modified',     '#ff7b7b'),   # not-equal sign
+    'real-change':    ('≠', 'Modified',     'st-real'),   # not-equal sign
     # the two noise verdicts are grey on purpose: grey is what "this does not
     # count" looks like, and it keeps red/green meaning removed/added only
-    'comment-only':   ('≉', 'Comment',      '#8f96a2'),   # comments only
-    'ignorable-only': ('≈', 'Unimportant',  '#9aa1ad'),   # almost-equal
-    'added':          ('+',      'Added',        '#7bd88a'),
-    'deleted':        ('−', 'Deleted',      '#c88ad8'),   # minus sign
-    'identical':      ('=',      'Identical',    '#8a8a8a'),
-    'error':          ('!',      'NOT compared', '#ff5c5c'),
+    'comment-only':   ('≉', 'Comment',      'st-cmt'),    # comments only
+    'ignorable-only': ('≈', 'Unimportant',  'st-ign'),    # almost-equal
+    'added':          ('+',      'Added',        'st-add'),
+    'deleted':        ('−', 'Deleted',      'st-del'),    # minus sign
+    'identical':      ('=',      'Identical',    'st-id'),
+    'error':          ('!',      'NOT compared', 'st-err'),
 }
+
+
+def status_color(status):
+    """The current theme's colour for a verdict."""
+    return theme.c(STATUS[status][2])
 
 # folder verdict = most significant child verdict; an uncompared 'error' path
 # outranks everything so a folder hiding one can never look clean
 PRIO = {'error': 6, 'real-change': 5, 'ignorable-only': 4, 'comment-only': 3,
         'added': 2, 'deleted': 2, 'identical': 1}
 
-# review progress -> colour, for the tree column that only exists in review
+# review progress -> theme role, for the tree column that only exists in review
 # mode. Same three colours as the status chip on the status bar: green is a
 # finished state, amber is in flight, grey is nothing yet.
-REVIEW_COLOR = {'done': '#7bd88a', 'partial': '#e2c16b', 'none': '#8a8f98'}
+REVIEW_COLOR = {'done': 'review-done', 'partial': 'review-partial',
+                'none': 'review-none'}
+
+
+def review_color(state):
+    """The current theme's colour for a review-progress state."""
+    return theme.c(REVIEW_COLOR[state])
 
 
 def review_state(reviewed, total):

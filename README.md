@@ -89,6 +89,7 @@ scan did find is still printed.
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
 | `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact per-type report (default `arxml_update.html`) — always written, even when nothing changed |
 | `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, plus a `Reviewed` badge that hides the changes already signed off. Must be named explicitly — a report must not pick up someone else's sign-off by accident; no effect with `--arxml-only` |
+| `--theme dark\|light` | Colour scheme the report and the viewer open with (default `dark`). The report carries **both** and has its own switch, so this only sets what the reader sees first |
 | `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra (see below) |
 
 Omitting `old_dir`/`new_dir` opens the viewer. `--gui` (the tkinter panel) was removed in 1.1.0.
@@ -113,6 +114,8 @@ Reading a scan:
 - `F8` / `F7` step through the changes in the open file and then **carry on into the next (previous) file** with something to review, wrapping at the end. `Ctrl+Home` / `Ctrl+End` stay inside the file.
 - `Ctrl+F` **finds text in the open file** (either side, `F3` / `Shift+F3` to step, `Esc` to close). The query survives moving to another file, so an identifier can be chased across the compare.
 - `Hide identical` leaves only the files with a difference in the tree. It is a view: verdicts, counts and the exported report are untouched.
+- Unticking `Comment` / `Unimportant` **greys those lines out** rather than removing them: they stay where they are, keep their line numbers, lose their red/green, and drop off the minimap and out of `F7`/`F8`. The code around a change is what makes it readable, and a regenerated file is mostly banner churn — folding it away took most of the file with it.
+- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme; `--theme` picks the one it starts in. C, ARXML and A2L are syntax-coloured in both.
 
 `Review mode` adds the note box and a `Review` column in the tree — green when every change in a row is signed off, amber part way, grey when none is. Sign off one change (`Ctrl+R`) or a whole file (`Ctrl+Shift+R`); the notes travel into the exported report.
 
@@ -138,7 +141,7 @@ A shorter name can stop an argument wrapping at 80 columns, so the two sides hol
 
 Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` → `SIG_TORQUE_MAX` and `CFG_TIMEOUT_MS` → `CFG_TIMEOUT_US` are real changes, and so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The HTML report keeps the verdict but does not display comment content — see [HTML report](#html-report).
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The viewer has a rule toggle for each; the HTML report gives `Unimportant` a badge and leaves comment lines out altogether — see [HTML report](#html-report).
 
 ## Moved block detection
 
@@ -168,11 +171,13 @@ A file whose XML fails to parse is skipped from this summary (its text diff stil
 
 ## Grouping by model / SWC
 
-Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, the modular ARXML set, …). Files that match no model land in a final **Shared / other** group.
+Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, the modular ARXML set, …). Files that match no model land in a final **Shared / other** group.
 
 ## HTML report
 
-Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden and `Modified` expanded, so it opens on what matters.
+Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden, `Modified` expanded, so it opens on what matters. Clicking `Unimportant` reveals the actual noise lines — painted flat grey rather than red/green, so a revealed category still reads as "does not count" instead of looking like another change. Comment changes never render in the report at all — only a placeholder states how many comment lines were hidden — the report is a record meant to be sent around, and comment churn is left out of it entirely; the side-by-side viewer still shows them, greyed, for a reviewer working file by file. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
+
+A whole file with nothing but comment differences still gets no detail section of its own (there is nothing beyond the comment lines to show); it keeps its own `≉` mark and `Comment` count in the folder tree either way.
 
 ![Report viewer](resources/pic/report_page.png)
 
@@ -230,13 +235,14 @@ compare_tool/
 ├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments + extract port interfaces, SWCs (ports/runnables/events)
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
 ├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
-├── syntax.py        # line-at-a-time C / XML token spans, Qt-free so it ships in the .pyz
+├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
+├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
 └── report.py        # self-contained HTML report (badge toggles, model overview, grouping, filter, collapsible diffs)
 ```
 
-[docs/architecture.md](docs/architecture.md) covers how these fit together and why: the two diff passes, where a verdict is decided, the shared seams and the result-dict contract. Anything both renderers need lives in `view_model.py` — reimplementing a mapping inline lets the HTML report and the viewer drift apart about what changed.
+[docs/architecture.md](docs/architecture.md) covers how these fit together and why: the two diff passes, where a verdict is decided, the shared seams and the result-dict contract. Anything both renderers need lives in `view_model.py` (what changed) or `theme.py` (what colour it gets) — reimplementing a mapping inline lets the HTML report and the viewer drift apart.
 
 To add a rule: write the strip function in `c_rules.py` / `arxml_rules.py` / `a2l_rules.py`, join it into that ruleset's shadow, register one labelled variant in `_build_variants` in `diff_engine.py`, and add both tests — the pattern alone is noise, and the same pattern *beside* a real change still reports the real change.
 

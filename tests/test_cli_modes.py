@@ -47,6 +47,30 @@ class TestViewerRequested(unittest.TestCase):
         self.assertFalse(quiet(viewer_requested, ['--no-such-flag']))
 
 
+class TestThemeFlag(unittest.TestCase):
+    def _parse(self, argv):
+        from compare_tool.main import _parser
+        return _parser().parse_args(argv)
+
+    def test_the_default_is_dark(self):
+        from compare_tool import theme
+        self.assertEqual(self._parse(['old', 'new']).theme, theme.DARK)
+
+    def test_light_is_accepted(self):
+        self.assertEqual(self._parse(['old', 'new', '--theme', 'light']).theme,
+                         'light')
+
+    def test_an_unknown_scheme_is_a_usage_error_not_a_silent_fallback(self):
+        # on the command line a typo should be told, not guessed at; the
+        # fallback in theme.normalize is for values read back from a file
+        with self.assertRaises(SystemExit):
+            quiet(self._parse, ['old', 'new', '--theme', 'puce'])
+
+    def test_the_flag_does_not_count_as_a_folder(self):
+        self.assertTrue(viewer_requested(['--theme', 'light']))
+        self.assertFalse(viewer_requested(['old', 'new', '--theme', 'light']))
+
+
 class TestTkinterPanelIsGone(unittest.TestCase):
     def test_gui_flag_is_rejected(self):
         self.assertFalse(quiet(viewer_requested, ['--gui']))
