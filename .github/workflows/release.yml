@@ -1,0 +1,132 @@
+name: Release
+
+# Cutting a release is two moves, on purpose.
+#
+#   1. A normal PR bumps compare_tool/__version__ and moves the CHANGELOG
+#      [Unreleased] entries under "## [X.Y.Z] — <date>". A human merges it.
+#   2. This workflow is triggered against main:
+#
+#        gh workflow run release.yml -f version=1.3.1                  # rehearsal
+#        gh workflow run release.yml -f version=1.3.1 -f publish=true  # for real
+#        gh run watch
+#
+# The default does NOT publish: a run with no `publish` builds the artifacts,
+# proves they work and stops, so the expensive half can be checked without
+# creating a tag that cannot be taken back.
+#
+# Nothing here edits the repo. The version comes from files that were reviewed
+# in step 1, and packaging/release_check.py refuses if they disagree with the
+# version being asked for -- the same script you can run locally first:
+#
+#   python packaging/release_check.py 1.3.1
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.3.1 (already merged to main)'
+        required: true
+        type: string
+      publish:
+        description: 'Create the tag and the GitHub release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Windows because PyInstaller does not cross-compile and the shipped binary
+    # is a Windows .exe
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags, so an already-used version can be refused
+
+      - name: Releases come from main
+        shell: bash
+        run: |
+          test "${{ github.ref }}" = "refs/heads/main" || {
+            echo "::error::triggered on ${{ github.ref }}; re-run with --ref main"
+            exit 1
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Same script a person or an agent runs before triggering, so the answer
+      # here is never a surprise: version matches __init__.py, the CHANGELOG has
+      # a section for it, nothing is left under [Unreleased].
+      - name: Check the version is ready
+        shell: bash
+        run: python packaging/release_check.py "${{ inputs.version }}" --notes RELEASE_NOTES.md
+
+      - name: Refuse a version that was already tagged
+        shell: bash
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${{ inputs.version }}" >/dev/null; then
+            echo "::error::v${{ inputs.version }} already exists; releases are not moved"
+            exit 1
+          fi
+
+      - name: Install the viewer dependency
+        run: python -m pip install "PySide6>=6.5"
+
+      # main is already green, but a release is the one build where "the tests
+      # ran" is worth paying a minute for
+      - name: Run the suite
+        run: python -m unittest discover -s tests
+
+      - name: Build the exe and the zipapp
+        shell: pwsh
+        run: .\build.ps1 -Pyz
+
+      # Both artifacts get run, not just built. The exe carries the viewer and
+      # the zipapp is the fallback for machines where the exe is blocked, so a
+      # release that ships either one broken is the failure worth catching.
+      - name: Run both artifacts against the fixtures
+        shell: bash
+        run: |
+          for tool in "dist/compare-tool.exe" "python dist/compare_tool.pyz"; do
+            set +e
+            $tool tests/fixtures/old tests/fixtures/new --report out.html
+            code=$?
+            set -e
+            test "$code" -eq 1 || { echo "::error::$tool exited $code, expected 1"; exit 1; }
+            test -s out.html   || { echo "::error::$tool wrote no report"; exit 1; }
+            rm -f out.html
+          done
+
+      # uploaded on a rehearsal too: the point of a rehearsal is to be able to
+      # look at what would have shipped
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compare-tool-${{ inputs.version }}
+          path: |
+            dist/compare-tool.exe
+            dist/compare_tool.pyz
+            RELEASE_NOTES.md
+
+      - name: Publish
+        if: inputs.publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --target "${{ github.sha }}" \
+            --title "v${{ inputs.version }}" \
+            --notes-file RELEASE_NOTES.md \
+            dist/compare-tool.exe dist/compare_tool.pyz
+
+      - name: Rehearsal only
+        if: ${{ !inputs.publish }}
+        shell: bash
+        run: |
+          echo "Built and verified v${{ inputs.version }}; nothing was published."
+          echo "Re-run with -f publish=true to tag and release."

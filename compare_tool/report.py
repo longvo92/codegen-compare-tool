@@ -15,7 +15,8 @@ from . import review, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
-from .view_model import char_span, mode_of
+from .view_model import (SWC_DISPLAY, char_span, iface_kind, mode_of,
+                         swc_item)
 
 CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
@@ -653,7 +654,7 @@ def _autosar_chips(rels, results):
     """Compact AUTOSAR change rollup for one model group, e.g.
     '+1 interface · +2/−1 port · ~1 event · +3 RTE'."""
     ia = ir = sa = sr = ra = rr = aa = ar = 0
-    cats = {'ports': [0, 0, 0], 'runnables': [0, 0, 0], 'events': [0, 0, 0]}
+    cats = {cat.key: [0, 0, 0] for cat in SWC_DISPLAY}
     for rel in rels:
         r = results[rel]
         d = r.get('ifaces')
@@ -687,11 +688,9 @@ def _autosar_chips(rels, results):
             bits.append('<span class="a-chg">~{}</span>'.format(c))
         return '{} {}'.format('/'.join(bits), label) if bits else ''
 
-    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'interface'),
-             chip(*(cats['ports'] + ['port'])),
-             chip(*(cats['runnables'] + ['runnable'])),
-             chip(*(cats['events'] + ['event'])), chip(ra, rr, 0, 'RTE'),
-             chip(aa, ar, 0, 'A2L')]
+    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'interface')]
+    chips += [chip(*(cats[cat.key] + [cat.noun])) for cat in SWC_DISPLAY]
+    chips += [chip(ra, rr, 0, 'RTE'), chip(aa, ar, 0, 'A2L')]
     return ' &middot; '.join(c for c in chips if c)
 
 
@@ -785,16 +784,6 @@ def _kinds_of(r):
     return ', '.join(sorted(kinds))
 
 
-def _iface_kind(tag):
-    """'SENDER-RECEIVER-INTERFACE' -> 'SENDER-RECEIVER' for display."""
-    return tag.replace('-INTERFACE', '')
-
-
-def _swc_item(swc, name):
-    """'/Comp/Ctrl', 'In2' -> 'Ctrl.In2' (short SWC name keeps rows compact)."""
-    return '{}.{}'.format(swc.rsplit('/', 1)[-1], name)
-
-
 def _autosar_section(results, anchors):
     """Top-of-report rollup of every AUTOSAR-level change across all files:
     port-interfaces, software components, ports, runnables, events, RTE
@@ -817,8 +806,8 @@ def _autosar_section(results, anchors):
 
     sections = []
     if_added, if_removed = summarize_ifaces(results)
-    rows = [row('if-add', '+', p, _iface_kind(t), rel) for rel, p, t in if_added]
-    rows += [row('if-del', '−', p, _iface_kind(t), rel) for rel, p, t in if_removed]
+    rows = [row('if-add', '+', p, iface_kind(t), rel) for rel, p, t in if_added]
+    rows += [row('if-del', '−', p, iface_kind(t), rel) for rel, p, t in if_removed]
     if rows:
         sections.append(('Port interfaces', rows))
 
@@ -828,17 +817,16 @@ def _autosar_section(results, anchors):
     if rows:
         sections.append(('Software components', rows))
 
-    for cat, title in (('ports', 'Ports'), ('runnables', 'Runnables'),
-                       ('events', 'Events')):
-        rows = [row('if-add', '+', _swc_item(s, n), d, rel)
-                for rel, s, n, d in swcs[cat]['added']]
-        rows += [row('if-del', '−', _swc_item(s, n), d, rel)
-                 for rel, s, n, d in swcs[cat]['removed']]
-        rows += [row('if-chg', '~', _swc_item(s, n),
+    for cat in SWC_DISPLAY:
+        rows = [row('if-add', '+', swc_item(s, n), d, rel)
+                for rel, s, n, d in swcs[cat.key]['added']]
+        rows += [row('if-del', '−', swc_item(s, n), d, rel)
+                 for rel, s, n, d in swcs[cat.key]['removed']]
+        rows += [row('if-chg', '~', swc_item(s, n),
                      '{} → {}'.format(od, nd) if od != nd else nd, rel)
-                 for rel, s, n, od, nd in swcs[cat]['changed']]
+                 for rel, s, n, od, nd in swcs[cat.key]['changed']]
         if rows:
-            sections.append((title, rows))
+            sections.append((cat.title, rows))
 
     rte_added, rte_removed = summarize_rte(results)
     rows = [row('if-add', '+', n, '', rel) for rel, n in rte_added]
@@ -871,8 +859,8 @@ def _iface_note(r):
     d = r.get('ifaces')
     if not d or not (d['added'] or d['removed']):
         return ''
-    bits = ['+{} ({})'.format(p, _iface_kind(t)) for p, t in d['added']]
-    bits += ['−{} ({})'.format(p, _iface_kind(t)) for p, t in d['removed']]
+    bits = ['+{} ({})'.format(p, iface_kind(t)) for p, t in d['added']]
+    bits += ['−{} ({})'.format(p, iface_kind(t)) for p, t in d['removed']]
     return '<div class="ifnote">Interfaces: {}</div>'.format(_esc('; '.join(bits)))
 
 
@@ -883,14 +871,13 @@ def _swc_note(r):
         return ''
     bits = ['+SWC {}'.format(s) for s in d['swcs']['added']]
     bits += ['−SWC {}'.format(s) for s in d['swcs']['removed']]
-    for cat, label in (('ports', 'port'), ('runnables', 'runnable'),
-                       ('events', 'event')):
-        bits += ['+{} {}'.format(label, _swc_item(s, n))
-                 for s, n, _d in d[cat]['added']]
-        bits += ['−{} {}'.format(label, _swc_item(s, n))
-                 for s, n, _d in d[cat]['removed']]
-        bits += ['~{} {} ({} → {})'.format(label, _swc_item(s, n), od, nd)
-                 for s, n, od, nd in d[cat]['changed']]
+    for cat in SWC_DISPLAY:
+        bits += ['+{} {}'.format(cat.noun, swc_item(s, n))
+                 for s, n, _d in d[cat.key]['added']]
+        bits += ['−{} {}'.format(cat.noun, swc_item(s, n))
+                 for s, n, _d in d[cat.key]['removed']]
+        bits += ['~{} {} ({} → {})'.format(cat.noun, swc_item(s, n), od, nd)
+                 for s, n, od, nd in d[cat.key]['changed']]
     if not bits:
         return ''
     return '<div class="ifnote">Behavior: {}</div>'.format(_esc('; '.join(bits)))

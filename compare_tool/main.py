@@ -12,6 +12,7 @@ from pathlib import Path
 from . import review, theme
 from .diff_engine import RULES
 from .report import build_arxml_report, build_report
+from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
 
@@ -111,14 +112,11 @@ def summary_lines(results, counts):
         lines.append('ARXML interfaces: {} added, {} removed'.format(
             len(if_added), len(if_removed)))
         for rel, p, tag in if_added:
-            lines.append('  + {} ({}) in {}'.format(p, tag.replace('-INTERFACE', ''), rel))
+            lines.append('  + {} ({}) in {}'.format(p, iface_kind(tag), rel))
         for rel, p, tag in if_removed:
-            lines.append('  - {} ({}) in {}'.format(p, tag.replace('-INTERFACE', ''), rel))
+            lines.append('  - {} ({}) in {}'.format(p, iface_kind(tag), rel))
     elif any('ifaces' in r for r in results.values()):
         lines.append('ARXML interfaces: none added or removed')
-
-    def item(swc, name):
-        return '{}.{}'.format(swc.rsplit('/', 1)[-1], name)
 
     swc_sum = summarize_swcs(results)
     behavior = []
@@ -126,17 +124,16 @@ def summary_lines(results, counts):
         behavior.append('  + SWC {} in {}'.format(s, rel))
     for rel, s in swc_sum['swcs']['removed']:
         behavior.append('  - SWC {} in {}'.format(s, rel))
-    for cat, label in (('ports', 'port'), ('runnables', 'runnable'),
-                       ('events', 'event')):
-        for rel, s, n, d in swc_sum[cat]['added']:
+    for cat in SWC_DISPLAY:
+        for rel, s, n, d in swc_sum[cat.key]['added']:
             behavior.append('  + {} {}{} in {}'.format(
-                label, item(s, n), ' ({})'.format(d) if d else '', rel))
-        for rel, s, n, d in swc_sum[cat]['removed']:
+                cat.noun, swc_item(s, n), ' ({})'.format(d) if d else '', rel))
+        for rel, s, n, d in swc_sum[cat.key]['removed']:
             behavior.append('  - {} {}{} in {}'.format(
-                label, item(s, n), ' ({})'.format(d) if d else '', rel))
-        for rel, s, n, od, nd in swc_sum[cat]['changed']:
+                cat.noun, swc_item(s, n), ' ({})'.format(d) if d else '', rel))
+        for rel, s, n, od, nd in swc_sum[cat.key]['changed']:
             behavior.append('  ~ {} {} ({} -> {}) in {}'.format(
-                label, item(s, n), od, nd, rel))
+                cat.noun, swc_item(s, n), od, nd, rel))
     if behavior:
         lines.append('AUTOSAR behavior: {} change(s)'.format(len(behavior)))
         lines.extend(behavior)
