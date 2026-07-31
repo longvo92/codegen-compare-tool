@@ -175,7 +175,7 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming 
 
 ## HTML report
 
-Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` and `Comment` hidden, `Modified` expanded, so it opens on what matters. Clicking either badge reveals the actual comment/noise lines — painted flat grey rather than red/green, so a revealed category still reads as "does not count" instead of looking like another change. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
+Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden, `Modified` expanded, so it opens on what matters. Clicking `Unimportant` reveals the actual noise lines — painted flat grey rather than red/green, so a revealed category still reads as "does not count" instead of looking like another change. Comment changes never render in the report at all — only a placeholder states how many comment lines were hidden — the report is a record meant to be sent around, and comment churn is left out of it entirely; the side-by-side viewer still shows them, greyed, for a reviewer working file by file. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
 
 A whole file with nothing but comment differences still gets no detail section of its own (there is nothing beyond the comment lines to show); it keeps its own `≉` mark and `Comment` count in the folder tree either way.
 

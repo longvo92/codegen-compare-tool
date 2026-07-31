@@ -32,7 +32,6 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--f
 .badge.off { opacity: .35; text-decoration: line-through; }
 .b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
 .b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
-.b-cmt { background: var(--tag-cmt-bg); color: var(--tag-cmt-fg); }
 .b-id { background: var(--tag-id-bg); color: var(--tag-id-fg); }
 /* added and deleted share one control: both are "a whole file appeared or
    vanished", and a reviewer flips them together */
@@ -84,13 +83,15 @@ table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
-/* Comment and Unimportant hide behind their own badge, default OFF -- the
-   report opens on real changes, a click reveals the rest. Revealed rows are
-   flat neutral grey, not a dim red/green: a toggled-open noise section still
-   has to read as "off to the side", off the one-colour-language rule real
-   changes and moved blocks use, not a quieter member of it. No character-level
-   highlight either (see _row) -- marking what changed inside a line nobody
-   was asked to read closely would be noise on noise. */
+/* Unimportant hides behind its own badge, default OFF -- the report opens
+   on real changes, a click reveals the rest. Revealed rows are flat neutral
+   grey, not a dim red/green: a toggled-open noise section still has to read
+   as "off to the side", off the one-colour-language rule real changes and
+   moved blocks use, not a quieter member of it. No character-level highlight
+   either (see _row) -- marking what changed inside a line nobody was asked
+   to read closely would be noise on noise. Comment rows use the same grey
+   classes but never get a toggle: they stay hidden always (see the CSS
+   below), only counted in the placeholder, never rendered in the report. */
 td.delm, td.delc, td.addm, td.addc { background: var(--muted-bg); color: var(--muted-fg); }
 td.mvd, td.mva { background: var(--mv-bg); }
 td.ctx { color: var(--fg-dim); }
@@ -106,15 +107,18 @@ tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2)
             font-size: 11px; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
-/* Comment and Unimportant rows hide per ROW, not per group: a group used to
-   be wrapped whole and hidden together, which took the placeholder below and
-   the ordinary context lines around it down with it -- a noise-only file
-   opened to an empty box under its own summary line. */
+/* Unimportant rows hide per ROW, not per group: a group used to be wrapped
+   whole and hidden together, which took the placeholder below and the
+   ordinary context lines around it down with it -- a noise-only file opened
+   to an empty box under its own summary line. Comment rows are never shown
+   in the report -- unlike Unimportant they have no badge and no toggle, only
+   the placeholder below stating how many lines were hidden, so a comment
+   change is never silently dropped from the record, just never rendered. */
 body.hide-ign tr.minor { display: none; }
-body.hide-cmt tr.comment { display: none; }
-tr.minorph, tr.commentph { display: none; }
+tr.comment { display: none; }
+tr.minorph { display: none; }
 body.hide-ign tr.minorph { display: table-row; }
-body.hide-cmt tr.commentph { display: table-row; }
+tr.commentph { display: table-row; }
 tr.minorph td, tr.commentph td { color: var(--st-cmt); }
 .filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
 .renames { font-size: 12px; color: var(--st-ign); margin: 2px 0 8px; }
@@ -1191,7 +1195,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
 
     parts = []
     parts.append(_head('AUTOSAR Code Generation Report', theme_name,
-                       body_class='hide-ign hide-cmt'))
+                       body_class='hide-ign'))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
         _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
@@ -1220,13 +1224,13 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     parts.append('<div class="summary"><span class="bgroup">' + err_badge +
                  '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} Modified</span>'
                  '<span class="badge b-ign off" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
-                 '<span class="badge b-cmt off" onclick="tg(this,\'cmt\')">{comment-only} Comment</span>'
                  '<span class="badge b-adddel" onclick="tg2(this,\'add\',\'del\')">'
                  '{added} Added / {deleted} Deleted</span>'
                  '</span>'.format(**counts) + rev_group + '</div>')
-    hint = ('Click a badge to show/hide a category. Unimportant and Comment '
-            'start hidden and, revealed, show in grey rather than red/green '
-            '&mdash; only real changes keep that colour.')
+    hint = ('Click a badge to show/hide a category. Unimportant starts hidden '
+            'and, revealed, shows in grey rather than red/green &mdash; only '
+            'real changes keep that colour. Comment changes are never shown '
+            'here, only counted.')
     if rev_group:
         hint += (' <b>Reviewed</b> starts shown: click it to hide the changes '
                  'already signed off.')
@@ -1251,7 +1255,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
         parts.append('<div class="legend">'
                      '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>removed / added&emsp;'
                      '<span class="sw sw-mv"></span>moved block&emsp;'
-                     '<span class="sw sw-mut"></span>Comment / Unimportant, revealed</div>')
+                     '<span class="sw sw-mut"></span>Unimportant, revealed</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=false)">Collapse all</button>'

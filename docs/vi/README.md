@@ -189,8 +189,10 @@ một phần của tên, không phải đuôi mangle.
 được báo là **Comment**, tách khỏi **Unimportant** (UUID, timestamp, SW-VERSION,
 rename, whitespace) — một banner comment bị viết lại triage khác hẳn một identifier
 bị đổi tên. Đếm riêng trong summary của CLI và có marker riêng trên cây của viewer.
-File trộn comment *với* noise loại khác thì vẫn là Unimportant. Trong HTML report,
-`Comment` và `Unimportant` mỗi cái có badge riêng — xem [HTML report](#html-report).
+File trộn comment *với* noise loại khác thì vẫn là Unimportant. Trong viewer,
+`Comment` và `Unimportant` mỗi cái có rule bật/tắt riêng; trong HTML report,
+comment không hiện dòng nào cả, chỉ `Unimportant` có badge để bấm hiện — xem
+[HTML report](#html-report).
 
 ## Phát hiện block bị di chuyển
 
@@ -240,12 +242,15 @@ model nào rơi vào nhóm cuối **Shared / other**.
 ## HTML report
 
 File self-contained, mỗi lần compare một file: badge bật/tắt, cây thư mục, ô lọc,
-diff xếp gọn được theo từng file. Mở lên với `Unimportant` và `Comment` đã ẩn,
-`Modified` đã mở, để mở ra là thấy ngay cái đáng xem. Bấm vào badge nào thì hiện
-đúng các dòng comment/noise của nhóm đó — tô màu xám phẳng thay vì đỏ/xanh, để dù
-hiện ra rồi vẫn đọc được ngay là "không tính", không lẫn với thay đổi thật. Nút
-`☀ Light` / `☾ Dark` nằm ở góc trên bên phải — cả hai palette đều nhúng sẵn trong
-file, nên đổi màu không tải gì và chạy được trên máy không có internet.
+diff xếp gọn được theo từng file. Mở lên với `Unimportant` đã ẩn, `Modified` đã
+mở, để mở ra là thấy ngay cái đáng xem. Bấm badge `Unimportant` thì hiện đúng các
+dòng noise loại đó — tô màu xám phẳng thay vì đỏ/xanh, để dù hiện ra rồi vẫn đọc
+được ngay là "không tính", không lẫn với thay đổi thật. Thay đổi comment thì
+**không hiện trong report ở bất kỳ trạng thái nào** — chỉ có placeholder đếm số
+dòng bị ẩn; report là bản ghi để gửi đi nên bỏ hẳn comment churn ra khỏi đó, còn
+viewer (xem file theo file) vẫn hiện đầy đủ, tô xám. Nút `☀ Light` / `☾ Dark`
+nằm ở góc trên bên phải — cả hai palette đều nhúng sẵn trong file, nên đổi màu
+không tải gì và chạy được trên máy không có internet.
 
 Một file mà toàn bộ khác biệt chỉ là comment thì vẫn không có mục chi tiết riêng
 (không còn gì ngoài comment để mà xem) — nhưng vẫn giữ marker `≉` và đếm vào

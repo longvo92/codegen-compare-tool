@@ -138,13 +138,13 @@ class TestUnimportantToggle(unittest.TestCase):
             self.assertNotIn('grp-min', out)
             self.assertNotIn('grp-cmt', out)
 
-    def test_css_hides_minor_and_comment_rows_on_toggle(self):
+    def test_css_hides_minor_on_toggle_and_comment_unconditionally(self):
         results = scan(FIX / 'old', FIX / 'new')
         page = build_report(results, FIX / 'old', FIX / 'new')
         self.assertIn('body.hide-ign tr.minor { display: none; }', page)
-        self.assertIn('body.hide-cmt tr.comment { display: none; }', page)
+        self.assertIn('tr.comment { display: none; }', page)
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
-        self.assertIn('body.hide-cmt tr.commentph { display: table-row; }', page)
+        self.assertIn('tr.commentph { display: table-row; }', page)
 
 
 class TestNoisyGroupNeverEmpty(unittest.TestCase):
@@ -205,10 +205,10 @@ class TestCleanDefaults(unittest.TestCase):
         results = scan(FIX / 'old', FIX / 'new')
         cls.page = build_report(results, FIX / 'old', FIX / 'new')
 
-    def test_unimportant_and_comment_hidden_by_default(self):
-        self.assertIn('<body class="hide-ign hide-cmt">', self.page)
+    def test_unimportant_hidden_by_default(self):
+        self.assertIn('<body class="hide-ign">', self.page)
         self.assertRegex(self.page, r'badge b-ign off[^>]*>\d+ Unimportant<')
-        self.assertRegex(self.page, r'badge b-cmt off[^>]*>\d+ Comment<')
+        self.assertNotIn('class="badge b-cmt', self.page)
 
     def test_added_and_deleted_share_one_badge(self):
         self.assertRegex(self.page,
@@ -230,13 +230,14 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertIn('<div class="tf tc-cmt"', self.page)
         self.assertIn('<div class="tf tc-id"', self.page)
 
-    def test_comment_rows_stay_in_the_record_and_reveal_behind_their_badge(self):
-        # the report is the record: the lines are always in the file. Default
-        # state hides them behind a placeholder that states the count;
-        # clicking Comment reveals the actual lines, grey rather than red/green
-        self.assertIn('body.hide-cmt tr.comment { display: none; }', self.page)
+    def test_comment_rows_stay_in_the_record_but_never_render(self):
+        # the report is the record: the lines are always in the HTML, in a
+        # tr.comment row -- CSS just always hides that row, unconditionally,
+        # with no badge to reveal it. Only the placeholder count is visible.
+        self.assertIn('tr.comment { display: none; }', self.page)
         self.assertRegex(self.page, r'class="gap commentph"')
         self.assertIn('<tr class="comment">', self.page)
+        self.assertNotIn('class="badge b-cmt', self.page)
 
     def test_modified_files_expanded_by_default(self):
         self.assertRegex(self.page, r'<details class="file sec-real" id="f0"[^>]* open>')
