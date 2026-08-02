@@ -5,24 +5,27 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-08-02
+
+Rewritten documentation inside an ARXML file stops counting as a change, and
+the report's summary says less so the diff gets the room.
+
 ### Added
 
-- **ARXML description text no longer counts as a change.** A file whose only
-  differences are the prose an element carries — its description, long name or
-  introduction — is now reported as Unimportant instead of Modified, so
-  rewording a block comment in the model stops failing a CI gate. The lines are
-  still there to read behind the Unimportant badge. Category and annotations
-  are unaffected and still count as real changes.
+- **Ignore description text in ARXML files.** A file whose only differences are
+  the prose an element carries — its description, long name or introduction —
+  now reports as Unimportant instead of Modified, so rewording documentation in
+  the model no longer fails a build gate. The lines stay readable behind the
+  Unimportant badge. Category and annotations are untouched and still count as
+  real changes.
 
 ### Changed
 
-- Simplify the report's top summary: drop the usage hint line and the
-  per-model Comment count, since comment changes were never shown there.
+- Simplify the report's top summary.
 
 ### Fixed
 
-- Report file headers now use the same wording as the diff below them for a
-  comment-only change.
+- Fix wording in a report file header so it matches the diff underneath it.
 
 ## [1.3.0] — 2026-07-31
 
