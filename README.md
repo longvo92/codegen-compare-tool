@@ -132,6 +132,7 @@ Full walkthrough is built into the app — `Help` → `User guide` (`F1`), which
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
 | `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
+| `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — the prose an Identifiable carries (schema 4.2 and 4.4 alike). `<CATEGORY>` and `<ANNOTATIONS>` are **not** included: the first is semantic, the second can carry tool payload | .arxml .xml |
 | `whitespace` | Indentation, trailing spaces, blank lines | all |
 | `line-endings` | CRLF vs LF, BOM | all |
 
@@ -141,7 +142,7 @@ A shorter name can stop an argument wrapping at 80 columns, so the two sides hol
 
 Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` → `SIG_TORQUE_MAX` and `CFG_TIMEOUT_MS` → `CFG_TIMEOUT_US` are real changes, and so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
 
-**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The viewer has a rule toggle for each; the HTML report gives `Unimportant` a badge and leaves comment lines out altogether — see [HTML report](#html-report).
+**Comment changes are their own category.** A file whose differences are *only* comments is reported as **Comment**, separate from **Unimportant** (UUIDs, timestamps, SW-VERSION, descriptions, renames, whitespace) — a rewritten comment banner triages differently from a renamed identifier. Separate counts in the CLI summary and its own tree marker in the viewer. A file mixing comments *with* other noise stays Unimportant. The viewer has a rule toggle for each; the HTML report gives `Unimportant` a badge and leaves comment lines out altogether — see [HTML report](#html-report).
 
 ## Moved block detection
 
@@ -232,14 +233,14 @@ compare_tool/
 ├── scanner.py       # walks both trees, pairs files by relative path
 ├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
 ├── c_rules.py       # C/H rules: strip comments, tokenize, detect renames, extract RTE access points
-├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments + extract port interfaces, SWCs (ports/runnables/events)
+├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments, DESC/LONG-NAME + extract port interfaces, SWCs (ports/runnables/events)
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
 ├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
 ├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
 ├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
-└── report.py        # self-contained HTML report (badge toggles, model overview, grouping, filter, collapsible diffs)
+└── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
 ```
 
 [docs/architecture.md](docs/architecture.md) covers how these fit together and why: the two diff passes, where a verdict is decided, the shared seams and the result-dict contract. Anything both renderers need lives in `view_model.py` (what changed) or `theme.py` (what colour it gets) — reimplementing a mapping inline lets the HTML report and the viewer drift apart.

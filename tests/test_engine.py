@@ -109,6 +109,31 @@ class TestComparePair(unittest.TestCase):
         r = compare_pair(old, new, 'f.arxml')
         self.assertEqual(r['status'], 'real-change')
 
+    def test_arxml_description_only(self):
+        old = ('<A>\n<DESC>\n<L-2 L="EN">speed in km/h</L-2>\n</DESC>\n'
+               '<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n')
+        new = ('<A>\n<DESC>\n<L-2 L="EN">speed in m/s, filtered</L-2>\n</DESC>\n'
+               '<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n')
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'description'})
+
+    def test_arxml_description_beside_real_change_stays_real(self):
+        # fail-safe: rewording a DESC does not launder a rename next to it
+        old = ('<A>\n<DESC>\n<L-2 L="EN">speed in km/h</L-2>\n</DESC>\n'
+               '<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n')
+        new = ('<A>\n<DESC>\n<L-2 L="EN">speed in m/s</L-2>\n</DESC>\n'
+               '<SHORT-NAME>Velocity</SHORT-NAME>\n</A>\n')
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_arxml_category_change_is_real(self):
+        # CATEGORY sits beside DESC on Identifiable but is semantic
+        old = '<A>\n<CATEGORY>VALUE</CATEGORY>\n<SHORT-NAME>T</SHORT-NAME>\n</A>\n'
+        new = '<A>\n<CATEGORY>STRUCTURE</CATEGORY>\n<SHORT-NAME>T</SHORT-NAME>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        self.assertEqual(r['status'], 'real-change')
+
     def test_arxml_real(self):
         old = '<A UUID="1">\n<SHORT-NAME>Speed</SHORT-NAME>\n</A>\n'
         new = '<A UUID="2">\n<SHORT-NAME>Velocity</SHORT-NAME>\n</A>\n'

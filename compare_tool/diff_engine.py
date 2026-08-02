@@ -7,7 +7,7 @@ by testing single normalization rules one at a time.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
 kind in {real, moved, comment, rename, uuid, timestamp, sw-version,
-         whitespace, mixed}
+         description, whitespace, mixed}
 
 Moved blocks: a pure-delete hunk whose non-blank shadow content reappears
 verbatim as exactly one pure-insert hunk (and vice versa) is labeled 'moved'
@@ -247,6 +247,12 @@ def _build_variants(old_text, new_text, ruleset, rename_map):
         variants.append(('sw-version',
                          _lines(cw(arxml_rules.strip_sw_version(old_text))),
                          _lines(cw(arxml_rules.strip_sw_version(new_text)))))
+        # 'description', not 'comment': the report hides comment rows outright,
+        # and a reworded DESC is authored text somebody may still want to see.
+        # As an ignorable kind it greys behind the Unimportant badge instead.
+        variants.append(('description',
+                         _lines(cw(arxml_rules.strip_descriptions(old_text))),
+                         _lines(cw(arxml_rules.strip_descriptions(new_text)))))
     elif ruleset == 'a2l':
         # A2L string rules differ from C (literal backslash, "" quote
         # escape) so the dedicated stripper is required; no rename map

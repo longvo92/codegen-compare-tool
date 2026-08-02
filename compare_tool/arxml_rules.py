@@ -1,4 +1,5 @@
-"""ARXML normalization rules: UUID, XML comments, ADMIN-DATA, dates, SW-VERSION.
+"""ARXML normalization rules: UUID, XML comments, ADMIN-DATA, dates,
+SW-VERSION, Identifiable documentation.
 
 Text-based (not DOM) so line mapping to the original file is preserved:
 every replacement keeps newlines and never changes the line count.
@@ -21,6 +22,24 @@ DATE_RE = re.compile(r'<DATE(?:\s[^>]*)?>[^<]*</DATE>', re.S)
 # not a behaviour change. Anchored so <SW-VERSIONx> and <SW-MAJOR-VERSION> do
 # NOT match (the tag must end right after SW-VERSION).
 SW_VERSION_RE = re.compile(r'<SW-VERSION(?:\s[^>]*)?>[^<]*</SW-VERSION>', re.S)
+
+# Prose an Identifiable may carry. The set is the same in schema 4.2 and 4.4:
+# DESC (MultiLanguageOverviewParagraph, holds <L-2>), LONG-NAME
+# (MultilanguageLongName, holds <L-4>) and INTRODUCTION (DocumentationBlock,
+# holds <P>/<L-1>). All three are text for a human reader and reach no
+# generated code, so a rewritten block description is not a behaviour change.
+#
+# CATEGORY and ANNOTATIONS are deliberately NOT here even though they sit on
+# the same Identifiable. CATEGORY is semantic -- <CATEGORY>VALUE</CATEGORY> vs
+# STRUCTURE decides what an ImplementationDataType *is* -- and an ANNOTATION is
+# free-form enough that a toolchain can hide payload in it. Neither is provably
+# noise, so both stay a real change.
+DOC_TAGS = ('DESC', 'LONG-NAME', 'INTRODUCTION')
+# Anchored the same way as SW_VERSION_RE: the tag has to end right after the
+# name, so <DESCRIPTION> and <LONG-NAME-1> are left alone. Non-greedy, and
+# nested prose cannot occur, so the first close tag is the right one.
+DOC_RE = re.compile('|'.join(
+    r'<{t}(?:\s[^>]*)?>.*?</{t}>|<{t}\s*/>'.format(t=t) for t in DOC_TAGS), re.S)
 
 
 def _blank_keep_newlines(match):
@@ -50,14 +69,19 @@ def strip_sw_version(text):
     return SW_VERSION_RE.sub(_blank_keep_newlines, text)
 
 
+def strip_descriptions(text):
+    return DOC_RE.sub(_blank_keep_newlines, text)
+
+
 def arxml_shadow(text):
-    """Full normalized shadow: comments, ADMIN-DATA, dates, UUIDs and
-    SW-VERSION stripped, whitespace collapsed."""
+    """Full normalized shadow: comments, ADMIN-DATA, dates, UUIDs, SW-VERSION
+    and Identifiable documentation stripped, whitespace collapsed."""
     text = strip_xml_comments(text)
     text = strip_admin_data(text)
     text = strip_dates(text)
     text = strip_uuids(text)
     text = strip_sw_version(text)
+    text = strip_descriptions(text)
     return collapse_ws(text)
 
 

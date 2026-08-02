@@ -256,6 +256,47 @@ class TestArxml(unittest.TestCase):
         src = '<SW-MAJOR-VERSION>4</SW-MAJOR-VERSION><SW-VERSIONING>on</SW-VERSIONING>'
         self.assertEqual(arxml_rules.strip_sw_version(src), src)
 
+    def test_description_blanked_keeping_line_count(self):
+        src = ('<E>\n<DESC>\n<L-2 L="EN">Vehicle speed in km/h</L-2>\n</DESC>\n'
+               '<SHORT-NAME>Speed</SHORT-NAME>\n</E>')
+        s = arxml_rules.strip_descriptions(src)
+        self.assertEqual(s.count('\n'), src.count('\n'))
+        self.assertNotIn('km/h', s)
+        self.assertIn('<SHORT-NAME>Speed</SHORT-NAME>', s)
+
+    def test_description_covers_long_name_and_introduction(self):
+        src = ('<LONG-NAME><L-4 L="EN">Speed sensor</L-4></LONG-NAME>'
+               '<INTRODUCTION><P><L-1 L="EN">How it works</L-1></P></INTRODUCTION>')
+        s = arxml_rules.strip_descriptions(src)
+        self.assertNotIn('Speed sensor', s)
+        self.assertNotIn('How it works', s)
+
+    def test_description_does_not_touch_similarly_named_tags(self):
+        # anchored: the tag must end right after the name
+        src = ('<DESCRIPTION>keep</DESCRIPTION><LONG-NAME-1>keep</LONG-NAME-1>'
+               '<INTRODUCTION-REF>keep</INTRODUCTION-REF>')
+        self.assertEqual(arxml_rules.strip_descriptions(src), src)
+
+    def test_description_leaves_category_and_annotations_alone(self):
+        # both sit on Identifiable but are not provably prose -- CATEGORY is
+        # semantic, an ANNOTATION can carry tool payload
+        src = ('<CATEGORY>VALUE</CATEGORY>'
+               '<ANNOTATIONS><ANNOTATION><LABEL><L-4 L="EN">n</L-4></LABEL>'
+               '</ANNOTATION></ANNOTATIONS>')
+        s = arxml_rules.strip_descriptions(src)
+        self.assertIn('<CATEGORY>VALUE</CATEGORY>', s)
+        self.assertIn('<ANNOTATION>', s)
+
+    def test_shadow_equal_for_description_only(self):
+        a = '<E><DESC><L-2 L="EN">old text</L-2></DESC><SHORT-NAME>X</SHORT-NAME></E>'
+        b = '<E><DESC><L-2 L="EN">new wording</L-2></DESC><SHORT-NAME>X</SHORT-NAME></E>'
+        self.assertEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
+
+    def test_shadow_differs_when_category_changes(self):
+        a = '<E><CATEGORY>VALUE</CATEGORY><SHORT-NAME>X</SHORT-NAME></E>'
+        b = '<E><CATEGORY>STRUCTURE</CATEGORY><SHORT-NAME>X</SHORT-NAME></E>'
+        self.assertNotEqual(arxml_rules.arxml_shadow(a), arxml_rules.arxml_shadow(b))
+
     def test_shadow_equal_for_uuid_only(self):
         a = '<E UUID="1"><SHORT-NAME>X</SHORT-NAME></E>'
         b = '<E UUID="2"><SHORT-NAME>X</SHORT-NAME></E>'

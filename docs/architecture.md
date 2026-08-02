@@ -116,8 +116,8 @@ sequenceDiagram
   were identical. A raw hunk that intersects no real hunk is ignorable, and is
   *labelled* by `_build_variants`: a list of shadows each with exactly **one**
   rule applied. The first variant under which the hunk's two slices are equal
-  names it (`comment`, `uuid`, `timestamp`, `sw-version`, `rename`,
-  `whitespace`). A hunk that no single rule explains is `mixed` — still
+  names it (`comment`, `uuid`, `timestamp`, `sw-version`, `description`,
+  `rename`, `whitespace`). A hunk that no single rule explains is `mixed` — still
   ignorable, but honest that more than one rule combined to explain it.
 
 This is why the noise-rule checklist is what it is: a new rule has to be
@@ -184,7 +184,7 @@ consumes one dict per compared path:
 
 Ranges are 0-based, end-exclusive, into the **raw** lines of each side.
 `kind` is one of `real`, `moved`, `comment`, `rename`, `uuid`, `timestamp`,
-`sw-version`, `whitespace`, `mixed`.
+`sw-version`, `description`, `whitespace`, `mixed`.
 
 The semantic extras are computed only where they can matter: a shadow-equal
 file has the same content, so it cannot have moved the AUTOSAR surface.
