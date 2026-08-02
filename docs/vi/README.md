@@ -161,6 +161,7 @@ Bản `.exe` standalone (không cần Python): xem [Build một file](#build-m�
 | `uuid` | Attribute `UUID="..."` | .arxml .xml |
 | `timestamp` | Block `<ADMIN-DATA>`, `<DATE>` | .arxml .xml |
 | `sw-version` | Version stamp `<SW-VERSION>` (tăng mỗi lần regenerate). Regex có anchor, nên `<SW-MAJOR-VERSION>` và các thẻ tương tự không bị đụng | .arxml .xml |
+| `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — phần văn xuôi mà một Identifiable mang theo (schema 4.2 và 4.4 giống nhau). `<CATEGORY>` và `<ANNOTATIONS>` **không** nằm trong diện này: cái đầu mang ngữ nghĩa, cái sau có thể chứa payload của tool | .arxml .xml |
 | `whitespace` | Thụt đầu dòng, khoảng trắng cuối dòng, dòng trống | tất cả |
 | `line-endings` | CRLF vs LF, BOM | tất cả |
 
@@ -187,7 +188,7 @@ một phần của tên, không phải đuôi mangle.
 
 **Thay đổi comment là một hạng mục riêng.** File mà khác biệt *chỉ* nằm ở comment
 được báo là **Comment**, tách khỏi **Unimportant** (UUID, timestamp, SW-VERSION,
-rename, whitespace) — một banner comment bị viết lại triage khác hẳn một identifier
+description, rename, whitespace) — một banner comment bị viết lại triage khác hẳn một identifier
 bị đổi tên. Đếm riêng trong summary của CLI và có marker riêng trên cây của viewer.
 File trộn comment *với* noise loại khác thì vẫn là Unimportant. Trong viewer,
 `Comment` và `Unimportant` mỗi cái có rule bật/tắt riêng; trong HTML report,

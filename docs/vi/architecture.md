@@ -114,7 +114,7 @@ sequenceDiagram
   thô nào không giao với hunk real nào thì là ignorable, và được *gán nhãn* bởi
   `_build_variants`: một danh sách shadow, mỗi cái áp đúng **một** rule. Variant đầu
   tiên mà hai lát cắt của hunk bằng nhau sẽ đặt tên cho nó (`comment`, `uuid`,
-  `timestamp`, `sw-version`, `rename`, `whitespace`). Hunk mà không rule đơn lẻ nào
+  `timestamp`, `sw-version`, `description`, `rename`, `whitespace`). Hunk mà không rule đơn lẻ nào
   giải thích được thì là `mixed` — vẫn ignorable, nhưng nói thẳng là phải nhiều rule
   cộng lại mới giải thích nổi.
 
@@ -180,7 +180,7 @@ Mọi thứ ở phía sau — summary của CLI, HTML report, cây của viewer,
 
 Range đánh số từ 0, hở đầu cuối (end-exclusive), tính trên dòng **thô** của mỗi bên.
 `kind` là một trong `real`, `moved`, `comment`, `rename`, `uuid`, `timestamp`,
-`sw-version`, `whitespace`, `mixed`.
+`sw-version`, `description`, `whitespace`, `mixed`.
 
 Phần ngữ nghĩa chỉ được tính ở chỗ nó có thể có nghĩa: file có shadow bằng nhau thì
 nội dung như nhau, nên không thể làm xê dịch bề mặt AUTOSAR.

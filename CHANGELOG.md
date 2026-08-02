@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **ARXML description text no longer counts as a change.** A file whose only
+  differences are the prose an element carries — its description, long name or
+  introduction — is now reported as Unimportant instead of Modified, so
+  rewording a block comment in the model stops failing a CI gate. The lines are
+  still there to read behind the Unimportant badge. Category and annotations
+  are unaffected and still count as real changes.
+
 ### Changed
 
 - Simplify the report's top summary: drop the usage hint line and the
