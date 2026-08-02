@@ -703,7 +703,7 @@ def _overview_table(groups, results, model_anchors):
             name = '<a onclick="go(\'{}\')">{}</a>'.format(model_anchors[m], name)
         rows.append('<tr><td>{}</td><td>{}</td><td class="aut">{}</td></tr>'
                     .format(name, counts_html, chips or '&mdash;'))
-    return ('<h2>Model overview</h2><table class="ov">'
+    return ('<h2>Overview</h2><table class="ov">'
             '<tr><th>Model / SWC</th><th>Files</th><th>AUTOSAR changes</th></tr>'
             '{}</table>'.format(''.join(rows)))
 

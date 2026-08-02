@@ -239,7 +239,7 @@ compare_tool/
 ├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
-└── report.py        # self-contained HTML report (badge toggles, model overview, grouping, filter, collapsible diffs)
+└── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
 ```
 
 [docs/architecture.md](docs/architecture.md) covers how these fit together and why: the two diff passes, where a verdict is decided, the shared seams and the result-dict contract. Anything both renderers need lives in `view_model.py` (what changed) or `theme.py` (what colour it gets) — reimplementing a mapping inline lets the HTML report and the viewer drift apart.

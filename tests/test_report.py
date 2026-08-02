@@ -595,7 +595,7 @@ class TestModelReport(unittest.TestCase):
         cls.page = build_report(cls.results, FIX / 'model_old', FIX / 'model_new')
 
     def test_overview_table_lists_model(self):
-        self.assertIn('Model overview', self.page)
+        self.assertIn('Overview', self.page)
         self.assertIn('<table class="ov">', self.page)
         self.assertIn('>Ctrl</a>', self.page)
         self.assertIn('Shared / other', self.page)
