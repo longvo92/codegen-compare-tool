@@ -183,7 +183,6 @@ table.ov a:hover { color: var(--link-hover); }
 .cnt-del { color: var(--tag-del-fg); }
 .cnt-ign { color: var(--tag-ign-fg); } .cnt-id { color: var(--st-id); }
 .cnt-err { color: var(--st-err); font-weight: 700; }
-.cnt-cmt { color: var(--st-cmt-text); }
 .aut { color: var(--fg-dim); }
 .aut .a-add { color: var(--st-add); } .aut .a-del { color: var(--st-real); }
 .aut .a-chg { color: var(--mv-fg); }
@@ -641,7 +640,6 @@ def _counts_html(rels, results):
                             ('real-change', 'Modified', 'cnt-real'),
                             ('added', 'Added', 'cnt-add'),
                             ('deleted', 'Deleted', 'cnt-del'),
-                            ('comment-only', 'Comment', 'cnt-cmt'),
                             ('ignorable-only', 'Unimportant', 'cnt-ign')):
         if c[key]:
             bits.append('<span class="cnt {}">{} {}</span>'.format(cls, c[key], label))
@@ -1234,15 +1232,6 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  '<span class="badge b-adddel" onclick="tg2(this,\'add\',\'del\')">'
                  '{added} Added / {deleted} Deleted</span>'
                  '</span>'.format(**counts) + rev_group + '</div>')
-    hint = ('Click a badge to show/hide a category. Unimportant starts hidden '
-            'and, revealed, shows in grey rather than red/green &mdash; only '
-            'real changes keep that colour. Comment changes are never shown '
-            'here, only counted.')
-    if rev_group:
-        hint += (' <b>Reviewed</b> starts shown: click it to hide the changes '
-                 'already signed off.')
-    parts.append('<div class="hint">{}</div>'.format(hint))
-
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
     parts.append(_autosar_section(results, anchors))

@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- Simplify the report's top summary: drop the usage hint line and the
+  per-model Comment count, since comment changes were never shown there.
+
 ### Fixed
 
 - Report file headers now use the same wording as the diff below them for a
