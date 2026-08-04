@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import (_char_diff, _group_hunks, _group_table,
-                                 _groups_html, _model_groups,
+from compare_tool.report import (_char_diff, _counts_html, _group_hunks,
+                                 _group_table, _groups_html, _model_groups,
                                  build_arxml_report, build_report)
 from compare_tool.scanner import scan
 
@@ -712,6 +712,36 @@ class TestModelReport(unittest.TestCase):
     def test_scanner_attached_semantics(self):
         self.assertIn('swc', self.results['Ctrl_component.arxml'])
         self.assertIn('rte', self.results['Ctrl.c'])
+
+
+class TestOverviewCountsStayTrue(unittest.TestCase):
+    """The Overview no longer tallies Unimportant per model -- the folder tree
+    marks that file by file. What it must never do is turn the omission into a
+    false claim: a model whose files all changed by UUID / timestamp alone is
+    the everyday regenerated case, and it is not unchanged."""
+
+    @staticmethod
+    def _counts(statuses):
+        results = {'m/f{}.c'.format(i): {'status': s}
+                   for i, s in enumerate(statuses)}
+        return _counts_html(list(results), results)[0]
+
+    def test_a_noise_only_model_is_not_called_unchanged(self):
+        self.assertIn('no real change', self._counts(['ignorable-only']))
+        self.assertIn('no real change', self._counts(['comment-only']))
+        self.assertIn('no real change',
+                      self._counts(['identical', 'ignorable-only']))
+
+    def test_a_genuinely_untouched_model_still_says_unchanged(self):
+        html = self._counts(['identical', 'identical'])
+        self.assertIn('unchanged', html)
+        self.assertNotIn('no real change', html)
+
+    def test_unimportant_is_never_tallied_beside_a_real_count(self):
+        html = self._counts(['real-change', 'ignorable-only', 'comment-only'])
+        self.assertIn('1 Modified', html)
+        self.assertNotIn('Unimportant', html)
+        self.assertNotIn('unchanged', html)
 
 
 class TestArxmlOnlyReport(unittest.TestCase):

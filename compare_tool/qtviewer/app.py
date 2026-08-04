@@ -1181,7 +1181,7 @@ class MainWindow(QMainWindow):
     # screen, and stops treating it as navigable the instant it is hidden --
     # with no extra state to keep in sync with the checkboxes.
     _NAV_STATUS = ('error', 'real-change', 'added', 'deleted',
-                  'comment-only', 'ignorable-only')
+                   'comment-only', 'ignorable-only')
 
     def _tree_rels(self):
         """Every file row, in the order the tree shows it.

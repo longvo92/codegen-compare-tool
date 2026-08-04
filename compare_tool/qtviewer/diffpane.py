@@ -926,10 +926,10 @@ class DiffPane(QStackedWidget):
         hunks = (result or {}).get('hunks') or []
         starts = hunk_row_starts(hunks)
         stops = [(starts[u.index], u) for u in self._units
-                if u.index is not None and u.index < len(starts)]
+                 if u.index is not None and u.index < len(starts)]
         shown_noise = {'comment', 'minor'} - set(self._muted)
         stops += [(starts[i], None) for i, h in enumerate(hunks)
-                 if i < len(starts) and mode_of(h['kind']) in shown_noise]
+                  if i < len(starts) and mode_of(h['kind']) in shown_noise]
         stops.sort(key=lambda t: t[0])
         self._stops = [row for row, _u in stops]
         self._stop_units = [u for _row, u in stops]

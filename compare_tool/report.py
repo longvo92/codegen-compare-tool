@@ -568,7 +568,7 @@ _MODE_TR = {'comment': 'comment', 'minor': 'minor'}
 
 
 def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
-        o_state=syntax.PLAIN, n_state=syntax.PLAIN, hideable=True):
+         o_state=syntax.PLAIN, n_state=syntax.PLAIN, hideable=True):
     # comment/minor rows are muted grey, not a diff colour, when revealed --
     # so there is no changed SPAN to point at inside them, and no syntax
     # colour either: the code channel goes quiet along with the diff channel,
@@ -721,7 +721,14 @@ def _detail_order(rels, results):
 
 
 def _counts_html(rels, results):
-    """Colored per-status count spans for one model group + raw counts."""
+    """Colored per-status count spans for one model group + raw counts.
+
+    Only the verdicts a reviewer has to act on are counted: a per-model
+    Unimportant tally restated what the folder tree marks file by file. The
+    fallback still has to be TRUE of the scan, though -- a model whose files
+    all changed by UUID/timestamp alone is the everyday regenerated case, and
+    calling it 'unchanged' would be the report claiming something the hunks
+    say otherwise (see CLAUDE.md, "the record is never the filtered view")."""
     c = {'real-change': 0, 'comment-only': 0, 'ignorable-only': 0, 'added': 0,
          'deleted': 0, 'identical': 0, 'error': 0}
     for rel in rels:
@@ -734,7 +741,9 @@ def _counts_html(rels, results):
         if c[key]:
             bits.append('<span class="cnt {}">{} {}</span>'.format(cls, c[key], label))
     if not bits:
-        bits.append('<span class="cnt cnt-id">unchanged</span>')
+        noise = c['ignorable-only'] + c['comment-only']
+        bits.append('<span class="cnt cnt-id">{}</span>'
+                    .format('no real change' if noise else 'unchanged'))
     return ''.join(bits), c
 
 
