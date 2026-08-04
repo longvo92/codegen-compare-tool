@@ -166,8 +166,6 @@ summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font
 .tag-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
 .tag-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
 .tag-err { background: var(--tag-err-bg); color: var(--tag-err-fg); }
-.hunklabel { color: var(--st-ign); font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
-             letter-spacing: .5px; }
 .toolbar { margin: 4px 0 16px; }
 .toolbar button { background: var(--btn-bg); color: var(--btn-fg);
     border: 1px solid var(--btn-border); border-radius: 4px;
@@ -359,33 +357,6 @@ def _group_hunks(hunks):
     return groups
 
 
-def _group_label(group):
-    kinds = []
-    for h in group:
-        if h['kind'] not in kinds:
-            kinds.append(h['kind'])
-    return ' + '.join(kinds)
-
-
-def _hunk_count_note(hunks):
-    """'(2 hunks + 1 comment + 3 minor)' -- the file header's rollup of what a
-    Modified file actually contains.
-
-    The counts go through ``mode_of``, the same kind->mode mapping the rows,
-    the group labels and the viewer use, so a comment hunk is named *comment*
-    here too. Lumping it under 'minor' printed one word on the header and
-    another ('comment + real') on the group label a few pixels below, for the
-    same hunk."""
-    modes = [mode_of(h['kind']) for h in hunks]
-    n_real = modes.count('real')
-    tail = ''
-    for mode in ('moved', 'comment', 'minor'):
-        n = modes.count(mode)
-        if n:
-            tail += ' + {} {}'.format(n, mode)
-    return '({} hunk{}{})'.format(n_real, '' if n_real == 1 else 's', tail)
-
-
 def _group_table(old_lines, new_lines, group, language=None, old_states=None,
                  new_states=None):
     """One continuous side-by-side table for a run of nearby hunks: leading /
@@ -497,8 +468,6 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
         notes_html, done = _group_notes(g, notes)
         cls = ' grp-rev' if done else ''
         out.append('<div class="grp{}">'.format(cls))
-        if any(h['kind'] != 'real' for h in g):
-            out.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
         out.append(notes_html)
         out.append(_group_table(old_lines, new_lines, g, language, old_states, new_states))
         out.append('</div>')
@@ -745,8 +714,7 @@ def _counts_html(rels, results):
     for key, label, cls in (('error', 'Error', 'cnt-err'),
                             ('real-change', 'Modified', 'cnt-real'),
                             ('added', 'Added', 'cnt-add'),
-                            ('deleted', 'Deleted', 'cnt-del'),
-                            ('ignorable-only', 'Unimportant', 'cnt-ign')):
+                            ('deleted', 'Deleted', 'cnt-del')):
         if c[key]:
             bits.append('<span class="cnt {}">{} {}</span>'.format(cls, c[key], label))
     if not bits:
@@ -1062,7 +1030,6 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append('<div class="filenote">{}</div>'.format(_esc(note)))
     elif status == 'real-change':
         hunks = r['hunks'] if not r['binary'] else []
-        extra = _hunk_count_note(hunks)
         old_lines = new_lines = None
         if r['binary']:
             notes = rv.annotate(rel, r, blob=review.blob_digest(Path(new_root) / rel))
@@ -1070,7 +1037,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
             notes = rv.annotate(rel, r, old_lines, new_lines)
-        parts.append(_file_open(anchors[rel], rel, 'real-change', extra,
+        parts.append(_file_open(anchors[rel], rel, 'real-change',
                                 expanded=True, reviewed=rel in rv.files))
         parts.append(_notes(r))
         if r['binary']:
