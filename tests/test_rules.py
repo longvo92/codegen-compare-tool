@@ -74,6 +74,37 @@ class TestRename(unittest.TestCase):
             c_rules.apply_rename_map("aa = aa + ab;", {'aa': 'zz'}),
             "zz = zz + ab;")
 
+    def test_excludes_rte_access_point(self):
+        # a consistent Rte_CData_TrqMax -> Rte_CData_TrqMin swap is a
+        # calibration source change, not this file renaming its own
+        # identifier -- neither name is declared here.
+        old = "x = Rte_CData_TrqMax(); y = Rte_CData_TrqMax() + 1;"
+        new = "x = Rte_CData_TrqMin(); y = Rte_CData_TrqMin() + 1;"
+        self.assertIsNone(c_rules.detect_renames(old, new))
+
+    def test_excludes_dwork_field(self):
+        # UnitDelay_DSTATE -> UnitDelay1_DSTATE reads a different block's
+        # state, a real change generated_root already rejects on the
+        # autogen path -- detect_renames must not launder it first.
+        old = "y = DW.UnitDelay_DSTATE; DW.UnitDelay_DSTATE = u;"
+        new = "y = DW.UnitDelay1_DSTATE; DW.UnitDelay1_DSTATE = u;"
+        self.assertIsNone(c_rules.detect_renames(old, new))
+
+    def test_excludes_all_caps_constant(self):
+        # MODE_DRIVE -> MODE_REVERSE is a different enum/macro value, not a
+        # name this file owns and renamed.
+        old = "if (m == MODE_DRIVE) { t = 1; } z = MODE_DRIVE;"
+        new = "if (m == MODE_REVERSE) { t = 1; } z = MODE_REVERSE;"
+        self.assertIsNone(c_rules.detect_renames(old, new))
+
+    def test_still_detects_ordinary_local_rename(self):
+        # the exclusion is name-shape based, not "reject everything" --
+        # a plain local identifier rename is still recognised.
+        old = "int spd_raw; spd_raw = spd_raw + 1;"
+        new = "int spd_in; spd_in = spd_in + 1;"
+        self.assertEqual(c_rules.detect_renames(old, new),
+                          {'spd_raw': 'spd_in'})
+
 
 class TestAutogenNames(unittest.TestCase):
     def test_rtb_pair(self):
