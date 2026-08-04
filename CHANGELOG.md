@@ -40,10 +40,11 @@ harmless rename.
 
 ### Fixed
 
-- **A changed calibration constant, port or DWork field is no longer written off
-  as a rename.** Swapping one externally declared name for another — an RTE access
-  point, a `*_DSTATE` field, an `ALL_CAPS` macro — is a real change, and reporting
-  it as Unimportant could pass a build gate that should have failed.
+- **A changed calibration constant, port, enum state or DWork field is no longer
+  written off as a rename.** Swapping one externally declared name for another —
+  an RTE access point, a `*_DSTATE` field, an `ALL_CAPS` macro or enum value such
+  as `IDLE` → `DRIVE` — is a real change, and reporting it as Unimportant could
+  pass a build gate that should have failed.
 - A model whose files all changed by comment or noise alone no longer reads as
   `unchanged` in the report's Overview.
 

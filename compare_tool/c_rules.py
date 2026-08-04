@@ -155,16 +155,24 @@ def _is_authored_name(name):
     """True when `name` plausibly names something declared outside this
     file: an AUTOSAR RTE access point (Rte_Read_Speed), a DWork/state field
     selector (*_DSTATE, *_PreviousInput, ...), or an ALL_CAPS macro/enum
-    constant (MODE_DRIVE). A rename map built from this file's text alone
-    cannot tell 'the whole file now names its own thing differently' apart
-    from 'the file was pointed at a different port/DWork field/constant with
-    the same shape everywhere it is used' -- the second case is a real
-    change and must not be swallowed by the first."""
+    constant (MODE_DRIVE, IDLE). A rename map built from this file's text
+    alone cannot tell 'the whole file now names its own thing differently'
+    apart from 'the file was pointed at a different port/DWork field/constant
+    with the same shape everywhere it is used' -- the second case is a real
+    change and must not be swallowed by the first.
+
+    The ALL_CAPS test deliberately does NOT require an underscore. A
+    single-word constant (IDLE -> DRIVE, an enum state; ON -> OFF) is exactly
+    the swap that changes behaviour while looking perfectly consistent, and
+    C convention reserves all-caps for macros and enum constants -- both
+    declared in a header, not here. The cost is the other reading of the same
+    shape: an all-caps local really renamed by hand now reports as a real
+    change. That is the direction this tool errs in on purpose."""
     if RTE_API_RE.fullmatch(name):
         return True
     if DWORK_FIELD_RE.search(name):
         return True
-    if ALL_CAPS_RE.match(name) and '_' in name:
+    if ALL_CAPS_RE.match(name):
         return True
     return False
 

@@ -97,6 +97,19 @@ class TestRename(unittest.TestCase):
         new = "if (m == MODE_REVERSE) { t = 1; } z = MODE_REVERSE;"
         self.assertIsNone(c_rules.detect_renames(old, new))
 
+    def test_excludes_single_word_all_caps_constant(self):
+        # no underscore to key on: IDLE -> DRIVE is an enum state swap, and
+        # ON -> OFF inverts a flag. Both look like a perfectly consistent
+        # rename and both change behaviour, so the shape alone has to be
+        # enough -- C reserves all-caps for macros and enum constants, which
+        # are declared in a header, not in the file being compared.
+        old = "if (st == IDLE) { t = 1; } z = IDLE;"
+        new = "if (st == DRIVE) { t = 1; } z = DRIVE;"
+        self.assertIsNone(c_rules.detect_renames(old, new))
+        old = "f = ON; g = ON + 1;"
+        new = "f = OFF; g = OFF + 1;"
+        self.assertIsNone(c_rules.detect_renames(old, new))
+
     def test_still_detects_ordinary_local_rename(self):
         # the exclusion is name-shape based, not "reject everything" --
         # a plain local identifier rename is still recognised.
