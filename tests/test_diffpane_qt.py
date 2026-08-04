@@ -323,14 +323,16 @@ class TestFindInFile(unittest.TestCase):
         # one mark per occurrence per pane that has the row
         self.assertGreaterEqual(self._match_marks(), len(self.pane._hits))
 
-    def test_the_current_change_overlay_survives_a_cleared_search(self):
-        # the two overlays share one selection list; clearing the search used
-        # to wipe the block the reviewer is standing on as well
+    def test_the_current_change_marker_survives_a_cleared_search(self):
+        # the current-change gutter arrow and the search highlights are
+        # tracked separately; clearing the search used to wipe the block the
+        # reviewer is standing on as well (back when both shared one
+        # extraSelections list)
         self._open('src/rename_conflict.c')
         self.pane.open_find()
         self._type('rtb_')
         self._type('')
-        self.assertGreater(sum(len(s) for s in self.pane._sel_rows), 0)
+        self.assertTrue(self.pane.old_edit._cur_rows or self.pane.new_edit._cur_rows)
 
     def test_leaving_a_file_takes_its_marks_with_it(self):
         self._open('src/rename_conflict.c')
@@ -390,12 +392,50 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
         self.assertFalse(self.pane.prev_change())
 
     def test_a_file_with_no_change_stops_never_claims_to_move(self):
-        self.pane.show_file('src/rename_only.c', self.results['src/rename_only.c'],
+        # same.h is identical -- no hunks at all, real or noise -- so there is
+        # truly nothing to step to regardless of what is muted
+        self.pane.show_file('src/same.h', self.results['src/same.h'],
                             str(FIX / 'old'), str(FIX / 'new'))
         for _ in range(5):
             self.app.processEvents()
         self.assertFalse(self.pane.next_change())
         self.assertFalse(self.pane.prev_change())
+
+    def test_a_noise_only_file_is_still_navigable_while_unmuted(self):
+        # rename_only.c has no real change, only renames (mode 'minor'); shown
+        # (the default, nothing muted) they are themselves valid F7/F8 stops,
+        # but landing on one offers nothing to sign off -- noise never enters
+        # the review record (review.REVIEWABLE)
+        self.pane.show_file('src/rename_only.c', self.results['src/rename_only.c'],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+        self.assertTrue(self.pane._stops)
+        self.assertIsNone(self.pane.current_unit())
+        self.assertTrue(self.pane.next_change())
+        self.assertIsNone(self.pane.current_unit())
+
+    def test_stepping_moves_the_gutter_arrow_on_both_panes(self):
+        self.pane.first_change()
+        first = frozenset(self.pane.old_edit._cur_rows)
+        self.assertTrue(first)
+        self.assertEqual(self.pane.old_edit._cur_rows, self.pane.new_edit._cur_rows)
+        self.pane.next_change()
+        self.assertTrue(self.pane.old_edit._cur_rows)
+        self.assertNotEqual(self.pane.old_edit._cur_rows, first)
+
+    def test_leaving_a_file_clears_the_arrow_it_left_behind(self):
+        self.pane.first_change()
+        self.assertTrue(self.pane.old_edit._cur_rows)
+        # same.h has no hunks at all -- the marker from the previous file
+        # must not still be sitting there once a file with nothing to mark
+        # replaces it
+        self.pane.show_file('src/same.h', self.results['src/same.h'],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+        self.assertEqual(self.pane.old_edit._cur_rows, frozenset())
+        self.assertEqual(self.pane.new_edit._cur_rows, frozenset())
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
@@ -569,12 +609,18 @@ class TestMutedCategories(unittest.TestCase):
         self.assertTrue(without, 'the real change must still be on the map')
 
     def test_the_real_change_still_stops_where_it_did(self):
-        # muting moves no row, so a navigation stop needs no translation --
-        # this is the assertion that would catch it if one ever did
-        before = list(self._show()) and list(self.pane._stops)
+        # muting moves no row, so the real hunk's own stop needs no
+        # translation -- this is the assertion that would catch it if one
+        # ever did. Unmuted, the comment hunk is ALSO a stop now (shown noise
+        # is navigable); muting it away removes that stop but leaves the real
+        # one exactly where it was.
+        self._show()
+        unmuted = list(self.pane._stops)
         self._show(('comment', 'minor'))
-        self.assertEqual(self.pane._stops, before)
-        self.assertTrue(self.pane._stops)
+        muted = list(self.pane._stops)
+        self.assertTrue(muted)
+        self.assertTrue(set(muted).issubset(unmuted))
+        self.assertGreater(len(unmuted), len(muted))
 
     def test_a_real_change_is_never_muted(self):
         from compare_tool.view_model import MUTED

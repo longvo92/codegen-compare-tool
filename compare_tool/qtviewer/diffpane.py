@@ -22,10 +22,10 @@ itself, and the two never touch -- the diff owns background, syntax owns text.
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
-from PySide6.QtGui import (QColor, QFont, QKeySequence, QPainter, QShortcut,
-                           QTextBlockFormat, QTextCharFormat, QTextCursor,
-                           QTextFormat)
+from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, Signal
+from PySide6.QtGui import (QColor, QFont, QKeySequence, QPainter, QPolygonF,
+                           QShortcut, QTextBlockFormat, QTextCharFormat,
+                           QTextCursor)
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QSplitter, QStackedWidget, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
@@ -34,7 +34,7 @@ from .. import review, theme
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
 from ..view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows, char_span,
-                          hunk_row_starts, mute_rows, row_with)
+                          hunk_row_starts, mode_of, mute_rows, row_with)
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
 from .minimap import Minimap
@@ -114,9 +114,11 @@ _ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
 # counter is pointing at brighter -- "3 of 8" is only useful if the other seven
 # are visible too. (Roles: find-bg / find-cur-bg.)
 #
-# 'cur-row' is the translucent wash over the change the reviewer is on, so
-# F7/F8 are visibly doing something even when the file fits on screen and there
-# is nothing to scroll.
+# 'cur-marker' is the gutter arrow on the change the reviewer is on (see
+# DiffEditor.set_current_rows), so F7/F8 are visibly doing something even when
+# the file fits on screen and there is nothing to scroll. A row-wide wash was
+# tried first and dropped: it competed with the del/add/moved row colour it
+# sat on top of, reading as a fourth diff category rather than a pointer.
 
 
 def _qc(role):
@@ -155,6 +157,11 @@ class DiffEditor(QPlainTextEdit):
     # zoom on either pane can never leave the other one behind
     zoomStep = Signal(int)
 
+    # room reserved in the gutter for the F7/F8 current-change arrow, past the
+    # line number -- fixed, not grown on demand, so the code column does not
+    # shift sideways the moment a marker appears or disappears
+    _ARROW_W = 12
+
     def __init__(self):
         super().__init__()
         self.setReadOnly(True)
@@ -165,6 +172,7 @@ class DiffEditor(QPlainTextEdit):
         self.setFont(f)
         self.apply_theme()
         self._nos = []  # per block: line-number string ('' for padding)
+        self._cur_rows = frozenset()  # blocks carrying the current-change arrow
         self._gutter = _Gutter(self)
         self.blockCountChanged.connect(lambda _n: self._update_gutter_width())
         self.updateRequest.connect(self._on_update_request)
@@ -197,10 +205,20 @@ class DiffEditor(QPlainTextEdit):
         self._update_gutter_width()
         self._gutter.update()
 
+    def set_current_rows(self, rows):
+        """Blocks (0-based) to mark with the F7/F8 current-change arrow,
+        replacing whatever was marked before -- there is only ever one current
+        change. Empty ``rows`` clears the marker."""
+        rows = frozenset(rows)
+        if rows == self._cur_rows:
+            return
+        self._cur_rows = rows
+        self._gutter.update()
+
     def gutter_width(self):
         digits = max((len(s) for s in self._nos), default=1)
         digits = max(digits, 2)
-        return 12 + self.fontMetrics().horizontalAdvance('9') * digits
+        return 12 + self.fontMetrics().horizontalAdvance('9') * digits + self._ARROW_W
 
     def _update_gutter_width(self):
         self.setViewportMargins(self.gutter_width(), 0, 0, 0)
@@ -219,18 +237,28 @@ class DiffEditor(QPlainTextEdit):
     def paint_gutter(self, event):
         painter = QPainter(self._gutter)
         painter.fillRect(event.rect(), _qc('gutter-bg'))
+        # the arrow strip sits PAST the number, so the number keeps the exact
+        # right edge it always had -- widening the gutter never moves it
+        num_w = self._gutter.width() - self._ARROW_W
         block = self.firstVisibleBlock()
         top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
         bottom = top + self.blockBoundingRect(block).height()
-        painter.setPen(_qc('gutter-fg'))
         h = self.fontMetrics().height()
+        marker = _qc('cur-marker')
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 idx = block.blockNumber()
                 num = self._nos[idx] if idx < len(self._nos) else ''
                 if num:
-                    painter.drawText(0, int(top), self._gutter.width() - 6, h,
-                                     Qt.AlignRight, num)
+                    painter.setPen(_qc('gutter-fg'))
+                    painter.drawText(0, int(top), num_w - 6, h, Qt.AlignRight, num)
+                if idx in self._cur_rows:
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(marker)
+                    cy = top + h / 2
+                    painter.drawPolygon(QPolygonF([
+                        QPointF(num_w + 2, top + 2), QPointF(num_w + 2, top + h - 2),
+                        QPointF(self._gutter.width() - 2, cy)]))
             block = block.next()
             top = bottom
             bottom = top + self.blockBoundingRect(block).height()
@@ -336,9 +364,13 @@ class DiffPane(QStackedWidget):
         self._hl_new = CodeHighlighter(self.new_edit.document())
 
         self.rows = []
-        self._stops = []           # first row of each reviewable change block
+        self._stops = []           # first row of every F7/F8 stop, in file order
+        # review.Unit for each entry in _stops, or None for a Comment/
+        # Unimportant stop -- those are navigable but never reviewable (see
+        # review.REVIEWABLE), so current_unit() must not attach a note to one
+        self._stop_units = []
         self._muted = ()           # row modes played down in the panes
-        self._units = []           # review.Unit per change, same order as _stops
+        self._units = []           # every reviewable review.Unit, file order
         self._rel = None           # file currently shown
         # what show_file was last called with, so a theme switch can re-render
         # the same file from the same arguments instead of half-repainting it
@@ -355,9 +387,9 @@ class DiffPane(QStackedWidget):
         self._drive = self.old_edit
         self._hits = []            # rows matching the find box, in file order
         self._hit_idx = -1
-        # the two extraSelections layers, per editor (old, new): see
-        # _paint_selections
-        self._sel_rows = [[], []]
+        # find-hit extraSelections, per editor (old, new): see _paint_selections.
+        # The current change is a gutter arrow now (DiffEditor.set_current_rows),
+        # not a second extraSelections layer.
         self._sel_match = [[], []]
         self._link_scrolls()
         # Ctrl+F is where every editor puts find; the pane owns the shortcut so
@@ -685,6 +717,12 @@ class DiffPane(QStackedWidget):
         file is mostly banner churn. So they are greyed, not removed: still
         readable, no diff colour, and gone from the minimap and from F7/F8.
 
+        A TICKED category is the opposite case: Comment and Unimportant hunks
+        then keep their own diff colour, same as a real change, and F7/F8
+        stops on them too -- so the reviewer can step through everything on
+        screen, not just what counts. They still carry no Unit (see
+        show_file), so landing on one never offers a note to sign off.
+
         Takes effect on the next ``show_file``."""
         self._muted = tuple(modes)
 
@@ -702,6 +740,7 @@ class DiffPane(QStackedWidget):
         self._rel = None
         self._last = None
         self._units = []
+        self._stop_units = []
         self._cur_idx = 0
         self.unitChanged.emit()
 
@@ -748,16 +787,20 @@ class DiffPane(QStackedWidget):
 
     def current_unit(self):
         """``(rel, key, label)`` of the change the reviewer is looking at, or
-        None when this file has nothing to sign off (identical, noise-only, or
-        a path that could not be compared -- the last one on purpose: a note
-        would look like a verdict on something nobody read)."""
+        None when there is nothing to sign off here: an identical or
+        noise-only file, a path that could not be compared (a note would look
+        like a verdict on something nobody read), or -- now that F7/F8 also
+        stops on a shown Comment/Unimportant hunk -- the reviewer is standing
+        on exactly one of those (see the ``_stop_units`` note in show_file)."""
         if not self._units:
             return None
         if self._units[0].index is None:
             u = self._units[0]  # whole-file unit: added / deleted / binary
-        elif self._cur_idx < len(self._units):
-            u = self._units[self._cur_idx]
+        elif self._cur_idx < len(self._stop_units):
+            u = self._stop_units[self._cur_idx]
         else:
+            return None
+        if u is None:
             return None
         return self._rel, u.key, u.label
 
@@ -766,6 +809,7 @@ class DiffPane(QStackedWidget):
     def _message(self, text):
         self.rows = []
         self._stops = []
+        self._stop_units = []
         self._clear_selections()
         self.minimap.set_rows([])
         self._pos_text = ''
@@ -872,11 +916,23 @@ class DiffPane(QStackedWidget):
         # hunk. Deriving them from the hunk list rather than from runs of
         # coloured rows is what makes "change 3 of 7", the hunk count the CLI
         # prints and the units a review note attaches to all the same thing.
-        # Muting never moves a row, so these indices need no translation --
-        # and a muted category is absent from _units anyway, so F7/F8 skip it.
-        starts = hunk_row_starts((result or {}).get('hunks') or [])
-        self._stops = [starts[u.index] for u in self._units
-                       if u.index is not None and u.index < len(starts)]
+        #
+        # A Comment or Unimportant hunk is also a stop -- but only while its
+        # category is being shown (its mode is not in self._muted): a hunk the
+        # reviewer just told the tool to fold away should not make F7/F8 land
+        # on it anyway. It carries no Unit (None in _stop_units), so
+        # current_unit() reports nothing to sign off there -- noise stays off
+        # the review record on purpose (review.REVIEWABLE), navigable or not.
+        hunks = (result or {}).get('hunks') or []
+        starts = hunk_row_starts(hunks)
+        stops = [(starts[u.index], u) for u in self._units
+                if u.index is not None and u.index < len(starts)]
+        shown_noise = {'comment', 'minor'} - set(self._muted)
+        stops += [(starts[i], None) for i, h in enumerate(hunks)
+                 if i < len(starts) and mode_of(h['kind']) in shown_noise]
+        stops.sort(key=lambda t: t[0])
+        self._stops = [row for row, _u in stops]
+        self._stop_units = [u for _row, u in stops]
         self._cur_idx = 0
         self.setCurrentIndex(1)
         # start at the top of the file; jump to the first change only if there
@@ -896,6 +952,7 @@ class DiffPane(QStackedWidget):
                      if side == 'new' else Row(i + 1, line, None, None, 'ctx', 'ctx')
                      for i, line in enumerate(lines)]
         self._stops = []
+        self._stop_units = []
         self._pos_text = ''
         self._clear_selections()  # nothing of the previous file may survive
         self._sem.setVisible(False)
@@ -988,24 +1045,19 @@ class DiffPane(QStackedWidget):
         self._update_position(row)
         self.unitChanged.emit()
 
-    # Two overlays share one extraSelections list per editor: the block the
-    # reviewer is on, and the search hits. They are kept apart so either can be
-    # rebuilt without wiping the other -- one list meant a cleared search took
-    # the current-change overlay with it, and a search that stopped matching
-    # left its old highlights behind.
-
     def _paint_selections(self):
         for i, editor in enumerate((self.old_edit, self.new_edit)):
-            # matches last: they paint on top of the row overlay
-            editor.setExtraSelections(self._sel_rows[i] + self._sel_match[i])
+            editor.setExtraSelections(self._sel_match[i])
 
     def _clear_selections(self):
-        self._sel_rows = [[], []]
         self._sel_match = [[], []]
+        self.old_edit.set_current_rows(())
+        self.new_edit.set_current_rows(())
         self._paint_selections()
 
     def _highlight_block(self, row):
-        """Overlay the whole contiguous change block containing `row`."""
+        """Mark the whole contiguous change block containing `row` with the
+        F7/F8 gutter arrow, on both panes."""
         rows = self.rows
         if not rows or row >= len(rows):
             return
@@ -1014,21 +1066,11 @@ class DiffPane(QStackedWidget):
             start -= 1
         while end + 1 < len(rows) and rows[end + 1].mode == rows[row].mode != 'ctx':
             end += 1
-        self._sel_rows = [[], []]
-        for k, editor in enumerate((self.old_edit, self.new_edit)):
-            # a one-sided file leaves the other document empty: selecting a
-            # block it does not have would be a null cursor
-            if editor.document().blockCount() <= end:
-                continue
-            for i in range(start, end + 1):
-                sel = QTextEdit.ExtraSelection()
-                sel.format.setBackground(_qc('cur-row'))
-                sel.format.setProperty(QTextFormat.FullWidthSelection, True)
-                cur = QTextCursor(editor.document().findBlockByNumber(i))
-                cur.clearSelection()
-                sel.cursor = cur
-                self._sel_rows[k].append(sel)
-        self._paint_selections()
+        cur = range(start, end + 1)
+        for editor in (self.old_edit, self.new_edit):
+            # a one-sided file leaves the other document empty: marking a
+            # block it does not have would land on a block that never renders
+            editor.set_current_rows(cur if editor.document().blockCount() > end else ())
 
     def _update_position(self, row):
         if not self._stops:
