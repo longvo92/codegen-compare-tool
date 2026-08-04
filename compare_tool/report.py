@@ -77,6 +77,22 @@ ul.files li { margin: 2px 0; }
 .tf.tc-del { color: var(--tag-del-fg); text-decoration: line-through; }
 .tf.tc-id { color: var(--st-id); }
 .tf.tc-err { color: var(--tag-real-fg); font-weight: 700; }
+/* Focus button: narrows the tree to files with a reportable change --
+   real-change / added / deleted / error -- dropping identical, comment-only
+   and ignorable-only the same way the Qt viewer's Hide identical checkbox
+   drops identical. The report has no live rescan to redraw the tree from, so
+   a folder is dropped only when :has() finds it holds no surviving file, the
+   CSS mirror of qtviewer/tree.py's filter_nodes. */
+body.hide-noise .tf.tc-id, body.hide-noise .tf.tc-cmt, body.hide-noise .tf.tc-ign {
+    display: none; }
+body.hide-noise details.dir:not(:has(.tf:not(.tc-id):not(.tc-cmt):not(.tc-ign))) {
+    display: none; }
+.treehdr { display: flex; align-items: center; gap: 10px; }
+.treehdr h2 { margin: 0; }
+.focusbtn { background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border);
+    border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.focusbtn:hover { background: var(--btn-hover); }
+.focusbtn.off { background: var(--accent); color: var(--panel); border-color: var(--accent); }
 .legend { color: var(--fg-muted); font-size: 12px; margin: 2px 0 8px; }
 table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
              font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
@@ -1314,7 +1330,10 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     parts.append(_autosar_section(results, anchors))
 
     if results:
-        parts.append('<h2>Folder tree</h2>')
+        parts.append('<div class="treehdr"><h2>Folder tree</h2>'
+                     '<button type="button" class="focusbtn" onclick="tg(this,\'noise\')" '
+                     'title="Hide identical, comment-only and Unimportant files, '
+                     'and any folder left holding none">Focus on changes</button></div>')
         parts.append('<div class="tree">{}</div>'.format(
             _tree_html(results, anchors, rv.files)))
 

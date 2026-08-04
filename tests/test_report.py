@@ -349,6 +349,29 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertIn('<div class="tf tc-ign"', self.page)  # unimportant stays
         self.assertNotRegex(self.page, r'<div class="tf sec-')
 
+    def test_focus_button_sits_beside_the_folder_tree_heading(self):
+        self.assertIn('<div class="treehdr"><h2>Folder tree</h2>'
+                      '<button type="button" class="focusbtn" '
+                      'onclick="tg(this,\'noise\')"', self.page)
+        self.assertIn('>Focus on changes</button>', self.page)
+
+    def test_focus_hides_every_noise_verdict_but_not_a_real_one(self):
+        # identical / comment-only / ignorable-only all read "does not count"
+        # in the folder tree -- Focus narrows to real-change / added /
+        # deleted / error, the same statuses _NAV_STATUS treats as worth a
+        # reviewer's attention
+        self.assertIn('body.hide-noise .tf.tc-id, body.hide-noise .tf.tc-cmt, '
+                      'body.hide-noise .tf.tc-ign {', self.page)
+        self.assertNotIn('hide-noise .tf.tc-real', self.page)
+        self.assertNotIn('hide-noise .tf.tc-add', self.page)
+        self.assertNotIn('hide-noise .tf.tc-del', self.page)
+        self.assertNotIn('hide-noise .tf.tc-err', self.page)
+
+    def test_focus_collapses_a_folder_left_holding_only_noise(self):
+        self.assertIn("body.hide-noise details.dir:not(:has(.tf:not(.tc-id)"
+                      ":not(.tc-cmt):not(.tc-ign))) {", self.page)
+
+
 class TestIfaceSection(unittest.TestCase):
     """AUTOSAR change summary must appear at the top of the report."""
 
