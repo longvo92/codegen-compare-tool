@@ -5,6 +5,48 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-08-04
+
+The report reads like code instead of plain text, noise stops hiding the change
+it sits next to, and a changed calibration constant is no longer mistaken for a
+harmless rename.
+
+### Added
+
+- **The report is syntax-coloured**, the same way the viewer paints the code, and
+  a changed name is highlighted across the whole identifier — `rtb_Sum1` →
+  `rtb_Sum2` reads as one renamed variable rather than one changed digit.
+- **`Focus on changes`** beside the report's folder tree narrows it to the files
+  that actually changed, dropping identical, comment-only and Unimportant rows
+  along with any folder left holding none.
+- **Comment and Unimportant lines next to a real change are always shown**, greyed.
+  They are already inside the block being read, so hiding them took away the
+  context the real change had to be read in. A noise hunk standing on its own is
+  unaffected and still folds away as before.
+- The change you are on is marked by an **arrow in the viewer's line-number
+  gutter**, so stepping is visible even in a file too short to scroll.
+
+### Changed
+
+- **`F7` / `F8` reach everything on screen.** Comment and Unimportant changes are
+  now stops too — including files whose only differences are those — for as long
+  as their category is shown. Hide the category and they drop out again. Landing
+  on one still offers nothing to sign off: only real and moved changes enter the
+  review record.
+- Rename the report's `A2L characteristics / measurements` section to **`A2L
+  variables`**.
+- Trim repeated wording from the report: the per-hunk composition line and the
+  per-model Unimportant tally said what the rows and the folder tree already show.
+
+### Fixed
+
+- **A changed calibration constant, port or DWork field is no longer written off
+  as a rename.** Swapping one externally declared name for another — an RTE access
+  point, a `*_DSTATE` field, an `ALL_CAPS` macro — is a real change, and reporting
+  it as Unimportant could pass a build gate that should have failed.
+- A model whose files all changed by comment or noise alone no longer reads as
+  `unchanged` in the report's Overview.
+
 ## [1.4.0] — 2026-08-02
 
 Rewritten documentation inside an ARXML file stops counting as a change, and
