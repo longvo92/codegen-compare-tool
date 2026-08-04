@@ -96,9 +96,9 @@ td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 td.delm, td.delc, td.addm, td.addc { background: var(--muted-bg); color: var(--muted-fg); }
 td.mvd, td.mva { background: var(--mv-bg); }
 td.ctx { color: var(--fg-dim); }
-td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg); font-weight: 700;
+td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg);
                   border-radius: 2px; }
-td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg); font-weight: 700;
+td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg);
                   border-radius: 2px; }
 /* Same low-saturation, no-red-no-green palette the Qt pane paints its code
    with (qtviewer/highlight.py) -- foreground only, so a token colour sits on

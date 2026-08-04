@@ -175,6 +175,17 @@ class TestUnimportantToggle(unittest.TestCase):
         # qualified one.
         self.assertNotIn('hide-cmt', page)
 
+    def test_changed_span_is_coloured_but_not_bolded(self):
+        # chg-seg used to carry font-weight:700 on top of its background/text
+        # colour -- doubling up bold AND colour on the same span read as
+        # over-emphasis. Colour alone marks the changed characters now.
+        results = scan(FIX / 'old', FIX / 'new')
+        page = build_report(results, FIX / 'old', FIX / 'new')
+        rule = re.search(r'td\.del \.chg-seg \{[^}]*\}', page).group(0)
+        self.assertIn('background:', rule)
+        self.assertIn('color:', rule)
+        self.assertNotIn('font-weight', rule)
+
 
 class TestNoiseBesideRealAlwaysShows(unittest.TestCase):
     """A comment or Unimportant hunk sharing a group with a real/moved hunk is
