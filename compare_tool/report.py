@@ -11,7 +11,7 @@ import html
 import re
 from pathlib import Path
 
-from . import review, theme
+from . import review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -77,6 +77,22 @@ ul.files li { margin: 2px 0; }
 .tf.tc-del { color: var(--tag-del-fg); text-decoration: line-through; }
 .tf.tc-id { color: var(--st-id); }
 .tf.tc-err { color: var(--tag-real-fg); font-weight: 700; }
+/* Focus button: narrows the tree to files with a reportable change --
+   real-change / added / deleted / error -- dropping identical, comment-only
+   and ignorable-only the same way the Qt viewer's Hide identical checkbox
+   drops identical. The report has no live rescan to redraw the tree from, so
+   a folder is dropped only when :has() finds it holds no surviving file, the
+   CSS mirror of qtviewer/tree.py's filter_nodes. */
+body.hide-noise .tf.tc-id, body.hide-noise .tf.tc-cmt, body.hide-noise .tf.tc-ign {
+    display: none; }
+body.hide-noise details.dir:not(:has(.tf:not(.tc-id):not(.tc-cmt):not(.tc-ign))) {
+    display: none; }
+.treehdr { display: flex; align-items: center; gap: 10px; }
+.treehdr h2 { margin: 0; }
+.focusbtn { background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border);
+    border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.focusbtn:hover { background: var(--btn-hover); }
+.focusbtn.off { background: var(--accent); color: var(--panel); border-color: var(--accent); }
 .legend { color: var(--fg-muted); font-size: 12px; margin: 2px 0 8px; }
 table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
              font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
@@ -96,10 +112,24 @@ td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 td.delm, td.delc, td.addm, td.addc { background: var(--muted-bg); color: var(--muted-fg); }
 td.mvd, td.mva { background: var(--mv-bg); }
 td.ctx { color: var(--fg-dim); }
-td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg); font-weight: 700;
+td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg);
                   border-radius: 2px; }
-td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg); font-weight: 700;
+td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg);
                   border-radius: 2px; }
+/* Same low-saturation, no-red-no-green palette the Qt pane paints its code
+   with (qtviewer/highlight.py) -- foreground only, so a token colour sits on
+   top of the diff background instead of fighting it. Comment/minor rows are
+   never given these spans (see _row): a noise row goes flat grey, code
+   colour there would be noise on noise. */
+.syn-comment { color: var(--syn-comment); font-style: italic; }
+.syn-string  { color: var(--syn-string); }
+.syn-number  { color: var(--syn-number); }
+.syn-keyword { color: var(--syn-keyword); }
+.syn-type    { color: var(--syn-type); }
+.syn-preproc { color: var(--syn-preproc); }
+.syn-call    { color: var(--syn-call); }
+.syn-tag     { color: var(--syn-tag); }
+.syn-attr    { color: var(--syn-attr); }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
       margin: 0 4px 0 2px; vertical-align: -1px; }
 .sw-del { background: var(--seg-del-bg); } .sw-add { background: var(--seg-add-bg); }
@@ -152,8 +182,6 @@ summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font
 .tag-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
 .tag-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
 .tag-err { background: var(--tag-err-bg); color: var(--tag-err-fg); }
-.hunklabel { color: var(--st-ign); font-size: 11px; margin: 10px 0 0; text-transform: uppercase;
-             letter-spacing: .5px; }
 .toolbar { margin: 4px 0 16px; }
 .toolbar button { background: var(--btn-bg); color: var(--btn-fg);
     border: 1px solid var(--btn-border); border-radius: 4px;
@@ -345,43 +373,33 @@ def _group_hunks(hunks):
     return groups
 
 
-def _group_label(group):
-    kinds = []
-    for h in group:
-        if h['kind'] not in kinds:
-            kinds.append(h['kind'])
-    return ' + '.join(kinds)
-
-
-def _hunk_count_note(hunks):
-    """'(2 hunks + 1 comment + 3 minor)' -- the file header's rollup of what a
-    Modified file actually contains.
-
-    The counts go through ``mode_of``, the same kind->mode mapping the rows,
-    the group labels and the viewer use, so a comment hunk is named *comment*
-    here too. Lumping it under 'minor' printed one word on the header and
-    another ('comment + real') on the group label a few pixels below, for the
-    same hunk."""
-    modes = [mode_of(h['kind']) for h in hunks]
-    n_real = modes.count('real')
-    tail = ''
-    for mode in ('moved', 'comment', 'minor'):
-        n = modes.count(mode)
-        if n:
-            tail += ' + {} {}'.format(n, mode)
-    return '({} hunk{}{})'.format(n_real, '' if n_real == 1 else 's', tail)
-
-
-def _group_table(old_lines, new_lines, group):
+def _group_table(old_lines, new_lines, group, language=None, old_states=None,
+                 new_states=None):
     """One continuous side-by-side table for a run of nearby hunks: leading /
     trailing CONTEXT lines, the equal lines between hunks shown once, real
-    hunks in red/green, noise hunks in the same pair, dimmer."""
+    hunks in red/green, noise hunks in the same pair, dimmer.
+
+    ``old_states``/``new_states`` are the per-line syntax-highlighter entry
+    state computed once for the whole file (see ``_line_states``); omit them
+    (or ``language``) and rows render as plain text, same as before syntax
+    colouring existed."""
+    old_states = old_states or []
+    new_states = new_states or []
+    # a noise hunk sitting next to a real/moved one is already inside the
+    # code block the reviewer is reading -- collapsing it to a placeholder
+    # would hide context they need, and un-hiding it costs a click they have
+    # no reason to make. So it renders in full (grey) unconditionally. A
+    # group with NO real/moved hunk is pure noise with nothing to read it
+    # alongside, and keeps the placeholder + existing toggle rules (Comment
+    # stays uncounted/unrevealable, Unimportant stays behind its badge).
+    mixed = any(mode_of(hh['kind']) in ('real', 'moved') for hh in group)
     rows = []
     i1, j1 = group[0]['old_range'][0], group[0]['new_range'][0]
     lead = min(CONTEXT, i1, j1)
     for k in range(lead):
         o, n = i1 - lead + k, j1 - lead + k
-        rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx'))
+        rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
+                         language, _state_at(old_states, o), _state_at(new_states, n)))
     for idx, h in enumerate(group):
         hi1, hi2 = h['old_range']
         hj1, hj2 = h['new_range']
@@ -391,13 +409,17 @@ def _group_table(old_lines, new_lines, group):
         for k in range(span):
             o_no, o_txt = (hi1 + k + 1, old_lines[hi1 + k]) if hi1 + k < hi2 else ('', None)
             n_no, n_txt = (hj1 + k + 1, new_lines[hj1 + k]) if hj1 + k < hj2 else ('', None)
-            rows.append(_row(o_no, o_txt, n_no, n_txt, mode))
+            o_state = _state_at(old_states, hi1 + k) if o_txt is not None else syntax.PLAIN
+            n_state = _state_at(new_states, hj1 + k) if n_txt is not None else syntax.PLAIN
+            rows.append(_row(o_no, o_txt, n_no, n_txt, mode, language, o_state, n_state,
+                             hideable=not mixed))
         if mode in _MODE_TR:
-            what = ('comment' if mode == 'comment'
-                    else 'minor ({})'.format(_esc(h['kind'])))
-            rows.append('<tr class="gap {}ph"><td colspan="4">⋯ {} {} line{} '
-                        'hidden</td></tr>'.format(_MODE_TR[mode], span, what,
-                                                  '' if span == 1 else 's'))
+            if not mixed:
+                what = ('comment' if mode == 'comment'
+                        else 'minor ({})'.format(_esc(h['kind'])))
+                rows.append('<tr class="gap {}ph"><td colspan="4">⋯ {} {} line{} '
+                            'hidden</td></tr>'.format(_MODE_TR[mode], span, what,
+                                                      '' if span == 1 else 's'))
         elif mode == 'moved':
             if 'moved_to' in h:
                 note = '⇄ block moved to CURRENT line {}'.format(h['moved_to'])
@@ -409,12 +431,15 @@ def _group_table(old_lines, new_lines, group):
             # equal lines between this hunk and the next of the group
             gap = group[idx + 1]['old_range'][0] - hi2
             for k in range(gap):
-                rows.append(_row(hi2 + k + 1, old_lines[hi2 + k],
-                                 hj2 + k + 1, new_lines[hj2 + k], 'ctx'))
+                o, n = hi2 + k, hj2 + k
+                rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
+                                 language, _state_at(old_states, o), _state_at(new_states, n)))
     i2, j2 = group[-1]['old_range'][1], group[-1]['new_range'][1]
     tail = min(CONTEXT, len(old_lines) - i2, len(new_lines) - j2)
     for k in range(tail):
-        rows.append(_row(i2 + k + 1, old_lines[i2 + k], j2 + k + 1, new_lines[j2 + k], 'ctx'))
+        o, n = i2 + k, j2 + k
+        rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
+                         language, _state_at(old_states, o), _state_at(new_states, n)))
     return '<table class="diff">' + ''.join(rows) + '</table>'
 
 
@@ -436,7 +461,7 @@ def _group_notes(group, notes):
     return html, done
 
 
-def _groups_html(old_lines, new_lines, hunks, notes=None):
+def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
     """All hunk groups of one file. Comment and Unimportant rows hide behind
     their own badge individually (``tr.comment`` / ``tr.minor`` in the CSS) --
     a group used to be wrapped whole and hidden together when every hunk in it
@@ -446,36 +471,93 @@ def _groups_html(old_lines, new_lines, hunks, notes=None):
 
     A group whose every real/moved hunk is signed off gets .grp-rev, so the
     Reviewed badge can fold it away -- with its notes, which belong to the
-    changes being hidden."""
+    changes being hidden.
+
+    ``language`` (see ``syntax.language_for``) turns on code colouring; the
+    per-line comment-state tables are built once here, from the WHOLE file,
+    and handed to every group -- a group only renders a CONTEXT window, so it
+    cannot itself know whether a block comment opened above it is still open."""
+    old_states = _line_states(old_lines, language)
+    new_states = _line_states(new_lines, language)
     out = []
     for g in _group_hunks(hunks):
         notes_html, done = _group_notes(g, notes)
         cls = ' grp-rev' if done else ''
         out.append('<div class="grp{}">'.format(cls))
-        if any(h['kind'] != 'real' for h in g):
-            out.append('<div class="hunklabel">{}</div>'.format(_esc(_group_label(g))))
         out.append(notes_html)
-        out.append(_group_table(old_lines, new_lines, g))
+        out.append(_group_table(old_lines, new_lines, g, language, old_states, new_states))
         out.append('</div>')
     return ''.join(out)
 
 
-def _char_diff(old_txt, new_txt):
+def _line_states(lines, language):
+    """PLAIN/IN_BLOCK_COMMENT state a syntax pass carries INTO each line.
+
+    The report only renders a CONTEXT window around each hunk, not the whole
+    file top to bottom the way the Qt pane's incremental highlighter does --
+    so a ``/* ... */`` opened above a shown window still has to be known open
+    when that window starts."""
+    states = []
+    state = syntax.PLAIN
+    for line in lines:
+        states.append(state)
+        _spans, state = syntax.spans(line, language, state)
+    return states
+
+
+def _state_at(states, idx):
+    return states[idx] if 0 <= idx < len(states) else syntax.PLAIN
+
+
+def _code_html_range(text, spans, start, end):
+    """Escaped ``text[start:end]``, the syntax spans that fall in it wrapped
+    in ``<span class="syn-KIND">``. The slice the outer/middle/tail pieces of
+    ``_char_diff``'s chg-seg wrapper are built from."""
+    if start >= end:
+        return ''
+    out, pos = [], start
+    for a, b, kind in spans:
+        if b <= start or a >= end:
+            continue
+        a2, b2 = max(a, start), min(b, end)
+        if a2 > pos:
+            out.append(_esc(text[pos:a2]))
+        out.append('<span class="syn-{}">{}</span>'.format(kind, _esc(text[a2:b2])))
+        pos = b2
+    if pos < end:
+        out.append(_esc(text[pos:end]))
+    return ''.join(out)
+
+
+def _code_html(text, spans):
+    """Escaped line text with syntax colour spans. Empty ``spans`` (no known
+    language, or a comment/minor row that stays flat grey) is plain ``_esc``."""
+    return _code_html_range(text, spans, 0, len(text))
+
+
+def _char_diff(old_txt, new_txt, o_spans=(), n_spans=()):
     """Char-level highlight for one old/new line pair: the common prefix and
     suffix stay plain, everything between the FIRST and LAST differing char
-    is one contiguous highlighted span per side. A per-opcode diff would
+    is one contiguous highlighted span per side, grown to its enclosing
+    identifier (see ``view_model.char_span``). A per-opcode diff would
     fragment into many tiny segments (equal chars like '_' or 'e' between
     renamed identifiers), which is hard on the eyes. Span offsets come from the
-    shared view model so the Qt viewer highlights the exact same characters."""
+    shared view model so the Qt viewer highlights the exact same characters.
+
+    ``o_spans``/``n_spans`` are this line's syntax-colour spans (empty when
+    the file has no recognised language); they render underneath the
+    chg-seg highlight, so a keyword caught inside a changed span keeps its
+    own colour instead of just the diff colour."""
     (o_lo, o_hi), (n_lo, n_hi) = char_span(old_txt, new_txt)
 
-    def mark(txt, lo, hi):
+    def mark(txt, lo, hi, spans):
         if lo >= hi:
-            return _esc(txt)
-        return (_esc(txt[:lo]) + '<span class="chg-seg">' + _esc(txt[lo:hi]) +
-                '</span>' + _esc(txt[hi:]))
+            return _code_html(txt, spans)
+        return (_code_html_range(txt, spans, 0, lo)
+                + '<span class="chg-seg">' + _code_html_range(txt, spans, lo, hi)
+                + '</span>' + _code_html_range(txt, spans, hi, len(txt)))
 
-    return mark(old_txt, o_lo, o_hi), mark(new_txt, n_lo, n_hi)
+    return mark(old_txt, o_lo, o_hi, o_spans), mark(new_txt, n_lo, n_hi, n_spans)
 
 
 _MODE_CLS = {'real': ('del', 'add'), 'comment': ('delc', 'addc'),
@@ -485,23 +567,32 @@ _MODE_CLS = {'real': ('del', 'add'), 'comment': ('delc', 'addc'),
 _MODE_TR = {'comment': 'comment', 'minor': 'minor'}
 
 
-def _row(o_no, o_txt, n_no, n_txt, mode):
+def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
+         o_state=syntax.PLAIN, n_state=syntax.PLAIN, hideable=True):
+    # comment/minor rows are muted grey, not a diff colour, when revealed --
+    # so there is no changed SPAN to point at inside them, and no syntax
+    # colour either: the code channel goes quiet along with the diff channel,
+    # same as the Qt pane's muted rows (qtviewer/highlight.py).
+    colour = language is not None and mode not in _MODE_TR
+    o_spans = syntax.spans(o_txt, language, o_state)[0] if colour and o_txt is not None else ()
+    n_spans = syntax.spans(n_txt, language, n_state)[0] if colour and n_txt is not None else ()
     if mode == 'ctx':
         lcls = rcls = 'ctx'
-        l = _esc(o_txt) if o_txt is not None else ''
-        r = _esc(n_txt) if n_txt is not None else ''
+        l = _code_html(o_txt, o_spans) if o_txt is not None else ''
+        r = _code_html(n_txt, n_spans) if n_txt is not None else ''
     else:
         dcls, acls = _MODE_CLS[mode]
         lcls = dcls if o_txt is not None else ''
         rcls = acls if n_txt is not None else ''
-        # comment/minor rows are muted grey, not a diff colour, when revealed
-        # -- so there is no changed SPAN to point at inside them either
         if o_txt is not None and n_txt is not None and mode not in _MODE_TR:
-            l, r = _char_diff(o_txt, n_txt)
+            l, r = _char_diff(o_txt, n_txt, o_spans, n_spans)
         else:
-            l = _esc(o_txt) if o_txt is not None else ''
-            r = _esc(n_txt) if n_txt is not None else ''
-    trcls = ' class="{}"'.format(_MODE_TR[mode]) if mode in _MODE_TR else ''
+            l = _code_html(o_txt, o_spans) if o_txt is not None else ''
+            r = _code_html(n_txt, n_spans) if n_txt is not None else ''
+    # a comment/minor row next to a real/moved hunk (hideable=False, see
+    # _group_table) skips the tr.comment/tr.minor class entirely, so none of
+    # the hide-by-default CSS applies to it -- it just renders, like a ctx row
+    trcls = ' class="{}"'.format(_MODE_TR[mode]) if mode in _MODE_TR and hideable else ''
     return ('<tr{}><td class="ln">{}</td><td class="{}">{}</td>'
             '<td class="ln">{}</td><td class="{}">{}</td></tr>').format(
                 trcls, o_no, lcls, l, n_no, rcls, r)
@@ -630,7 +721,14 @@ def _detail_order(rels, results):
 
 
 def _counts_html(rels, results):
-    """Colored per-status count spans for one model group + raw counts."""
+    """Colored per-status count spans for one model group + raw counts.
+
+    Only the verdicts a reviewer has to act on are counted: a per-model
+    Unimportant tally restated what the folder tree marks file by file. The
+    fallback still has to be TRUE of the scan, though -- a model whose files
+    all changed by UUID/timestamp alone is the everyday regenerated case, and
+    calling it 'unchanged' would be the report claiming something the hunks
+    say otherwise (see CLAUDE.md, "the record is never the filtered view")."""
     c = {'real-change': 0, 'comment-only': 0, 'ignorable-only': 0, 'added': 0,
          'deleted': 0, 'identical': 0, 'error': 0}
     for rel in rels:
@@ -639,12 +737,13 @@ def _counts_html(rels, results):
     for key, label, cls in (('error', 'Error', 'cnt-err'),
                             ('real-change', 'Modified', 'cnt-real'),
                             ('added', 'Added', 'cnt-add'),
-                            ('deleted', 'Deleted', 'cnt-del'),
-                            ('ignorable-only', 'Unimportant', 'cnt-ign')):
+                            ('deleted', 'Deleted', 'cnt-del')):
         if c[key]:
             bits.append('<span class="cnt {}">{} {}</span>'.format(cls, c[key], label))
     if not bits:
-        bits.append('<span class="cnt cnt-id">unchanged</span>')
+        noise = c['ignorable-only'] + c['comment-only']
+        bits.append('<span class="cnt cnt-id">{}</span>'
+                    .format('no real change' if noise else 'unchanged'))
     return ''.join(bits), c
 
 
@@ -760,12 +859,14 @@ def _tree_html(results, anchors, reviewed=()):
     return ''.join(out)
 
 
-def _content_table(lines, cls):
+def _content_table(lines, cls, language=None):
     """One-sided table for added/deleted file content, capped at MAX_CONTENT."""
     rows = []
+    state = syntax.PLAIN
     for no, txt in enumerate(lines[:MAX_CONTENT], 1):
+        spans, state = syntax.spans(txt, language, state)
         rows.append('<tr><td class="ln">{}</td><td class="{}">{}</td></tr>'
-                    .format(no, cls, _esc(txt)))
+                    .format(no, cls, _code_html(txt, spans)))
     out = '<table class="diff">' + ''.join(rows) + '</table>'
     if len(lines) > MAX_CONTENT:
         out += ('<div class="filenote">… {} more line(s) not shown.</div>'
@@ -836,7 +937,7 @@ def _autosar_section(results, anchors):
     rows = [row('if-add', '+', n, k, rel) for rel, n, k in a2l_added]
     rows += [row('if-del', '−', n, k, rel) for rel, n, k in a2l_removed]
     if rows:
-        sections.append(('A2L characteristics / measurements', rows))
+        sections.append(('A2L variables', rows))
 
     parts = ['<h2>AUTOSAR changes</h2>']
     if not sections:
@@ -954,7 +1055,6 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append('<div class="filenote">{}</div>'.format(_esc(note)))
     elif status == 'real-change':
         hunks = r['hunks'] if not r['binary'] else []
-        extra = _hunk_count_note(hunks)
         old_lines = new_lines = None
         if r['binary']:
             notes = rv.annotate(rel, r, blob=review.blob_digest(Path(new_root) / rel))
@@ -962,7 +1062,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
             notes = rv.annotate(rel, r, old_lines, new_lines)
-        parts.append(_file_open(anchors[rel], rel, 'real-change', extra,
+        parts.append(_file_open(anchors[rel], rel, 'real-change',
                                 expanded=True, reviewed=rel in rv.files))
         parts.append(_notes(r))
         if r['binary']:
@@ -975,7 +1075,8 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
                 pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
                                   for a, b in sorted(r['renames'].items()))
                 parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-            parts.append(_groups_html(old_lines, new_lines, hunks, notes))
+            parts.append(_groups_html(old_lines, new_lines, hunks, notes,
+                                      syntax.language_for(rel)))
     elif status in ('comment-only', 'ignorable-only'):
         parts.append(_file_open(anchors[rel], rel, status, _esc(_kinds_of(r))))
         if not r['hunks']:
@@ -988,7 +1089,8 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
                 pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
                                   for a, b in sorted(r['renames'].items()))
                 parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
-            parts.append(_groups_html(old_lines, new_lines, r['hunks']))
+            parts.append(_groups_html(old_lines, new_lines, r['hunks'], None,
+                                      syntax.language_for(rel)))
     elif status in ('added', 'deleted'):
         side = 'add' if status == 'added' else 'del'
         path = Path(new_root if status == 'added' else old_root) / rel
@@ -1013,7 +1115,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             if whole:
                 parts.append(_note_html(*whole))
             parts.append(_notes(r))
-            parts.append(_content_table(lines, side))
+            parts.append(_content_table(lines, side, syntax.language_for(rel)))
     parts.append('</div></details>')
     return ''.join(parts)
 
@@ -1237,7 +1339,10 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     parts.append(_autosar_section(results, anchors))
 
     if results:
-        parts.append('<h2>Folder tree</h2>')
+        parts.append('<div class="treehdr"><h2>Folder tree</h2>'
+                     '<button type="button" class="focusbtn" onclick="tg(this,\'noise\')" '
+                     'title="Hide identical, comment-only and Unimportant files, '
+                     'and any folder left holding none">Focus on changes</button></div>')
         parts.append('<div class="tree">{}</div>'.format(
             _tree_html(results, anchors, rv.files)))
 

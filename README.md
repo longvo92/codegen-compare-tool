@@ -111,10 +111,11 @@ Two ways in: `Open folders…` for two folders you name yourself, and `Git compa
 Reading a scan:
 
 - The scan **opens on the first change** — the pane is never empty next to a tree full of results.
-- `F8` / `F7` step through the changes in the open file and then **carry on into the next (previous) file** with something to review, wrapping at the end. `Ctrl+Home` / `Ctrl+End` stay inside the file.
+- `F8` / `F7` step through the changes in the open file and then **carry on into the next (previous) file** with something to look at, wrapping at the end. `Ctrl+Home` / `Ctrl+End` stay inside the file. A file whose only differences are comments or noise is part of that walk while its category is ticked — it is on screen, so it is reachable — but stopping on one offers nothing to sign off: only real and moved changes enter the review record.
 - `Ctrl+F` **finds text in the open file** (either side, `F3` / `Shift+F3` to step, `Esc` to close). The query survives moving to another file, so an identifier can be chased across the compare.
 - `Hide identical` leaves only the files with a difference in the tree. It is a view: verdicts, counts and the exported report are untouched.
-- Unticking `Comment` / `Unimportant` **greys those lines out** rather than removing them: they stay where they are, keep their line numbers, lose their red/green, and drop off the minimap and out of `F7`/`F8`. The code around a change is what makes it readable, and a regenerated file is mostly banner churn — folding it away took most of the file with it.
+- Unticking `Comment` / `Unimportant` **greys those lines out** rather than removing them: they stay where they are, keep their line numbers, lose their red/green, and drop off the minimap and out of `F7`/`F8`. The code around a change is what makes it readable, and a regenerated file is mostly banner churn — folding it away took most of the file with it. Left ticked (the default) they keep their colour and `F7`/`F8` stops on them like any other change.
+- The change you are on is marked by a **small arrow in the line-number gutter**, on both panes — so `F7`/`F8` visibly move even in a file short enough that there is nothing to scroll.
 - `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme; `--theme` picks the one it starts in. C, ARXML and A2L are syntax-coloured in both.
 
 `Review mode` adds the note box and a `Review` column in the tree — green when every change in a row is signed off, amber part way, grey when none is. Sign off one change (`Ctrl+R`) or a whole file (`Ctrl+Shift+R`); the notes travel into the exported report.
@@ -165,7 +166,7 @@ The tool extracts AUTOSAR information from both sides and reports changes at the
 How it is shown:
 
 - **CLI**: `ARXML interfaces`, `AUTOSAR behavior`, `RTE access points` and `A2L objects` blocks listing `+`/`-`/`~` entries with the file each belongs to.
-- **HTML report**: an **AUTOSAR changes** section at the top of the page, grouped by kind (port interfaces / software components / ports / runnables / events / RTE access points / A2L characteristics & measurements). Clicking a file name jumps to its detailed diff, and each file in Detailed changes carries its own `Interfaces:` / `Behavior:` / `RTE:` / `A2L:` note.
+- **HTML report**: an **AUTOSAR changes** section at the top of the page, grouped by kind (port interfaces / software components / ports / runnables / events / RTE access points / A2L variables). Clicking a file name jumps to its detailed diff, and each file in Detailed changes carries its own `Interfaces:` / `Behavior:` / `RTE:` / `A2L:` note.
 - Whole files added or deleted contribute every interface / SWC / RTE call / A2L object inside them as added or removed.
 
 A file whose XML fails to parse is skipped from this summary (its text diff still shows in full). An unknown `Rte_` call isn't counted here but still appears in the diff.
@@ -176,7 +177,14 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming 
 
 ## HTML report
 
-Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden, `Modified` expanded, so it opens on what matters. Clicking `Unimportant` reveals the actual noise lines — painted flat grey rather than red/green, so a revealed category still reads as "does not count" instead of looking like another change. Comment changes never render in the report at all — only a placeholder states how many comment lines were hidden — the report is a record meant to be sent around, and comment churn is left out of it entirely; the side-by-side viewer still shows them, greyed, for a reviewer working file by file. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
+Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden, `Modified` expanded, so it opens on what matters. The code is **syntax-coloured** the same way the viewer paints it, and the changed characters inside a line are highlighted across the whole identifier, so `rtb_Sum1` → `rtb_Sum2` reads as one renamed name rather than one changed digit.
+
+Noise is shown where it helps and folded where it does not, and which one you get depends on the company it keeps:
+
+- A comment or Unimportant hunk **sitting next to a real change** always renders in full, greyed. It is already inside the block being read — hiding it would take away the context the real change is read in, and revealing it would cost a click nobody has a reason to make.
+- A hunk **standing on its own**, with no real change nearby, keeps the old rules: clicking `Unimportant` reveals those lines flat grey, and comment lines stay behind a placeholder saying how many were hidden.
+
+`Focus on changes`, beside the folder tree, narrows the tree to files that actually changed — identical, comment-only and Unimportant rows drop out, and a folder left holding none of them goes with them. Like the viewer's `Hide identical`, it is a view: verdicts and counts are untouched. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
 
 A whole file with nothing but comment differences still gets no detail section of its own (there is nothing beyond the comment lines to show); it keeps its own `≉` mark and `Comment` count in the folder tree either way.
 

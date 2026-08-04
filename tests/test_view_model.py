@@ -41,22 +41,44 @@ class TestCharSpan(unittest.TestCase):
         return txt[:lo] + '[' + txt[lo:hi] + ']' + txt[hi:]
 
     def test_equal_chars_between_diffs_swallowed_into_one_span(self):
+        # the whole string is one identifier (letters/digits/underscore, no
+        # other punctuation), so the word-boundary grow (see
+        # _expand_to_word) covers all of it, not just the differing letters
         o, n = char_span('rtb_Sum1_abc', 'rtb_Sum2_xbc')
-        self.assertEqual(self._apply('rtb_Sum1_abc', o), 'rtb_Sum[1_a]bc')
-        self.assertEqual(self._apply('rtb_Sum2_xbc', n), 'rtb_Sum[2_x]bc')
+        self.assertEqual(self._apply('rtb_Sum1_abc', o), '[rtb_Sum1_abc]')
+        self.assertEqual(self._apply('rtb_Sum2_xbc', n), '[rtb_Sum2_xbc]')
 
     def test_pure_insertion_empty_span_on_old_side(self):
+        # nothing changed on old -- an empty span is left alone, never grown
         (o_lo, o_hi), n = char_span('ab', 'axxb')
-        self.assertEqual(o_lo, o_hi)                 # nothing changed on old
-        self.assertEqual(self._apply('axxb', n), 'a[xx]b')
+        self.assertEqual(o_lo, o_hi)
+        # 'axxb' is one identifier, so the new side's non-empty span grows
+        # to cover all of it
+        self.assertEqual(self._apply('axxb', n), '[axxb]')
 
     def test_prefix_change(self):
+        # 'Xmid' is one identifier -- the span grows past the trimmed
+        # prefix/suffix boundary to the whole name
         o, _n = char_span('Xmid', 'Ymid')
-        self.assertEqual(self._apply('Xmid', o), '[X]mid')
+        self.assertEqual(self._apply('Xmid', o), '[Xmid]')
 
     def test_suffix_change(self):
         o, _n = char_span('midX', 'midY')
-        self.assertEqual(self._apply('midX', o), 'mid[X]')
+        self.assertEqual(self._apply('midX', o), '[midX]')
+
+    def test_word_boundary_stops_at_punctuation(self):
+        # a real code line has punctuation around a name -- the grow must
+        # stop there, not swallow the rest of the line
+        o, n = char_span('rtb_A = rtU.In1;', 'rtb_B = rtU.In1;')
+        self.assertEqual(self._apply('rtb_A = rtU.In1;', o), '[rtb_A] = rtU.In1;')
+        self.assertEqual(self._apply('rtb_B = rtU.In1;', n), '[rtb_B] = rtU.In1;')
+
+    def test_number_literal_boundary_is_the_dot(self):
+        # '.' is punctuation, not a word character -- a changed digit must
+        # not pull in the rest of a float literal on the other side of it
+        o, n = char_span('x = 2.0;', 'x = 3.0;')
+        self.assertEqual(self._apply('x = 2.0;', o), 'x = [2].0;')
+        self.assertEqual(self._apply('x = 3.0;', n), 'x = [3].0;')
 
     def test_agrees_with_report_char_diff(self):
         # the report renderer must produce spans at exactly these offsets

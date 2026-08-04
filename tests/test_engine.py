@@ -43,6 +43,24 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r['renames'], {'rtb_A': 'rtb_Z9'})
         self.assertEqual(set(kinds(r)), {'rename'})
 
+    def test_external_reference_swap_is_real(self):
+        # a consistent identifier swap that is entirely outside this file's
+        # own declarations (RTE access point, DWork field, enum/macro
+        # constant) is a port/calibration/state change, not a rename this
+        # file made -- it must stay real, not fold into 'renames'.
+        cases = [
+            ("x = Rte_CData_TrqMax();\ny = Rte_CData_TrqMax() + 1;\n",
+             "x = Rte_CData_TrqMin();\ny = Rte_CData_TrqMin() + 1;\n"),
+            ("y = DW.UnitDelay_DSTATE;\nDW.UnitDelay_DSTATE = u;\n",
+             "y = DW.UnitDelay1_DSTATE;\nDW.UnitDelay1_DSTATE = u;\n"),
+            ("if (m == MODE_DRIVE) { t = 1; }\nz = MODE_DRIVE;\n",
+             "if (m == MODE_REVERSE) { t = 1; }\nz = MODE_REVERSE;\n"),
+        ]
+        for old, new in cases:
+            r = compare_pair(old, new, 'f.c')
+            self.assertEqual(r['status'], 'real-change', (old, new))
+            self.assertEqual(r['renames'], {}, (old, new))
+
     def test_rename_conflict_is_real(self):
         old = "a = a + 1;\nz = a;\n"
         new = "b = b + 1;\nz = c;\n"

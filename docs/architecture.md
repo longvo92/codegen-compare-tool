@@ -159,9 +159,19 @@ display.
 Folding a category changes two things, and only these two: the file's
 **verdict** (it comes back `identical`, or `real-change` if something real
 remains) and how its rows are **painted** — `view_model.mute_rows` greys them,
-the minimap stops striping them and `F7`/`F8` never stopped on them anyway. The
-lines themselves stay on screen. The hunks are never touched, so the exported
-report, built from `_raw_results`, cannot notice that a category was folded.
+the minimap stops striping them and `F7`/`F8` stop landing on them. The lines
+themselves stay on screen. The hunks are never touched, so the exported report,
+built from `_raw_results`, cannot notice that a category was folded.
+
+Navigation follows what is on screen, not what is reviewable. A shown (unfolded)
+comment or Unimportant hunk **is** an `F7`/`F8` stop, and a file whose whole
+verdict is `comment-only` / `ignorable-only` is in `MainWindow._NAV_STATUS`, so
+the walk crosses into it. Both fall out again the moment the category is folded,
+because `apply_fold` has by then re-judged that file `identical` — one source of
+truth, no second flag to keep in step with the checkboxes. What navigation must
+never do is imply a sign-off: `DiffPane._stop_units` carries `None` for those
+stops, so `current_unit()` reports nothing to review there. Only `real` and
+`moved` are reviewable (`review.REVIEWABLE`), navigable or not.
 
 ## The result dict is the contract
 
@@ -199,8 +209,10 @@ until someone adds a new kind to one of them.
   `comment`, `minor`). The HTML report and the Qt panes cannot disagree about
   how a kind is coloured or whether it can be hidden.
 - **`view_model.char_span`** — the intra-line highlight as plain character
-  offsets. The report wraps them in a `<span>`; the viewer applies a
-  `QTextCharFormat` over the same numbers.
+  offsets, grown outward to the enclosing identifier so a rename marks the
+  whole name rather than the letters that happen to differ. The report wraps
+  them in a `<span>`; the viewer applies a `QTextCharFormat` over the same
+  numbers — widening the span was one edit here, and both surfaces got it.
 - **`view_model.aligned_rows` / `mute_rows`** — whole-file two-pane alignment,
   and playing a switched-off noise category *down* rather than away: the rows
   keep their place, their line numbers and their text, and come back with mode

@@ -61,6 +61,6 @@ def summary_sections(results):
     rows = [Row('+', n, k, rel, n) for rel, n, k in added]
     rows += [Row('−', n, k, rel, n) for rel, n, k in removed]
     if rows:
-        sections.append(('A2L characteristics / measurements', rows))
+        sections.append(('A2L variables', rows))
 
     return sections

@@ -29,7 +29,7 @@ class TestSummarySections(unittest.TestCase):
         self.assertTrue(any(r.sign == '−' for r in rows))
 
     def test_a2l_objects_listed_with_kind(self):
-        rows = self.sections['A2L characteristics / measurements']
+        rows = self.sections['A2L variables']
         self.assertIn(('+', 'VehSpd', 'MEASUREMENT'),
                       {(r.sign, r.name, r.detail) for r in rows})
 

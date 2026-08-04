@@ -142,6 +142,41 @@ def _collect_line_pair_renames(old_line, new_line, mapping, accept=None):
     return True
 
 
+# Identifiers this file only ever *references*, never defines, so a
+# consistent 1-1 swap of one for another proves nothing about this file's own
+# renaming: it is equally consistent with a port/calibration/DWork swap to a
+# DIFFERENT external object. detect_renames excludes these from its file-wide
+# map; is_autogen_name_pair (hunk-local, generator-owned names only) is
+# unaffected and still recognises a genuine regenerated DWork/rtb_ mangle.
+ALL_CAPS_RE = re.compile(r'^[A-Z][A-Z0-9_]*$')
+
+
+def _is_authored_name(name):
+    """True when `name` plausibly names something declared outside this
+    file: an AUTOSAR RTE access point (Rte_Read_Speed), a DWork/state field
+    selector (*_DSTATE, *_PreviousInput, ...), or an ALL_CAPS macro/enum
+    constant (MODE_DRIVE, IDLE). A rename map built from this file's text
+    alone cannot tell 'the whole file now names its own thing differently'
+    apart from 'the file was pointed at a different port/DWork field/constant
+    with the same shape everywhere it is used' -- the second case is a real
+    change and must not be swallowed by the first.
+
+    The ALL_CAPS test deliberately does NOT require an underscore. A
+    single-word constant (IDLE -> DRIVE, an enum state; ON -> OFF) is exactly
+    the swap that changes behaviour while looking perfectly consistent, and
+    C convention reserves all-caps for macros and enum constants -- both
+    declared in a header, not here. The cost is the other reading of the same
+    shape: an all-caps local really renamed by hand now reports as a real
+    change. That is the direction this tool errs in on purpose."""
+    if RTE_API_RE.fullmatch(name):
+        return True
+    if DWORK_FIELD_RE.search(name):
+        return True
+    if ALL_CAPS_RE.match(name):
+        return True
+    return False
+
+
 def detect_renames(old_shadow, new_shadow, hunks=None):
     """Build a best-effort 1-1 identifier rename map between two shadows.
 
@@ -198,6 +233,8 @@ def detect_renames(old_shadow, new_shadow, hunks=None):
             continue
         if o in new_ids or n in old_ids:
             continue  # not a true rename (name still in use / swap)
+        if _is_authored_name(o) or _is_authored_name(n):
+            continue  # RTE port / DWork field / macro-enum -- not this file's to rename
         if not same_checksummed_object(o, n):
             continue  # consistent, but it names a different generated object
         mapping[o] = n
