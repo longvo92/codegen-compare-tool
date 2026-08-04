@@ -471,6 +471,35 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         self._settle_ui()
         self.assertEqual(self.win._selected_rel(), 'src/rename_conflict.c')
 
+    def test_comment_only_and_ignorable_only_files_are_walkable_by_default(self):
+        # comment_only.c / admindata.arxml keep their noise verdict while the
+        # matching checkbox is ticked (the default) -- F7/F8 must walk into
+        # them too, not stop at real-change / added / deleted / error alone
+        self.assertEqual(self.win.results['src/comment_only.c']['status'],
+                         'comment-only')
+        self.assertTrue(self.win._is_nav('src/comment_only.c'))
+        self.assertEqual(self.win.results['arxml/admindata.arxml']['status'],
+                         'ignorable-only')
+        self.assertTrue(self.win._is_nav('arxml/admindata.arxml'))
+
+    def test_unticking_a_rule_folds_its_files_out_of_the_walk(self):
+        self.assertTrue(self.win._is_nav('src/comment_only.c'))
+        self.win.cb_comment.setChecked(False)
+        self._settle_ui()
+        self.assertEqual(self.win.results['src/comment_only.c']['status'], 'identical')
+        self.assertFalse(self.win._is_nav('src/comment_only.c'))
+
+    def test_next_change_stops_inside_a_shown_comment_only_file_with_no_unit(self):
+        nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]
+        self.assertIn('src/comment_only.c', nav)
+        self.win._reselect(nav[nav.index('src/comment_only.c') - 1])
+        self._settle_ui()
+        self.win._next_change()
+        self._settle_ui()
+        self.assertEqual(self.win._selected_rel(), 'src/comment_only.c')
+        self.assertTrue(self.win.diff._stops)
+        self.assertIsNone(self.win.diff.current_unit())
+
     def test_next_change_crosses_into_the_following_file(self):
         nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]
         self.assertGreater(len(nav), 1)

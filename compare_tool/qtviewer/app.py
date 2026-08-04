@@ -1172,7 +1172,16 @@ class MainWindow(QMainWindow):
     # verdicts a review pass has to look at: everything that is not noise. A
     # finished scan opens on the first of these, and F7/F8 step between them
     # once the current file runs out of changes.
-    _NAV_STATUS = ('error', 'real-change', 'added', 'deleted')
+    #
+    # comment-only / ignorable-only are noise verdicts, but self.results is the
+    # FOLDED view (_apply_rules): a file only keeps one of those statuses while
+    # its checkbox is ticked (unfolded), and apply_fold turns it into
+    # 'identical' the moment it is unticked. So including them here means F7/F8
+    # walks into a comment/unimportant-only file exactly while it is shown on
+    # screen, and stops treating it as navigable the instant it is hidden --
+    # with no extra state to keep in sync with the checkboxes.
+    _NAV_STATUS = ('error', 'real-change', 'added', 'deleted',
+                  'comment-only', 'ignorable-only')
 
     def _tree_rels(self):
         """Every file row, in the order the tree shows it.
