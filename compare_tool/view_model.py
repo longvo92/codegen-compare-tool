@@ -22,9 +22,12 @@ decision, so it belongs beside the other two rather than in the scanner that
 found the fact.
 """
 
+import re
 from collections import namedtuple
 
 from .arxml_rules import SWC_CATEGORIES
+
+_WORD_RE = re.compile(r'\w')
 
 # mode: how a row is painted. 'ctx' = equal line (context), 'real' = real
 # change (red/green), 'comment' = comment-only noise, 'minor' = the other
@@ -77,13 +80,33 @@ def swc_item(swc, name):
     return '{}.{}'.format(short_name(swc), name)
 
 
+def _expand_to_word(text, lo, hi):
+    """Grow a non-empty ``[lo, hi)`` span outward through identifier
+    characters (letters, digits, underscore) on both ends, so a diff landing
+    inside a name highlights the whole name -- ``rtb_A`` -> ``rtb_B`` bolds
+    all of ``rtb_A``/``rtb_B``, not just the trailing ``A``/``B``. Stops at
+    the first space or punctuation, same as a C identifier boundary. A pure
+    insertion/deletion side (``lo == hi``, nothing actually changed there) is
+    left alone: expanding it would bold unchanged text just because it sits
+    in the same word as the other side's insertion point."""
+    if lo >= hi:
+        return lo, hi
+    while lo > 0 and _WORD_RE.match(text[lo - 1]):
+        lo -= 1
+    while hi < len(text) and _WORD_RE.match(text[hi]):
+        hi += 1
+    return lo, hi
+
+
 def char_span(old_txt, new_txt):
     """Character offsets of the single changed span on each side of one line
     pair. Returns ``((o_lo, o_hi), (n_lo, n_hi))``: text before ``lo`` and
     from ``hi`` on is the common prefix/suffix and stays plain; ``txt[lo:hi]``
     is the changed middle (empty span ``lo == hi`` for a pure insert/delete on
     that side). Mirrors the report's old first-to-last-differing-char rule: a
-    single contiguous span, never fragmented into per-opcode pieces."""
+    single contiguous span, never fragmented into per-opcode pieces. Each
+    non-empty side is then grown to its enclosing identifier (see
+    :func:`_expand_to_word`), so a rename lands on the whole name."""
     pre = 0
     limit = min(len(old_txt), len(new_txt))
     while pre < limit and old_txt[pre] == new_txt[pre]:
@@ -92,7 +115,9 @@ def char_span(old_txt, new_txt):
     while (suf < limit - pre
            and old_txt[len(old_txt) - 1 - suf] == new_txt[len(new_txt) - 1 - suf]):
         suf += 1
-    return (pre, len(old_txt) - suf), (pre, len(new_txt) - suf)
+    o_lo, o_hi = _expand_to_word(old_txt, pre, len(old_txt) - suf)
+    n_lo, n_hi = _expand_to_word(new_txt, pre, len(new_txt) - suf)
+    return (o_lo, o_hi), (n_lo, n_hi)
 
 
 def mode_of(kind):

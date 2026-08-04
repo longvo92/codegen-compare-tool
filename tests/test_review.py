@@ -337,8 +337,10 @@ class TestReportRendering(unittest.TestCase):
         # ... and the change itself is still THERE, both sides of it: the badge
         # only hides it in the browser. A record that drops what someone signed
         # off is not a record.
-        self.assertIn('<span class="chg-seg">5</span>', page)   # OLD value
-        self.assertIn('<span class="chg-seg">10</span>', page)  # NEW value
+        # the number literal keeps its own syntax colour nested inside the
+        # chg-seg diff highlight (see report._char_diff)
+        self.assertIn('<span class="chg-seg"><span class="syn-number">5</span></span>', page)   # OLD value
+        self.assertIn('<span class="chg-seg"><span class="syn-number">10</span></span>', page)  # NEW value
         self.assertIn(self.rel, page)
 
     def test_signature_does_not_survive_the_change_being_regenerated(self):

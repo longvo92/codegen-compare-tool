@@ -85,8 +85,10 @@ class TestRealPlusMinor(unittest.TestCase):
         self.assertEqual(len(groups), 1)
         self.assertEqual(_group_label(groups[0]), 'comment + real')
         table = _group_table(old.split('\n'), new.split('\n'), groups[0])
-        # both are red on the removed side now; the classes still differ so
-        # the Unimportant badge can hide one of them
+        # both are red on the removed side; the classes still differ so the
+        # comment line keeps its dimmer colour even though (being next to a
+        # real change) it is always shown, not toggle-hidden like a standalone
+        # comment would be
         self.assertIn('class="delc"', table)
         self.assertIn('class="del"', table)
 
@@ -130,18 +132,24 @@ class TestRealPlusMinor(unittest.TestCase):
 
 class TestUnimportantToggle(unittest.TestCase):
     """Comment and Unimportant each hide behind their own badge -- per ROW, not
-    per group, so a pure-noise group still shows its context and its
-    placeholder while collapsed (see TestNoisyGroupNeverEmpty)."""
+    per group -- but ONLY when the hunk stands in a group with no real/moved
+    change to keep it company. A pure-noise group still shows its context and
+    its placeholder while collapsed (see TestNoisyGroupNeverEmpty); a noise
+    hunk sitting next to a real one is already inside the block the reviewer
+    is reading, so it always renders (see TestNoiseBesideRealAlwaysShows)."""
 
-    MIXED_OLD = "/* gen Mon */\nint lim = 5;\nint keep = 0;\n"
-    MIXED_NEW = "/* gen Tue */\nint lim = 10;\nint keep = 0;\n"
+    # comment and real land far enough apart (see CONTEXT / _group_hunks) to
+    # form two separate groups -- this is the STANDALONE case
+    STANDALONE_OLD = ("/* gen Mon */\n" + "x;\n" * 8 + "int lim = 5;\n")
+    STANDALONE_NEW = ("/* gen Tue */\n" + "x;\n" * 8 + "int lim = 10;\n")
 
     def test_comment_rows_tagged_for_their_own_toggle(self):
-        r = compare_pair(self.MIXED_OLD, self.MIXED_NEW, 'f.c')
-        table = _group_table(self.MIXED_OLD.split('\n'), self.MIXED_NEW.split('\n'),
-                             _group_hunks(r['hunks'])[0])
+        r = compare_pair(self.STANDALONE_OLD, self.STANDALONE_NEW, 'f.c')
+        groups = _group_hunks(r['hunks'])
+        self.assertEqual(len(groups), 2)  # comment and real stayed separate
+        table = _group_table(self.STANDALONE_OLD.split('\n'),
+                             self.STANDALONE_NEW.split('\n'), groups[0])
         self.assertIn('<tr class="comment">', table)    # comment row hideable
-        self.assertIn('<tr><td class="ln">', table)     # real/ctx rows untagged
 
     def test_other_noise_rows_tagged_minor(self):
         r = compare_pair(OLD_ARXML, NEW_ARXML, 'f.arxml')  # uuid changes
@@ -150,9 +158,10 @@ class TestUnimportantToggle(unittest.TestCase):
         self.assertIn('<tr class="minor">', table)
 
     def test_placeholder_row_per_hidden_hunk(self):
-        r = compare_pair(self.MIXED_OLD, self.MIXED_NEW, 'f.c')
-        table = _group_table(self.MIXED_OLD.split('\n'), self.MIXED_NEW.split('\n'),
-                             _group_hunks(r['hunks'])[0])
+        r = compare_pair(self.STANDALONE_OLD, self.STANDALONE_NEW, 'f.c')
+        groups = _group_hunks(r['hunks'])
+        table = _group_table(self.STANDALONE_OLD.split('\n'),
+                             self.STANDALONE_NEW.split('\n'), groups[0])
         self.assertIn('commentph', table)
         self.assertIn('1 comment line hidden', table)
 
@@ -163,7 +172,7 @@ class TestUnimportantToggle(unittest.TestCase):
         # group-level class drives visibility at all (grp-rev, for a fully
         # reviewed group, is unrelated and still applies)
         for old, new, rel in ((OLD_ARXML, NEW_ARXML, 'f.arxml'),
-                              (self.MIXED_OLD, self.MIXED_NEW, 'f.c')):
+                              (self.STANDALONE_OLD, self.STANDALONE_NEW, 'f.c')):
             r = compare_pair(old, new, rel)
             out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
             self.assertIn('<div class="grp">', out)
@@ -182,6 +191,52 @@ class TestUnimportantToggle(unittest.TestCase):
         # rule alone would not prove it -- it is a substring of the
         # qualified one.
         self.assertNotIn('hide-cmt', page)
+
+
+class TestNoiseBesideRealAlwaysShows(unittest.TestCase):
+    """A comment or Unimportant hunk sharing a group with a real/moved hunk is
+    already inside the block the reviewer opened the file to read, so it
+    renders in full (grey) unconditionally -- no placeholder, no dependency on
+    either toggle, even though a STANDALONE comment/minor hunk elsewhere in
+    the same file still collapses behind one (TestUnimportantToggle)."""
+
+    MIXED_C_OLD = "/* gen Mon */\nint lim = 5;\nint keep = 0;\n"
+    MIXED_C_NEW = "/* gen Tue */\nint lim = 10;\nint keep = 0;\n"
+
+    def test_comment_beside_real_is_untagged_and_unplaceholdered(self):
+        r = compare_pair(self.MIXED_C_OLD, self.MIXED_C_NEW, 'f.c')
+        groups = _group_hunks(r['hunks'])
+        self.assertEqual(len(groups), 1)  # close enough to merge
+        table = _group_table(self.MIXED_C_OLD.split('\n'),
+                             self.MIXED_C_NEW.split('\n'), groups[0])
+        self.assertNotIn('<tr class="comment">', table)
+        self.assertNotIn('commentph', table)
+        self.assertNotIn('line hidden', table)
+        # still muted grey, just not hideable
+        self.assertIn('class="delc"', table)
+
+    def test_minor_beside_real_is_untagged_and_unplaceholdered(self):
+        old = '<A UUID="1">\n<B>x</B>\n<C val="1"/>\n</A>\n'
+        new = '<A UUID="9">\n<B>y</B>\n<C val="1"/>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')  # uuid noise beside a real edit
+        groups = _group_hunks(r['hunks'])
+        self.assertEqual(len(groups), 1)
+        table = _group_table(old.split('\n'), new.split('\n'), groups[0])
+        self.assertNotIn('<tr class="minor">', table)
+        self.assertNotIn('minorph', table)
+        self.assertNotIn('line hidden', table)
+        self.assertIn('class="delm"', table)
+
+    def test_still_hidden_by_default_at_the_full_report_level(self):
+        # a mixed group's noise row carries no tr class, so neither
+        # body.hide-ign nor the (nonexistent) comment toggle can touch it --
+        # it is simply always in the rendered table, unlike a standalone one
+        old = '<A UUID="1">\n<B val="1"/>\n</A>\n'
+        new = '<A UUID="9">\n<B val="2"/>\n</A>\n'
+        r = compare_pair(old, new, 'f.arxml')
+        out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
+        self.assertIn('class="delm"', out)
+        self.assertNotIn('<tr class="minor">', out)
 
 
 class TestNoisyGroupNeverEmpty(unittest.TestCase):
@@ -204,14 +259,17 @@ class TestNoisyGroupNeverEmpty(unittest.TestCase):
 
 class TestCharDiff(unittest.TestCase):
     """One contiguous highlight span per side: first to last differing char,
-    common prefix/suffix plain. No fragmented multi-segment highlights."""
+    common prefix/suffix plain, grown to the enclosing identifier. No
+    fragmented multi-segment highlights."""
 
     def test_single_span_covers_equal_chars_between_diffs(self):
         # diffs at '1'vs'2' and 'a'vs'x'; the '_' between them is equal but
-        # must be swallowed into ONE span
+        # must be swallowed into ONE span -- and since the whole string is
+        # one identifier (letters/digits/underscore, no other punctuation),
+        # the word-boundary grow covers all of it
         old, new = _char_diff('rtb_Sum1_abc', 'rtb_Sum2_xbc')
-        self.assertEqual(old, 'rtb_Sum<span class="chg-seg">1_a</span>bc')
-        self.assertEqual(new, 'rtb_Sum<span class="chg-seg">2_x</span>bc')
+        self.assertEqual(old, '<span class="chg-seg">rtb_Sum1_abc</span>')
+        self.assertEqual(new, '<span class="chg-seg">rtb_Sum2_xbc</span>')
 
     def test_never_more_than_one_span_per_side(self):
         old, new = _char_diff('aXbYcZd', 'aQbWcRd')
@@ -219,15 +277,20 @@ class TestCharDiff(unittest.TestCase):
         self.assertEqual(new.count('chg-seg'), 1)
 
     def test_pure_insertion_highlights_only_new_side(self):
+        # 'axxb' is one identifier too, so the new side's span grows to all
+        # of it; the old side stays untouched -- nothing changed there
         old, new = _char_diff('ab', 'axxb')
         self.assertEqual(old, 'ab')
-        self.assertEqual(new, 'a<span class="chg-seg">xx</span>b')
+        self.assertEqual(new, '<span class="chg-seg">axxb</span>')
 
     def test_prefix_and_suffix_change(self):
+        # 'Xmid'/'midX' are each one identifier, so a diff anywhere inside
+        # grows to cover the whole name -- matches a renamed identifier
+        # bolding as a unit, not just its changed letter
         old, new = _char_diff('Xmid', 'Ymid')
-        self.assertEqual(old, '<span class="chg-seg">X</span>mid')
+        self.assertEqual(old, '<span class="chg-seg">Xmid</span>')
         old, new = _char_diff('midX', 'midY')
-        self.assertEqual(old, 'mid<span class="chg-seg">X</span>')
+        self.assertEqual(old, '<span class="chg-seg">midX</span>')
 
     def test_html_escaped(self):
         old, new = _char_diff('<a>&1', '<a>&2')
@@ -267,13 +330,13 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertIn('<div class="tf tc-cmt"', self.page)
         self.assertIn('<div class="tf tc-id"', self.page)
 
-    def test_comment_rows_stay_in_the_record_but_never_render(self):
-        # the report is the record: the lines are always in the HTML, in a
-        # tr.comment row -- CSS just always hides that row, unconditionally,
-        # with no badge to reveal it. Only the placeholder count is visible.
+    def test_comment_css_rule_present_and_unconditional(self):
+        # a STANDALONE comment hunk (see TestUnimportantToggle) renders in a
+        # tr.comment row that this rule always hides, no badge to reveal it.
+        # The shared fixture tree's only comment hunk happens to sit beside a
+        # real change (see TestNoiseBesideRealAlwaysShows), so this only
+        # pins the CSS rule itself, not a live example on this page.
         self.assertIn('\ntr.comment { display: none; }', self.page)
-        self.assertRegex(self.page, r'class="gap commentph"')
-        self.assertIn('<tr class="comment">', self.page)
         self.assertNotIn('class="badge b-cmt', self.page)
         self.assertNotIn('hide-cmt', self.page)
 
