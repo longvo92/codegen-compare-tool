@@ -349,7 +349,6 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertIn('<div class="tf tc-ign"', self.page)  # unimportant stays
         self.assertNotRegex(self.page, r'<div class="tf sec-')
 
-
 class TestIfaceSection(unittest.TestCase):
     """AUTOSAR change summary must appear at the top of the report."""
 
@@ -370,7 +369,7 @@ class TestIfaceSection(unittest.TestCase):
         self.assertIn('Interfaces: +/Interfaces/If_Torque', self.page)
 
     def test_a2l_section_lists_added_and_removed(self):
-        self.assertIn('A2L characteristics / measurements', self.page)
+        self.assertIn('A2L variables', self.page)
         self.assertIn('+ VehSpd', self.page)
         self.assertIn('− K_Gain', self.page)
         self.assertIn('MEASUREMENT', self.page)

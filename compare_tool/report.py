@@ -912,7 +912,7 @@ def _autosar_section(results, anchors):
     rows = [row('if-add', '+', n, k, rel) for rel, n, k in a2l_added]
     rows += [row('if-del', '−', n, k, rel) for rel, n, k in a2l_removed]
     if rows:
-        sections.append(('A2L characteristics / measurements', rows))
+        sections.append(('A2L variables', rows))
 
     parts = ['<h2>AUTOSAR changes</h2>']
     if not sections:
