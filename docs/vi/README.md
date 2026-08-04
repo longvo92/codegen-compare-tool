@@ -126,8 +126,11 @@ mục đó, lấy commit bạn chọn ra một thư mục tạm (read-only — w
 - Scan **mở sẵn ở change đầu tiên** — pane không bao giờ trống trong khi cây bên
   cạnh đầy kết quả.
 - `F8` / `F7` nhảy qua các change trong file đang mở rồi **đi tiếp sang file kế
-  (trước) có gì để review**, hết thì vòng lại. `Ctrl+Home` / `Ctrl+End` giữ nguyên
-  trong file.
+  (trước) có gì để xem**, hết thì vòng lại. `Ctrl+Home` / `Ctrl+End` giữ nguyên
+  trong file. File mà khác biệt chỉ là comment hoặc noise vẫn nằm trong lộ trình
+  đó chừng nào rule của nó còn tick — nó đang hiện trên màn hình nên phải tới
+  được — nhưng dừng ở đó thì không có gì để ký duyệt: chỉ change thật và block
+  moved mới vào bản ghi review.
 - `Ctrl+F` **tìm text trong file đang mở** (cả hai bên, `F3` / `Shift+F3` để nhảy,
   `Esc` để đóng). Query còn nguyên khi chuyển sang file khác, nên truy một
   identifier xuyên suốt lần compare được.
@@ -137,6 +140,11 @@ mục đó, lấy commit bạn chọn ra một thư mục tạm (read-only — w
   chúng ở nguyên chỗ cũ, giữ số dòng, mất màu đỏ/xanh, và biến khỏi minimap lẫn
   `F7`/`F8`. Phần code xung quanh mới là thứ giúp đọc được một change, mà file
   regenerate thì phần lớn là banner churn — gộp chúng lại là gộp mất gần cả file.
+  Để nguyên tick (mặc định) thì chúng giữ màu và `F7`/`F8` cũng dừng ở đó như mọi
+  change khác.
+- Change đang đứng được đánh dấu bằng **mũi tên nhỏ trong cột số dòng**, ở cả hai
+  pane — nên `F7`/`F8` vẫn thấy rõ là có nhảy kể cả khi file ngắn, không có gì để
+  cuộn.
 - `☀ Light` / `☾ Dark` trên toolbar đổi bảng màu; `--theme` chọn màu lúc mở. C,
   ARXML và A2L đều được tô cú pháp ở cả hai theme.
 
@@ -191,8 +199,9 @@ một phần của tên, không phải đuôi mangle.
 description, rename, whitespace) — một banner comment bị viết lại triage khác hẳn một identifier
 bị đổi tên. Đếm riêng trong summary của CLI và có marker riêng trên cây của viewer.
 File trộn comment *với* noise loại khác thì vẫn là Unimportant. Trong viewer,
-`Comment` và `Unimportant` mỗi cái có rule bật/tắt riêng; trong HTML report,
-comment không hiện dòng nào cả, chỉ `Unimportant` có badge để bấm hiện — xem
+`Comment` và `Unimportant` mỗi cái có rule bật/tắt riêng; trong HTML report, hunk
+đứng một mình thì comment không hiện dòng nào cả và chỉ `Unimportant` có badge để
+bấm hiện, còn hunk nằm cạnh một change thật thì luôn hiện — xem
 [HTML report](#html-report).
 
 ## Phát hiện block bị di chuyển
@@ -225,7 +234,7 @@ Cách hiển thị:
   `A2L objects` liệt kê mục `+`/`-`/`~` kèm file tương ứng.
 - **HTML report**: một mục **AUTOSAR changes** ở đầu trang, nhóm theo loại (port
   interface / software component / port / runnable / event / RTE access point /
-  A2L characteristic & measurement). Bấm vào tên file thì nhảy tới diff chi tiết
+  A2L variables). Bấm vào tên file thì nhảy tới diff chi tiết
   của nó, và mỗi file trong Detailed changes mang note `Interfaces:` / `Behavior:`
   / `RTE:` / `A2L:` của riêng mình.
 - File bị thêm hoặc xoá nguyên cái đóng góp toàn bộ interface / SWC / lời gọi RTE /
@@ -244,12 +253,24 @@ không khớp model nào rơi vào nhóm cuối **Shared / other**.
 
 File self-contained, mỗi lần compare một file: badge bật/tắt, cây thư mục, ô lọc,
 diff xếp gọn được theo từng file. Mở lên với `Unimportant` đã ẩn, `Modified` đã
-mở, để mở ra là thấy ngay cái đáng xem. Bấm badge `Unimportant` thì hiện đúng các
-dòng noise loại đó — tô màu xám phẳng thay vì đỏ/xanh, để dù hiện ra rồi vẫn đọc
-được ngay là "không tính", không lẫn với thay đổi thật. Thay đổi comment thì
-**không hiện trong report ở bất kỳ trạng thái nào** — chỉ có placeholder đếm số
-dòng bị ẩn; report là bản ghi để gửi đi nên bỏ hẳn comment churn ra khỏi đó, còn
-viewer (xem file theo file) vẫn hiện đầy đủ, tô xám. Nút `☀ Light` / `☾ Dark`
+mở, để mở ra là thấy ngay cái đáng xem. Code được **tô cú pháp** đúng như cách
+viewer tô, và các ký tự thay đổi trong một dòng được highlight trọn cả định danh,
+nên `rtb_Sum1` → `rtb_Sum2` đọc ra là một cái tên bị đổi chứ không phải một chữ
+số bị đổi.
+
+Noise được hiện ở chỗ nó giúp ích và gộp lại ở chỗ không, tuỳ vào nó nằm cạnh cái gì:
+
+- Hunk comment hoặc Unimportant **nằm ngay cạnh một change thật** thì luôn hiện
+  đầy đủ, tô xám. Nó vốn đã nằm trong khối code đang đọc — giấu đi là lấy mất
+  ngữ cảnh để đọc change thật, mà bắt bấm mới hiện thì chẳng ai có lý do để bấm.
+- Hunk **đứng một mình**, không có change thật gần đó, giữ nguyên luật cũ: bấm
+  badge `Unimportant` mới hiện các dòng đó ra, tô xám phẳng; còn dòng comment thì
+  vẫn nằm sau placeholder đếm số dòng bị ẩn.
+
+`Focus on changes` cạnh cây thư mục thu gọn cây lại còn đúng các file thật sự có
+thay đổi — dòng identical, comment-only và Unimportant biến mất, thư mục nào chỉ
+còn lại những loại đó thì biến theo. Giống `Hide identical` bên viewer, đây là
+view: verdict và số đếm không đổi. Nút `☀ Light` / `☾ Dark`
 nằm ở góc trên bên phải — cả hai palette đều nhúng sẵn trong file, nên đổi màu
 không tải gì và chạy được trên máy không có internet.
 

@@ -155,9 +155,20 @@ mái. Viewer giữ nguyên lần scan gốc trong `MainWindow._raw_results` và 
 Fold một nhóm chỉ đổi đúng hai thứ: **verdict** của file (thành `identical`, hoặc
 `real-change` nếu còn thay đổi thật) và cách các dòng đó được **tô** —
 `view_model.mute_rows` làm chúng xám đi, minimap thôi kẻ vạch cho chúng, còn
-`F7`/`F8` thì vốn đã không dừng ở đó. Bản thân các dòng vẫn nằm trên màn hình. Hunk
+`F7`/`F8` thôi dừng ở đó. Bản thân các dòng vẫn nằm trên màn hình. Hunk
 không bị đụng tới, nên report xuất ra từ `_raw_results` không thể biết là có nhóm
 nào đã bị fold.
+
+Navigation đi theo cái đang hiện trên màn hình, không phải cái review được. Hunk
+comment hoặc Unimportant đang hiện (chưa fold) **là** một điểm dừng `F7`/`F8`, và
+file mà verdict cả file là `comment-only` / `ignorable-only` thì nằm trong
+`MainWindow._NAV_STATUS` nên lộ trình đi vào file đó. Cả hai rơi ra ngay khi
+nhóm bị fold, vì lúc đó `apply_fold` đã xử lại file thành `identical` — một nguồn
+sự thật duy nhất, không phải giữ thêm cờ nào đồng bộ với checkbox. Cái mà
+navigation tuyệt đối không được làm là ngụ ý đã ký duyệt:
+`DiffPane._stop_units` mang `None` cho các stop đó, nên `current_unit()` báo là
+không có gì để review ở đây. Chỉ `real` và `moved` mới review được
+(`review.REVIEWABLE`), dù có navigate tới hay không.
 
 ## Result dict là contract
 
@@ -195,8 +206,10 @@ khớp nhau hoàn hảo cho tới lúc ai đó thêm một kind mới vào một
   `minor`). HTML report và pane Qt không thể bất đồng về việc một kind được tô màu
   gì hay có được ẩn đi không.
 - **`view_model.char_span`** — vùng highlight trong dòng, dưới dạng offset ký tự
-  trần. Report bọc nó trong một `<span>`; viewer áp `QTextCharFormat` lên đúng những
-  con số đó.
+  trần, nới rộng ra tới hết định danh bao quanh để một rename đánh dấu trọn cái
+  tên chứ không chỉ mấy chữ khác nhau. Report bọc nó trong một `<span>`; viewer áp
+  `QTextCharFormat` lên đúng những con số đó — nới rộng vùng này là sửa một chỗ,
+  cả hai surface đều được.
 - **`view_model.aligned_rows` / `mute_rows`** — canh dòng hai pane cho cả file, và
   làm *mờ* một nhóm noise bị tắt thay vì bỏ nó đi: dòng giữ nguyên vị trí, số dòng
   và nội dung, chỉ đổi mode thành `muted` để renderer tô một màu xám phẳng. Vì mute
