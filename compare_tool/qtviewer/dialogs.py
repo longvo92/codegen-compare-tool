@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QTextBrowser,
                                QVBoxLayout)
 
-from .. import __version__
+from .. import __version__, theme
 from ..resources import doc_file
 from .icons import app_icon, logo_pixmap
 
@@ -89,7 +89,10 @@ GUIDE = """
 - `Ctrl+Home` / `Ctrl+End` stay inside the open file
 - `Ctrl+F` finds text in the open file -- either side counts, the match is
   marked amber, and the search is kept when you move to another file
-- Export writes the full HTML report -- folded categories still included
+- Export writes the full HTML report -- folded categories still included. It
+  reads differently from this window on purpose: the viewer shows the whole
+  file, the report shows three lines either side of each real change and leaves
+  the rest behind the `Unimportant` badge
 - **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump straight
   to the line that names that object
 
@@ -147,7 +150,7 @@ change, and a path that could not be compared is a loud error, never a silent
 omission.</p>
 <p>Author: <b>Long Vo Thien</b> &middot; MIT License<br>
 Built with Python and PySide6</p>
-<p><a style="color:#7c8cf8;"
+<p><a style="color:{link};"
 href="https://github.com/longvo92/codegen-compare-tool">github.com/longvo92/codegen-compare-tool</a></p>
 """
 
@@ -210,7 +213,12 @@ def show_about(parent):
         logo.setPixmap(pm)
         logo.setAlignment(Qt.AlignCenter)
         lay.addWidget(logo)
-    body = QLabel(ABOUT_HTML.format(version=__version__))
+    # the one <a> in here needs an explicit colour (QLabel rich text does not
+    # inherit the app palette for links), so it takes the theme's accent rather
+    # than a hex literal -- hard-coded, the dark theme's blue stayed on the
+    # light page, which is the whole failure mode rule 3 exists to stop
+    body = QLabel(ABOUT_HTML.format(version=__version__,
+                                    link=theme.c('accent-2')))
     body.setWordWrap(True)
     body.setTextFormat(Qt.RichText)
     body.setOpenExternalLinks(True)

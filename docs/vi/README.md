@@ -199,9 +199,9 @@ một phần của tên, không phải đuôi mangle.
 description, rename, whitespace) — một banner comment bị viết lại triage khác hẳn một identifier
 bị đổi tên. Đếm riêng trong summary của CLI và có marker riêng trên cây của viewer.
 File trộn comment *với* noise loại khác thì vẫn là Unimportant. Trong viewer,
-`Comment` và `Unimportant` mỗi cái có rule bật/tắt riêng; trong HTML report, hunk
-đứng một mình thì comment không hiện dòng nào cả và chỉ `Unimportant` có badge để
-bấm hiện, còn hunk nằm cạnh một change thật thì luôn hiện — xem
+`Comment` và `Unimportant` mỗi cái có rule bật/tắt riêng; trong HTML report,
+comment không bao giờ hiện dòng nào cả và chỉ `Unimportant` có badge để bấm hiện,
+còn hunk nằm trong cửa sổ của một change thật thì luôn hiện — xem
 [HTML report](#html-report).
 
 ## Phát hiện block bị di chuyển
@@ -236,7 +236,9 @@ Cách hiển thị:
   interface / software component / port / runnable / event / RTE access point /
   A2L variables). Bấm vào tên file thì nhảy tới diff chi tiết
   của nó, và mỗi file trong Detailed changes mang note `Interfaces:` / `Behavior:`
-  / `RTE:` / `A2L:` của riêng mình.
+  / `RTE:` / `A2L:` của riêng mình. Mục này luôn có mặt — không có gì để liệt kê
+  thì nó nói ra điều đó, vì "không có thay đổi mức AUTOSAR" chính là kết luận
+  người đọc cần, còn một cái tiêu đề biến mất thì đọc ra là chưa hề kiểm tra.
 - File bị thêm hoặc xoá nguyên cái đóng góp toàn bộ interface / SWC / lời gọi RTE /
   đối tượng A2L bên trong nó vào danh sách thêm hoặc bớt.
 
@@ -252,20 +254,29 @@ không khớp model nào rơi vào nhóm cuối **Shared / other**.
 ## HTML report
 
 File self-contained, mỗi lần compare một file: badge bật/tắt, cây thư mục, ô lọc,
-diff xếp gọn được theo từng file. Mở lên với `Unimportant` đã ẩn, `Modified` đã
-mở, để mở ra là thấy ngay cái đáng xem. Code được **tô cú pháp** đúng như cách
-viewer tô, và các ký tự thay đổi trong một dòng được highlight trọn cả định danh,
-nên `rtb_Sum1` → `rtb_Sum2` đọc ra là một cái tên bị đổi chứ không phải một chữ
-số bị đổi.
+diff xếp gọn được theo từng file. Mỗi hạng mục một badge — `Modified`, `Added`,
+`Deleted`, rồi `Unimportant`, cái duy nhất mặc định tắt — nên mở ra là thấy ngay
+cái đáng xem. Code được **tô cú pháp** đúng như cách viewer tô, và các ký tự thay
+đổi trong một dòng được highlight trọn cả định danh, nên `rtb_Sum1` → `rtb_Sum2`
+đọc ra là một cái tên bị đổi chứ không phải một chữ số bị đổi.
 
-Noise được hiện ở chỗ nó giúp ích và gộp lại ở chỗ không, tuỳ vào nó nằm cạnh cái gì:
+File hiện ra **ba dòng trên và dưới mỗi change thật**, không phải cả file. Với
+file có change thật, cửa sổ đó đo từ chính các change thật, và noise nằm ở đâu
+quyết định nó được xử lý thế nào:
 
-- Hunk comment hoặc Unimportant **nằm ngay cạnh một change thật** thì luôn hiện
-  đầy đủ, tô xám. Nó vốn đã nằm trong khối code đang đọc — giấu đi là lấy mất
-  ngữ cảnh để đọc change thật, mà bắt bấm mới hiện thì chẳng ai có lý do để bấm.
-- Hunk **đứng một mình**, không có change thật gần đó, giữ nguyên luật cũ: bấm
-  badge `Unimportant` mới hiện các dòng đó ra, tô xám phẳng; còn dòng comment thì
-  vẫn nằm sau placeholder đếm số dòng bị ẩn.
+- Hunk comment hoặc Unimportant **nằm trong cửa sổ đó** thì hiện đầy đủ, tô xám.
+  Nó vốn đã nằm trong khối code đang đọc — giấu đi là lấy mất ngữ cảnh để đọc
+  change thật, mà bắt bấm mới hiện thì chẳng ai có lý do để bấm.
+- Hunk **nằm ngoài mọi cửa sổ** thì không hiện gì cả — không code, không
+  placeholder — cho tới khi bấm `Unimportant`, lúc đó các dòng đó hiện ra tô xám
+  phẳng đúng vị trí của nó. Dù bấm hay không thì chúng vẫn nằm trong file; chỉ có
+  màn hình là yên tĩnh. Để mỗi hunk noise kéo theo ba dòng code chính là thứ làm
+  một file regen in ra từ đầu đến cuối: cứ vài dòng lại có một UUID hay một dòng
+  banner, các cửa sổ dính vào nhau, và một change thật kéo theo cả file.
+- File **không có** change thật nào thì giữ nguyên ngữ cảnh ở mọi chỗ, và hunk bị
+  gộp vẫn giữ placeholder `⋯ N lines hidden`: không có gì to tiếng hơn để nhường
+  chỗ, file Unimportant là do người ta chủ động mở ra xem, và bỏ placeholder đi
+  thì nó mở ra một cái hộp rỗng.
 
 `Focus on changes` cạnh cây thư mục thu gọn cây lại còn đúng các file thật sự có
 thay đổi — dòng identical, comment-only và Unimportant biến mất, thư mục nào chỉ

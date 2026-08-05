@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-08-05
+
+The report shows the change instead of the file it lives in, and a long session
+in front of it is easier on the eyes.
+
 ### Changed
 
 - **The report shows the changes, not the file.** A file with a real change now
@@ -12,12 +17,11 @@ All notable changes to this project are documented here. Versions follow
   takes up no space until `Unimportant` is clicked. Noise sitting inside the
   change's window still shows in full, greyed. A file with no real change is
   unchanged.
-- **Softer red and green** across the report and the viewer, so a long diff is
-  easier on the eyes. Errors stay loud.
-- **`Added` and `Deleted` are two badges** in the report, not one `Added /
-  Deleted` control, and both come before `Unimportant`.
-- **The report's `AUTOSAR changes` section is always shown.** With nothing to
-  list it now says there were no AUTOSAR-level changes instead of disappearing.
+- **Softer red and green** across the report and the viewer. Errors stay loud.
+- **The `AUTOSAR changes` section is always shown.** With nothing to list it now
+  says there were no AUTOSAR-level changes instead of disappearing — the answer
+  the reviewer came for, on a run that used to have no heading at all.
+- Improve the report's summary badges.
 
 ## [1.5.0] — 2026-08-04
 
