@@ -136,6 +136,10 @@ td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg);
 .sw-mv { background: var(--seg-mv-bg); } .sw-mut { background: var(--muted-bg); }
 tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2);
             font-size: 11px; }
+/* a context-less noise group (see _groups_html) is usually one placeholder
+   row; a run of them must read as a list, not as a column of little tables
+   each floating in its own 20px of air */
+.grp.lean table.diff { margin: 2px 0; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
 /* Unimportant rows hide per ROW, not per group: a group used to be wrapped
@@ -361,6 +365,12 @@ def _note_html(note, reviewed, where='', show_where=False):
                     loc, _esc(note)))
 
 
+# the modes that earn a code window around them. Everything else is noise, and
+# noise only gets context when there is nothing louder in the file to spend the
+# screen on (see _focus_groups).
+_LOUD = ('real', 'moved')
+
+
 def _group_hunks(hunks):
     """Group hunks whose CONTEXT windows would overlap or touch, so nearby
     hunks render as ONE continuous table instead of repeating shared lines."""
@@ -373,11 +383,98 @@ def _group_hunks(hunks):
     return groups
 
 
+def _in_window(rng, lo, hi):
+    """Does hunk range ``rng`` (old-line indices, ``[i1, i2)``) touch
+    ``[lo, hi)``? A pure insertion has ``i1 == i2`` and would miss every window
+    on a plain overlap test, so it counts as occupying its one position."""
+    i1, i2 = rng
+    return i1 < hi and max(i2, i1 + 1) > lo
+
+
+def _focus_runs(hunks):
+    """``(i, j, lean)`` slices of ``hunks``, in order -- one rendered table
+    each.
+
+    With no real or moved hunk in the file this is :func:`_group_hunks`
+    unchanged: every group keeps its context window, because there is nothing
+    louder competing for the space and an Unimportant file is opened
+    deliberately.
+
+    Otherwise the CONTEXT window is measured from the REAL changes ALONE.
+    Letting every hunk pull three lines of code along is what printed a
+    regenerated file end to end: it carries a uuid or a banner line every few
+    lines, so their windows touch, the whole file chains into one group, and a
+    single real change anywhere in it brings the entire file back on screen --
+    greyed, but there. Noise falling INSIDE a real change's window still
+    renders in full and grey: it is already inside the block being read.
+    Everything else collapses to its placeholder (``lean``, no context lines).
+
+    The windows are NOT widened by the noise they absorb. Doing that cascades:
+    one uuid three lines past the edge pulls in the next, and a file with a
+    uuid every few lines chains straight back to printing itself.
+    """
+    def runs_of(seq, offset):
+        at, out = 0, []
+        for g in _group_hunks(seq):
+            out.append((offset + at, offset + at + len(g), True))
+            at += len(g)
+        return out
+
+    if not any(mode_of(h['kind']) in _LOUD for h in hunks):
+        return [(i, j, False) for i, j, _ in runs_of(hunks, 0)]
+
+    spans = []
+    for h in hunks:
+        if mode_of(h['kind']) not in _LOUD:
+            continue
+        i1, i2 = h['old_range']
+        lo, hi = i1 - CONTEXT, max(i2, i1 + 1) + CONTEXT
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    # which window each hunk renders in, None for the ones that collapse. Two
+    # hunks in DIFFERENT windows must not share a table: the equal lines
+    # between them are exactly what this is here to leave out.
+    win = []
+    for h in hunks:
+        win.append(next((k for k, (lo, hi) in enumerate(spans)
+                         if _in_window(h['old_range'], lo, hi)), None))
+    out, at = [], 0
+    while at < len(hunks):
+        end = at + 1
+        while end < len(hunks) and win[end] == win[at]:
+            end += 1
+        if win[at] is None:
+            # out-of-window noise still merges by proximity, so a run of it
+            # reads as one list of placeholders, not a column of one-row tables
+            out.extend(runs_of(hunks[at:end], at))
+        else:
+            out.append((at, end, False))
+        at = end
+    return out
+
+
 def _group_table(old_lines, new_lines, group, language=None, old_states=None,
-                 new_states=None):
+                 new_states=None, lean=False, limits=None):
     """One continuous side-by-side table for a run of nearby hunks: leading /
     trailing CONTEXT lines, the equal lines between hunks shown once, real
     hunks in red/green, noise hunks in the same pair, dimmer.
+
+    ``lean`` drops every equal line -- the leading and trailing windows and the
+    gaps between hunks -- leaving the hunk rows alone. The caller sets it for
+    noise that fell outside every real change's window (see :func:`_focus_runs`):
+    those rows are hidden by default anyway, so their context was pure padding,
+    and in a regenerated file there is enough of it to bury the hunks worth
+    reading.
+
+    ``limits`` is ``(old_lo, new_lo, old_hi, new_hi)``: where the neighbouring
+    hunks OUTSIDE this group end and begin. A context row prints
+    ``old_lines[o]`` beside ``new_lines[n]`` at the same offset and calls the
+    pair equal, so a lead or tail that ran past a hunk left out of this group
+    would paint a real difference as unchanged code -- the one mistake this
+    tool exists to prevent. Left None (no other group in the file) the limits
+    are the file ends, which is what they always were.
 
     ``old_states``/``new_states`` are the per-line syntax-highlighter entry
     state computed once for the whole file (see ``_line_states``); omit them
@@ -385,6 +482,7 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
     colouring existed."""
     old_states = old_states or []
     new_states = new_states or []
+    o_lo, n_lo, o_hi, n_hi = limits or (0, 0, len(old_lines), len(new_lines))
     # a noise hunk sitting next to a real/moved one is already inside the
     # code block the reviewer is reading -- collapsing it to a placeholder
     # would hide context they need, and un-hiding it costs a click they have
@@ -392,10 +490,10 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
     # group with NO real/moved hunk is pure noise with nothing to read it
     # alongside, and keeps the placeholder + existing toggle rules (Comment
     # stays uncounted/unrevealable, Unimportant stays behind its badge).
-    mixed = any(mode_of(hh['kind']) in ('real', 'moved') for hh in group)
+    mixed = any(mode_of(hh['kind']) in _LOUD for hh in group)
     rows = []
     i1, j1 = group[0]['old_range'][0], group[0]['new_range'][0]
-    lead = min(CONTEXT, i1, j1)
+    lead = 0 if lean else max(0, min(CONTEXT, i1 - o_lo, j1 - n_lo))
     for k in range(lead):
         o, n = i1 - lead + k, j1 - lead + k
         rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
@@ -417,9 +515,12 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
             if not mixed:
                 what = ('comment' if mode == 'comment'
                         else 'minor ({})'.format(_esc(h['kind'])))
+                # with the context window gone the placeholder is the only
+                # thing on screen for this hunk, so it has to say WHERE it sat
                 rows.append('<tr class="gap {}ph"><td colspan="4">⋯ {} {} line{} '
-                            'hidden</td></tr>'.format(_MODE_TR[mode], span, what,
-                                                      '' if span == 1 else 's'))
+                            'hidden at line {}</td></tr>'.format(
+                                _MODE_TR[mode], span, what,
+                                '' if span == 1 else 's', hj1 + 1))
         elif mode == 'moved':
             if 'moved_to' in h:
                 note = '⇄ block moved to CURRENT line {}'.format(h['moved_to'])
@@ -429,13 +530,14 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
             rows.append('<tr class="mvnote"><td colspan="4">{}</td></tr>'.format(note))
         if idx + 1 < len(group):
             # equal lines between this hunk and the next of the group
-            gap = group[idx + 1]['old_range'][0] - hi2
+            gap = 0 if lean else group[idx + 1]['old_range'][0] - hi2
             for k in range(gap):
                 o, n = hi2 + k, hj2 + k
                 rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
                                  language, _state_at(old_states, o), _state_at(new_states, n)))
     i2, j2 = group[-1]['old_range'][1], group[-1]['new_range'][1]
-    tail = min(CONTEXT, len(old_lines) - i2, len(new_lines) - j2)
+    tail = 0 if lean else max(0, min(CONTEXT, o_hi - i2, n_hi - j2,
+                                     len(old_lines) - i2, len(new_lines) - j2))
     for k in range(tail):
         o, n = i2 + k, j2 + k
         rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
@@ -473,6 +575,12 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
     Reviewed badge can fold it away -- with its notes, which belong to the
     changes being hidden.
 
+    Which hunks share a group, and which of them get a code window at all, is
+    :func:`_focus_runs`: once the file has a real change, the noise outside
+    that change's CONTEXT window renders as its placeholder alone (``lean``).
+    Each group is handed the neighbouring hunks' edges as ``limits`` so its
+    context can never run past a change left out of it.
+
     ``language`` (see ``syntax.language_for``) turns on code colouring; the
     per-line comment-state tables are built once here, from the WHOLE file,
     and handed to every group -- a group only renders a CONTEXT window, so it
@@ -480,12 +588,20 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
     old_states = _line_states(old_lines, language)
     new_states = _line_states(new_lines, language)
     out = []
-    for g in _group_hunks(hunks):
+    for i, j, lean in _focus_runs(hunks):
+        g = hunks[i:j]
+        before = hunks[i - 1] if i else None
+        after = hunks[j] if j < len(hunks) else None
+        limits = (before['old_range'][1] if before else 0,
+                  before['new_range'][1] if before else 0,
+                  after['old_range'][0] if after else len(old_lines),
+                  after['new_range'][0] if after else len(new_lines))
         notes_html, done = _group_notes(g, notes)
         cls = ' grp-rev' if done else ''
-        out.append('<div class="grp{}">'.format(cls))
+        out.append('<div class="grp{}{}">'.format(' lean' if lean else '', cls))
         out.append(notes_html)
-        out.append(_group_table(old_lines, new_lines, g, language, old_states, new_states))
+        out.append(_group_table(old_lines, new_lines, g, language, old_states,
+                                new_states, lean, limits))
         out.append('</div>')
     return ''.join(out)
 

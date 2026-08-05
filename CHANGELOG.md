@@ -5,6 +5,16 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- **The report shows the changes, not the file.** A file with a real change now
+  renders three lines either side of it and nothing else; the noise elsewhere
+  shrinks to a single line saying what was hidden and where, and one click still
+  reveals it. Noise sitting inside the change's window still shows in full,
+  greyed. A file with no real change is unchanged.
+- **Softer red and green** across the report and the viewer, so a long diff is
+  easier on the eyes. Errors stay loud.
+
 ## [1.5.0] — 2026-08-04
 
 The report reads like code instead of plain text, noise stops hiding the change

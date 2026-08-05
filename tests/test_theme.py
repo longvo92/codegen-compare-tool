@@ -51,6 +51,36 @@ class TestPalettes(unittest.TestCase):
                                    '{} {} on {}'.format(name, fg, bg))
 
 
+def _sat(role, name):
+    """Rough saturation of a role: max channel minus min channel."""
+    h = theme.color(role, name).lstrip('#')
+    ch = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    return max(ch) - min(ch)
+
+
+class TestDiffColoursStayCalmerThanErrors(unittest.TestCase):
+    """The red/green pair is deliberately desaturated -- a diff is read for
+    minutes at a time and a saturated field behind every changed line is what
+    makes that tiring. The error roles are the exception and stay loud: a
+    failed compare is the one thing that must not be easy to slide past.
+
+    Softening the palette again without noticing the error roles were in the
+    same block is exactly how the loud one goes quiet, so it is asserted."""
+
+    def test_error_red_is_louder_than_removed_red(self):
+        for name in theme.THEMES:
+            self.assertGreater(_sat('st-err', name), _sat('st-real', name), name)
+
+    def test_diff_row_backgrounds_are_low_saturation(self):
+        # they only have to say WHICH side a line is on; the chg-seg pair on
+        # top of them is what carries the emphasis
+        for name in theme.THEMES:
+            for role in ('del-bg', 'add-bg', 'del-bg-dim', 'add-bg-dim'):
+                self.assertLess(_sat(role, name), 26, '{} {}'.format(name, role))
+            for role in ('seg-del-bg', 'seg-add-bg'):
+                self.assertLess(_sat(role, name), 56, '{} {}'.format(name, role))
+
+
 class TestLookup(unittest.TestCase):
     def test_an_unknown_theme_falls_back_instead_of_raising(self):
         # a colour scheme is never worth refusing to open the tool over

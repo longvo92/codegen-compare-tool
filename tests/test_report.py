@@ -251,6 +251,108 @@ class TestNoisyGroupNeverEmpty(unittest.TestCase):
         self.assertIn('<tr class="minor">', out)  # in the record, just hidden
 
 
+_ROW_RE = re.compile(
+    r'<tr[^>]*><td class="ln">[^<]*</td><td class="([^"]*)">(.*?)</td>'
+    r'<td class="ln">[^<]*</td><td class="([^"]*)">(.*?)</td></tr>')
+
+
+def _ctx_rows(out):
+    """(old_text, new_text) of every context row in a _groups_html output,
+    markup stripped."""
+    rows = []
+    for lcls, ltext, rcls, rtext in _ROW_RE.findall(out):
+        if lcls == 'ctx' and rcls == 'ctx':
+            rows.append((re.sub(r'<[^>]*>', '', ltext),
+                         re.sub(r'<[^>]*>', '', rtext)))
+    return rows
+
+
+class TestStandaloneNoiseLosesItsContext(unittest.TestCase):
+    """Once a file HAS a real change, the noise standing outside that change's
+    CONTEXT window stops printing the unchanged lines around it.
+
+    Measuring the window from every hunk is what made a regenerated file print
+    end to end: it carries a uuid or a banner line every few lines, so their
+    windows touch, the whole file chains into one group, and one real change
+    anywhere in it brings the entire file back on screen. The record survives
+    -- the rows are still in the HTML for the Unimportant badge to reveal, and
+    the placeholder now names the line they sat on."""
+
+    # uuid noise at line 1, a real edit 20 lines later
+    PAD = '\n'.join('<X{}/>'.format(i) for i in range(20))
+    OLD = '<A UUID="1">\n' + PAD + '\n<B val="1"/>\n'
+    NEW = '<A UUID="9">\n' + PAD + '\n<B val="2"/>\n'
+
+    # the dense case the windows exist for: a uuid every 3 lines, so every
+    # hunk's own window touches the next one's
+    DENSE_OLD = '\n'.join(
+        ['<E{0} UUID="a{0}"/>\n<K{0}/>\n<K{0}b/>'.format(i) for i in range(12)]
+        + ['<B val="1"/>', ''])
+    DENSE_NEW = '\n'.join(
+        ['<E{0} UUID="f{0}"/>\n<K{0}/>\n<K{0}b/>'.format(i) for i in range(12)]
+        + ['<B val="2"/>', ''])
+
+    def setUp(self):
+        self.r = compare_pair(self.OLD, self.NEW, 'f.arxml')
+        self.out = _groups_html(self.OLD.split('\n'), self.NEW.split('\n'),
+                                self.r['hunks'])
+
+    def test_the_noise_group_renders_no_context_lines(self):
+        lean = _group_table(self.OLD.split('\n'), self.NEW.split('\n'),
+                            _group_hunks(self.r['hunks'])[0], lean=True)
+        self.assertNotIn('class="ctx"', lean)
+        self.assertIn('<tr class="minor">', lean)   # still in the record
+
+    def test_the_real_group_keeps_its_context(self):
+        # fail-safe: only noise loses its window. A real change read without
+        # the lines around it is the one thing this must not cost.
+        self.assertIn('class="ctx"', self.out)
+        self.assertEqual(self.out.count('<div class="grp lean">'), 1)
+        self.assertIn('class="del"', self.out)
+
+    def test_the_placeholder_says_which_line_was_hidden(self):
+        # with no context around it the placeholder is all that marks the spot
+        self.assertIn('1 minor (uuid) line hidden at line 1', self.out)
+
+    def test_a_file_with_no_real_change_keeps_every_context_line(self):
+        # nothing louder is competing for the space, and an Unimportant file
+        # opened deliberately is still meant to be read
+        out = _groups_html(OLD_ARXML.split('\n'), NEW_ARXML.split('\n'),
+                           compare_pair(OLD_ARXML, NEW_ARXML, 'f.arxml')['hunks'])
+        self.assertIn('class="ctx"', out)
+        self.assertNotIn('grp lean', out)
+
+    def test_dense_noise_does_not_chain_the_whole_file_back_in(self):
+        # this is the case the change is FOR: widening a window by the noise it
+        # absorbs cascades one uuid at a time straight back to the whole file
+        r = compare_pair(self.DENSE_OLD, self.DENSE_NEW, 'f.arxml')
+        old = self.DENSE_OLD.split('\n')
+        out = _groups_html(old, self.DENSE_NEW.split('\n'), r['hunks'])
+        self.assertEqual(sum(1 for h in r['hunks'] if h['kind'] == 'real'), 1)
+        # 36 lines of unchanged padding; only the last few may survive
+        self.assertLess(len(_ctx_rows(out)), 8, 'the file printed itself again')
+
+    def test_no_context_row_ever_straddles_a_hidden_change(self):
+        # a context row prints old[k] beside new[k] and calls the pair equal.
+        # Once groups can leave a hunk out, a lead or tail running past that
+        # hunk would paint a real difference as unchanged code -- which is the
+        # single failure this tool exists to prevent, and it is invisible: the
+        # row looks like ordinary context.
+        pairs = [(self.OLD, self.NEW, 'f.arxml'),
+                 (self.DENSE_OLD, self.DENSE_NEW, 'f.arxml'),
+                 (OLD_ARXML, NEW_ARXML, 'f.arxml')]
+        for rel in sorted(p.name for p in (FIX / 'old' / 'src').iterdir()):
+            new = FIX / 'new' / 'src' / rel
+            if new.exists():
+                pairs.append(((FIX / 'old' / 'src' / rel).read_text(),
+                              new.read_text(), rel))
+        for old, new, rel in pairs:
+            r = compare_pair(old, new, rel)
+            out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
+            for o_txt, n_txt in _ctx_rows(out):
+                self.assertEqual(o_txt, n_txt, rel)
+
+
 class TestCharDiff(unittest.TestCase):
     """One contiguous highlight span per side: first to last differing char,
     common prefix/suffix plain, grown to the enclosing identifier. No

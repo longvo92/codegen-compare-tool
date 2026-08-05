@@ -179,10 +179,11 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming 
 
 Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden, `Modified` expanded, so it opens on what matters. The code is **syntax-coloured** the same way the viewer paints it, and the changed characters inside a line are highlighted across the whole identifier, so `rtb_Sum1` → `rtb_Sum2` reads as one renamed name rather than one changed digit.
 
-Noise is shown where it helps and folded where it does not, and which one you get depends on the company it keeps:
+A file is shown as **three lines of code either side of each real change** — not the whole file. In a file that has a real change, the window is measured from the real changes alone, and the noise decides where it falls:
 
-- A comment or Unimportant hunk **sitting next to a real change** always renders in full, greyed. It is already inside the block being read — hiding it would take away the context the real change is read in, and revealing it would cost a click nobody has a reason to make.
-- A hunk **standing on its own**, with no real change nearby, keeps the old rules: clicking `Unimportant` reveals those lines flat grey, and comment lines stay behind a placeholder saying how many were hidden.
+- A comment or Unimportant hunk **inside that window** renders in full, greyed. It is already inside the block being read — hiding it would take away the context the real change is read in, and revealing it would cost a click nobody has a reason to make.
+- A hunk **outside every window** shrinks to one line saying what was hidden and where: `⋯ 1 minor (uuid) line hidden at line 25`. It stays in the file, so clicking `Unimportant` still reveals those lines flat grey; only the unchanged code around it is gone. Letting each of them pull three lines along is what printed a regenerated file end to end — it carries a UUID or a banner line every few lines, so the windows chained and one real change brought the whole file back with it.
+- A file with **no** real change keeps its context everywhere: there is nothing louder competing for the space, and an Unimportant file is opened deliberately.
 
 `Focus on changes`, beside the folder tree, narrows the tree to files that actually changed — identical, comment-only and Unimportant rows drop out, and a folder left holding none of them goes with them. Like the viewer's `Hide identical`, it is a view: verdicts and counts are untouched. A `☀ Light` / `☾ Dark` button sits in the top right — both palettes are embedded in the file, so switching fetches nothing and works on a machine with no internet.
 
