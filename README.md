@@ -166,7 +166,7 @@ The tool extracts AUTOSAR information from both sides and reports changes at the
 How it is shown:
 
 - **CLI**: `ARXML interfaces`, `AUTOSAR behavior`, `RTE access points` and `A2L objects` blocks listing `+`/`-`/`~` entries with the file each belongs to.
-- **HTML report**: an **AUTOSAR changes** section at the top of the page, grouped by kind (port interfaces / software components / ports / runnables / events / RTE access points / A2L variables). Clicking a file name jumps to its detailed diff, and each file in Detailed changes carries its own `Interfaces:` / `Behavior:` / `RTE:` / `A2L:` note.
+- **HTML report**: an **AUTOSAR changes** section at the top of the page, grouped by kind (port interfaces / software components / ports / runnables / events / RTE access points / A2L variables). Clicking a file name jumps to its detailed diff, and each file in Detailed changes carries its own `Interfaces:` / `Behavior:` / `RTE:` / `A2L:` note. The section is always there — with nothing to list it says so, because "no AUTOSAR-level changes" is the finding, and a heading that disappears reads as a check that never ran.
 - Whole files added or deleted contribute every interface / SWC / RTE call / A2L object inside them as added or removed.
 
 A file whose XML fails to parse is skipped from this summary (its text diff still shows in full). An unknown `Rte_` call isn't counted here but still appears in the diff.
@@ -177,7 +177,7 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming 
 
 ## HTML report
 
-Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. Opens `Unimportant` hidden, `Modified` expanded, so it opens on what matters. The code is **syntax-coloured** the same way the viewer paints it, and the changed characters inside a line are highlighted across the whole identifier, so `rtb_Sum1` → `rtb_Sum2` reads as one renamed name rather than one changed digit.
+Self-contained file, one per compare: badge toggles, folder tree, filter box, collapsible diffs per file. One badge per category — `Modified`, `Added`, `Deleted`, then `Unimportant`, which is the only one that starts off — so the page opens on what matters. The code is **syntax-coloured** the same way the viewer paints it, and the changed characters inside a line are highlighted across the whole identifier, so `rtb_Sum1` → `rtb_Sum2` reads as one renamed name rather than one changed digit.
 
 A file is shown as **three lines of code either side of each real change** — not the whole file. In a file that has a real change, the window is measured from the real changes alone, and the noise decides where it falls:
 

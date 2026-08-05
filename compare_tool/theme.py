@@ -77,7 +77,6 @@ _DARK = {
     'tag-del-bg': '#4a2b52', 'tag-del-fg': '#d9a8e6',
     'tag-err-bg': '#7a1f1f', 'tag-err-fg': '#ffc2c2',
     'tag-id-bg': '#333333', 'tag-id-fg': '#aaaaaa',
-    'tag-adddel-bg': '#33404a', 'tag-adddel-fg': '#cfe0ec',
     'tag-rev-bg': '#274a45', 'tag-rev-fg': '#9fe0cf',
 
     # --- the incomplete-compare banner ---
@@ -215,7 +214,6 @@ _LIGHT = {
     'tag-del-bg': '#f5eafd', 'tag-del-fg': '#6639ba',
     'tag-err-bg': '#ffdcdc', 'tag-err-fg': '#a40e26',
     'tag-id-bg': '#eaeef2', 'tag-id-fg': '#6e7781',
-    'tag-adddel-bg': '#ddf4ff', 'tag-adddel-fg': '#0a3069',
     'tag-rev-bg': '#d7f5ec', 'tag-rev-fg': '#0f5d4e',
 
     'err-bg': '#fff5f5',

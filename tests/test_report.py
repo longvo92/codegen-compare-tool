@@ -410,12 +410,20 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertRegex(self.page, r'badge b-ign off[^>]*>\d+ Unimportant<')
         self.assertNotIn('class="badge b-cmt', self.page)
 
-    def test_added_and_deleted_share_one_badge(self):
-        self.assertRegex(self.page,
-                         r'badge b-adddel[^>]*>\d+ Added / \d+ Deleted<')
-        self.assertIn("tg2(this,'add','del')", self.page)
-        self.assertNotIn('class="badge b-add"', self.page)
-        self.assertNotIn('class="badge b-del"', self.page)
+    def test_added_and_deleted_get_a_badge_each(self):
+        # they used to share one control. A new file and a deleted one are not
+        # read the same way, and "1 / 1" made the reader work out which count
+        # was which.
+        self.assertRegex(self.page, r'badge b-add"[^>]*>\d+ Added<')
+        self.assertRegex(self.page, r'badge b-del"[^>]*>\d+ Deleted<')
+        self.assertIn("tg(this,'add')", self.page)
+        self.assertIn("tg(this,'del')", self.page)
+        self.assertNotIn('b-adddel', self.page)
+        self.assertNotIn('tg2(', self.page)
+
+    def test_the_categories_read_before_the_one_that_starts_off(self):
+        order = [m for m in re.findall(r'badge b-(real|add|del|ign)\b', self.page)]
+        self.assertEqual(order[:4], ['real', 'add', 'del', 'ign'])
 
     def test_comment_only_files_still_have_no_detail_section(self):
         # a whole file whose only differences are comments still gets no
@@ -507,10 +515,15 @@ class TestIfaceSection(unittest.TestCase):
     def test_a2l_per_file_note_rendered(self):
         self.assertIn('A2L: +VehSpd (MEASUREMENT)', self.page)
 
-    def test_no_section_without_arxml_iface_info(self):
+    def test_the_section_stays_and_says_so_when_there_is_nothing_to_list(self):
+        # it used to vanish, which is exactly the run where the reviewer most
+        # needs the answer: an absent heading looks like the report forgot to
+        # check, while "no AUTOSAR-level changes" IS the finding
         results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*', 'a2l/*'])
         page = build_report(results, FIX / 'old', FIX / 'new')
-        self.assertNotIn('AUTOSAR changes', page)
+        self.assertIn('<h2>AUTOSAR changes</h2>', page)
+        self.assertIn('No AUTOSAR-level changes', page)
+        self.assertNotIn('Port interfaces', page)
 
 
 class TestOneColourLanguage(unittest.TestCase):

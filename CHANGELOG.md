@@ -14,6 +14,10 @@ All notable changes to this project are documented here. Versions follow
   unchanged.
 - **Softer red and green** across the report and the viewer, so a long diff is
   easier on the eyes. Errors stay loud.
+- **`Added` and `Deleted` are two badges** in the report, not one `Added /
+  Deleted` control, and both come before `Unimportant`.
+- **The report's `AUTOSAR changes` section is always shown.** With nothing to
+  list it now says there were no AUTOSAR-level changes instead of disappearing.
 
 ## [1.5.0] — 2026-08-04
 

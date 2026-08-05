@@ -34,9 +34,12 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--f
 .b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
 .b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
 .b-id { background: var(--tag-id-bg); color: var(--tag-id-fg); }
-/* added and deleted share one control: both are "a whole file appeared or
-   vanished", and a reviewer flips them together */
-.b-adddel { background: var(--tag-adddel-bg); color: var(--tag-adddel-fg); }
+/* added and deleted get a badge each, in the colours the folder tree already
+   marks them with. They used to share one: "a whole file appeared or vanished"
+   sounded like one question, but a new file and a deleted one are not read the
+   same way, and neither is a count of "1 / 1" */
+.b-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
+.b-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
 .bgroup + .bgroup { border-left: 1px solid var(--border-strong); margin-left: 4px;
                     padding-left: 18px; }
 .b-err { background: var(--tag-err-bg); color: var(--tag-err-fg);
@@ -1006,11 +1009,13 @@ def _kinds_of(r):
 def _autosar_section(results, anchors):
     """Top-of-report rollup of every AUTOSAR-level change across all files:
     port-interfaces, software components, ports, runnables, events, RTE
-    access points and A2L calibration objects. Empty string when no file
-    carries semantic info."""
-    if not any(('ifaces' in r or 'swc' in r or 'rte' in r or 'a2l' in r)
-               for r in results.values()):
-        return ''
+    access points and A2L calibration objects.
+
+    Always rendered, even with nothing to list. The section used to vanish
+    whenever no file carried semantic info -- which is exactly the run where
+    the reviewer most needs the answer: an absent heading looks like the report
+    forgot to check, while "no AUTOSAR-level changes" IS the finding. It is
+    also the same shape either way, so the reader learns where to look once."""
 
     def flink(rel):
         loc = _esc(rel)
@@ -1449,10 +1454,13 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                      'review">{} of {} Reviewed</span></span>'
                      .format(rv.reviewed, rv.units))
     parts.append('<div class="summary"><span class="bgroup">' + err_badge +
+                 # reportable categories first, in the order they are read:
+                 # Modified, Added, Deleted. Unimportant is last because it is
+                 # the one that starts off.
                  '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} Modified</span>'
+                 '<span class="badge b-add" onclick="tg(this,\'add\')">{added} Added</span>'
+                 '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} Deleted</span>'
                  '<span class="badge b-ign off" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
-                 '<span class="badge b-adddel" onclick="tg2(this,\'add\',\'del\')">'
-                 '{added} Added / {deleted} Deleted</span>'
                  '</span>'.format(**counts) + rev_group + '</div>')
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
@@ -1487,11 +1495,6 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
 
     parts.append('<script>'
                  'function tg(el,k){document.body.classList.toggle("hide-"+k);'
-                 'el.classList.toggle("off");}'
-                 # added and deleted move together under one badge, so their two
-                 # body classes flip together and the badge state stays true
-                 'function tg2(el,a,b){document.body.classList.toggle("hide-"+a);'
-                 'document.body.classList.toggle("hide-"+b);'
                  'el.classList.toggle("off");}'
                  'function go(id){var d=document.getElementById(id);if(!d)return;'
                  'var m=d.closest("details.model");if(m)m.open=true;'
