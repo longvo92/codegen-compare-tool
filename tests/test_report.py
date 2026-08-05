@@ -310,9 +310,13 @@ class TestStandaloneNoiseLosesItsContext(unittest.TestCase):
         self.assertEqual(self.out.count('<div class="grp lean">'), 1)
         self.assertIn('class="del"', self.out)
 
-    def test_the_placeholder_says_which_line_was_hidden(self):
-        # with no context around it the placeholder is all that marks the spot
-        self.assertIn('1 minor (uuid) line hidden at line 1', self.out)
+    def test_a_lean_group_shows_nothing_at_all_until_the_badge_is_clicked(self):
+        # the placeholder WAS the noise once the context around it went: a
+        # wall of "1 minor (uuid) line hidden" is the same scrolling the
+        # window removal was there to stop
+        self.assertNotIn('line hidden', self.out)
+        self.assertNotIn('minorph', self.out)
+        self.assertIn('<tr class="minor">', self.out)   # still in the record
 
     def test_a_file_with_no_real_change_keeps_every_context_line(self):
         # nothing louder is competing for the space, and an Unimportant file

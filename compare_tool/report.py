@@ -136,10 +136,10 @@ td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg);
 .sw-mv { background: var(--seg-mv-bg); } .sw-mut { background: var(--muted-bg); }
 tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2);
             font-size: 11px; }
-/* a context-less noise group (see _groups_html) is usually one placeholder
-   row; a run of them must read as a list, not as a column of little tables
-   each floating in its own 20px of air */
-.grp.lean table.diff { margin: 2px 0; }
+/* a context-less noise group (see _groups_html) has nothing visible in it
+   until the Unimportant badge reveals its rows -- so it must take up no
+   height at all until then, not a table's worth of margin */
+.grp.lean table.diff { margin: 0; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
 /* Unimportant rows hide per ROW, not per group: a group used to be wrapped
@@ -512,15 +512,19 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
             rows.append(_row(o_no, o_txt, n_no, n_txt, mode, language, o_state, n_state,
                              hideable=not mixed))
         if mode in _MODE_TR:
-            if not mixed:
+            # A lean group gets NO placeholder: with its context gone there is
+            # nothing else in the table, so the placeholder WAS the noise on
+            # screen -- a wall of "1 minor (uuid) line hidden" is the same
+            # scrolling the window removal was there to stop. It collapses to
+            # nothing until the Unimportant badge reveals the rows themselves.
+            # A group that kept its context still gets one: that is a file with
+            # no real change at all, and it must not open to an empty box.
+            if not mixed and not lean:
                 what = ('comment' if mode == 'comment'
                         else 'minor ({})'.format(_esc(h['kind'])))
-                # with the context window gone the placeholder is the only
-                # thing on screen for this hunk, so it has to say WHERE it sat
                 rows.append('<tr class="gap {}ph"><td colspan="4">⋯ {} {} line{} '
-                            'hidden at line {}</td></tr>'.format(
-                                _MODE_TR[mode], span, what,
-                                '' if span == 1 else 's', hj1 + 1))
+                            'hidden</td></tr>'.format(_MODE_TR[mode], span, what,
+                                                      '' if span == 1 else 's'))
         elif mode == 'moved':
             if 'moved_to' in h:
                 note = '⇄ block moved to CURRENT line {}'.format(h['moved_to'])
