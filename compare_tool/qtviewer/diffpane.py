@@ -106,6 +106,18 @@ _SEG_BG = {
     ('minor', 'old'):   'seg-del-dim-bg', ('minor', 'new'):   'seg-add-dim-bg',
     ('moved', 'old'):   'seg-mv-bg',      ('moved', 'new'):   'seg-mv-bg',
 }
+def _gutter_tint(mode, real_role):
+    """The gutter role for one side of one row: the del/add role on a real
+    change, flat grey on a muted (folded-off) row -- same as its code cell,
+    see ``_ROW_BG`` -- and no tint at all otherwise (comment/minor still shown
+    in dim colour, and moved, neither of which the gutter number joins in)."""
+    if mode == 'real':
+        return real_role
+    if mode == MUTED:
+        return 'muted-bg'
+    return ''
+
+
 _ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
 
 # The find hits are amber on purpose: red, green and blue already mean removed,
@@ -894,13 +906,18 @@ class DiffPane(QStackedWidget):
         self._hl_new.configure(lang, modes, repaint=False)
         self._set_text(self.old_edit, '\n'.join(r.old_txt or '' for r in rows))
         self._set_text(self.new_edit, '\n'.join(r.new_txt or '' for r in rows))
+        # gutter tint follows the code cell beside it -- a real change gets
+        # the del/add wash, a muted (folded-off) row gets the same flat grey
+        # its code cell has, so the number column never stops short of a row
+        # that is coloured right up to it. Not moved: it already reads as its
+        # own thing in blue, and the gutter number was never part of that.
         self.old_edit.set_numbers(
             [str(r.old_no) if r.old_no else '' for r in rows],
-            ['gutter-del-bg' if r.mode == 'real' and r.old_txt is not None else ''
+            [_gutter_tint(r.mode, 'gutter-del-bg') if r.old_txt is not None else ''
              for r in rows])
         self.new_edit.set_numbers(
             [str(r.new_no) if r.new_no else '' for r in rows],
-            ['gutter-add-bg' if r.mode == 'real' and r.new_txt is not None else ''
+            [_gutter_tint(r.mode, 'gutter-add-bg') if r.new_txt is not None else ''
              for r in rows])
         # back to the two-pane layout: the old editor drives again (its
         # scrollbar mirror carries the new pane), whatever a previous

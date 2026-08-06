@@ -102,9 +102,13 @@ table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
-/* the gutter's own tint on a real-change row -- see _row's ln-del/ln-add */
+/* the gutter's own tint follows the code cell it sits beside -- see _row's
+   ln-del/ln-add/ln-mut. Without this the number column stayed the plain
+   gutter colour while the code beside it changed, so a coloured row visibly
+   stopped short of its own line number. */
 td.ln-del { background: var(--gutter-del-bg); }
 td.ln-add { background: var(--gutter-add-bg); }
+td.ln-mut { background: var(--muted-bg); }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Unimportant hides behind its own badge, default OFF -- the report opens
    on real changes, a click reveals the rest. Revealed rows are flat neutral
@@ -719,11 +723,20 @@ def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
     # _group_table) skips the tr.comment/tr.minor class entirely, so none of
     # the hide-by-default CSS applies to it -- it just renders, like a ctx row
     trcls = ' class="{}"'.format(_MODE_TR[mode]) if mode in _MODE_TR and hideable else ''
-    # the gutter's own tint is a REAL-change thing only -- moved is a
-    # different colour language and comment/minor stay flat grey when
-    # revealed, so neither gets a second, competing tint on its line number
-    lnl = 'ln ln-del' if mode == 'real' and o_txt is not None else 'ln'
-    lnr = 'ln ln-add' if mode == 'real' and n_txt is not None else 'ln'
+    # the gutter's own tint follows the code cell it sits beside -- a real
+    # change gets the del/add wash, a revealed comment/minor row gets the same
+    # flat grey its code cell has (one tint, same as the code cell, not a
+    # second colour). Moved is the one mode left untinted here: it already
+    # reads as its own thing in blue, and the gutter number was never part of
+    # that language.
+    if mode == 'real':
+        lnl = 'ln ln-del' if o_txt is not None else 'ln'
+        lnr = 'ln ln-add' if n_txt is not None else 'ln'
+    elif mode in ('comment', 'minor'):
+        lnl = 'ln ln-mut' if o_txt is not None else 'ln'
+        lnr = 'ln ln-mut' if n_txt is not None else 'ln'
+    else:
+        lnl = lnr = 'ln'
     return ('<tr{}><td class="{}">{}</td><td class="{}">{}</td>'
             '<td class="{}">{}</td><td class="{}">{}</td></tr>').format(
                 trcls, lnl, o_no, lcls, l, lnr, n_no, rcls, r)
@@ -740,8 +753,9 @@ _TREE = {
     'identical':      ('=',      't-id',   'sec-id'),
     'error':          ('!',      't-err',  'sec-err'),
 }
-# status -> (display label, tag css class); terms follow common compare-tool
-# convention (git: Modified/Added/Deleted, Beyond Compare: Unimportant, Identical)
+# status -> (display label, tag css class); the wording a reviewer already
+# expects from a folder compare -- Modified/Added/Deleted for the file's fate,
+# Unimportant/Identical for the ones that need no reading
 _LABEL = {
     'real-change':    ('Modified',    'tag-real'),
     'comment-only':   ('Comment',     'tag-cmt'),

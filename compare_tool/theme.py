@@ -27,10 +27,10 @@ Two conventions worth knowing before adding a role:
   hue -- see the note in ``qtviewer/diffpane.py``.
 * The row background (``del-bg``/``add-bg``) only has to say WHICH side a line
   is on, so it stays a pale wash; the ``seg-del-bg``/``seg-add-bg`` pair on top
-  of it is the actual GitHub-style diff palette and carries the emphasis. Text
-  is never recoloured on top of a highlighted span -- ``seg-*-fg`` equals the
-  ordinary body/code text colour, because GitHub's own diff view does not
-  recolour text either, only the background under it. Error and status roles
+  of it carries the emphasis. Text is never recoloured on top of a highlighted
+  span -- ``seg-*-fg`` equals the ordinary body/code text colour, so a long
+  highlighted run still reads as code rather than as a coloured blob. Error and
+  status roles
   (``st-err``, ``err-*``, ``state-error``) are a separate, louder pair on
   purpose -- a failed compare is the one thing that must not be easy to slide
   past.
@@ -88,7 +88,7 @@ _DARK = {
     'err-fg': '#ffd6d6',
     'err-code-bg': '#5c2626',
 
-    # --- diff rows (GitHub dark palette) ---
+    # --- diff rows ---
     'del-bg': '#4d232a', 'add-bg': '#244528',
     'del-bg-dim': '#3d1e23', 'add-bg-dim': '#1e3a22',
     'mv-bg': '#1d2f3e',
@@ -230,7 +230,7 @@ _LIGHT = {
     'err-fg': '#a40e26',
     'err-code-bg': '#ffe0e0',
 
-    # --- diff rows (GitHub light palette) ---
+    # --- diff rows ---
     'del-bg': '#ffebe9', 'add-bg': '#e6ffec',
     'del-bg-dim': '#fdf5f4', 'add-bg-dim': '#f4fbf6',
     'mv-bg': '#ddf4ff',

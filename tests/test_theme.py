@@ -59,12 +59,12 @@ def _sat(role, name):
 
 
 class TestDiffColoursMatchTheSourcePalette(unittest.TestCase):
-    """The red/green pair is the GitHub diff palette, pinned here so an edit
-    that reaches for "a nicer red" does not quietly drift off the reference
-    the user actually asked for. Three roles LAYER on the same line -- row
-    wash, gutter tint, word highlight -- each a step more saturated than the
-    last, and error roles are a separate, louder pair on purpose: a failed
-    compare is the one thing that must not be easy to slide past."""
+    """The red/green pair comes from a reference palette that was specified
+    exactly, pinned here so an edit reaching for "a nicer red" does not quietly
+    drift off it. Three roles LAYER on the same line -- row wash, gutter tint,
+    word highlight -- each a step more saturated than the last, and error roles
+    are a separate, louder pair on purpose: a failed compare is the one thing
+    that must not be easy to slide past."""
 
     # exact values from the source palette (light only -- it did not specify
     # a dark theme, see theme.py's roles for how dark was derived)
@@ -96,8 +96,8 @@ class TestDiffColoursMatchTheSourcePalette(unittest.TestCase):
                 self.assertLess(gutter, seg, '{} {}'.format(name, kind))
 
     def test_word_highlight_does_not_recolour_the_text(self):
-        # GitHub's own diff view does not recolour text on a highlighted span,
-        # only the background under it -- seg-*-fg is the ordinary text colour
+        # a highlighted span recolours only the background under it, never the
+        # text -- seg-*-fg is the ordinary code text colour
         for name in theme.THEMES:
             body = theme.color('code-fg', name)
             self.assertEqual(theme.color('seg-del-fg', name), body, name)
