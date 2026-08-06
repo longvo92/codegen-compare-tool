@@ -3,9 +3,9 @@
 > Bản tiếng Việt của [docs/architecture.md](../architecture.md). Bản tiếng Anh là
 > bản chuẩn — khi hai bên lệch nhau, tin bản tiếng Anh.
 
-Tool được ghép lại như thế nào, và tại sao lại thế. Muốn biết nó *làm gì* — flag,
-noise rule, ảnh chụp — đọc [README](README.md) trước; tài liệu này viết cho người
-sắp sửa code.
+Tool được ghép lại như thế nào, và tại sao lại thế. Muốn biết nó *làm gì* thì đọc
+[README](README.md) trước, và [usage.md](usage.md) cho flag, luật noise và bố cục
+report; tài liệu này viết cho người sắp sửa code.
 
 ## Lời hứa mà thiết kế phải bảo vệ
 

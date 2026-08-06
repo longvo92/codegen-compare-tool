@@ -5,6 +5,25 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-08-05
+
+The report shows the change instead of the file it lives in, and a long session
+in front of it is easier on the eyes.
+
+### Changed
+
+- **The report shows the changes, not the file.** A file with a real change now
+  renders three lines either side of it and nothing else; the noise elsewhere
+  takes up no space until `Unimportant` is clicked. Noise sitting inside the
+  change's window still shows in full, greyed. A file with no real change is
+  unchanged.
+- **New diff colours** in the report and the viewer, including a tinted
+  line-number gutter on every changed line. Errors stay loud.
+- **The `AUTOSAR changes` section is always shown.** With nothing to list it now
+  says there were no AUTOSAR-level changes instead of disappearing — the answer
+  the reviewer came for, on a run that used to have no heading at all.
+- Improve the report's summary badges and file headers.
+
 ## [1.5.0] — 2026-08-04
 
 The report reads like code instead of plain text, noise stops hiding the change

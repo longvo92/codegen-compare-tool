@@ -251,6 +251,112 @@ class TestNoisyGroupNeverEmpty(unittest.TestCase):
         self.assertIn('<tr class="minor">', out)  # in the record, just hidden
 
 
+_ROW_RE = re.compile(
+    r'<tr[^>]*><td class="ln">[^<]*</td><td class="([^"]*)">(.*?)</td>'
+    r'<td class="ln">[^<]*</td><td class="([^"]*)">(.*?)</td></tr>')
+
+
+def _ctx_rows(out):
+    """(old_text, new_text) of every context row in a _groups_html output,
+    markup stripped."""
+    rows = []
+    for lcls, ltext, rcls, rtext in _ROW_RE.findall(out):
+        if lcls == 'ctx' and rcls == 'ctx':
+            rows.append((re.sub(r'<[^>]*>', '', ltext),
+                         re.sub(r'<[^>]*>', '', rtext)))
+    return rows
+
+
+class TestStandaloneNoiseLosesItsContext(unittest.TestCase):
+    """Once a file HAS a real change, the noise standing outside that change's
+    CONTEXT window stops printing the unchanged lines around it.
+
+    Measuring the window from every hunk is what made a regenerated file print
+    end to end: it carries a uuid or a banner line every few lines, so their
+    windows touch, the whole file chains into one group, and one real change
+    anywhere in it brings the entire file back on screen. The record survives
+    -- the rows are still in the HTML for the Unimportant badge to reveal, and
+    the placeholder now names the line they sat on."""
+
+    # uuid noise at line 1, a real edit 20 lines later
+    PAD = '\n'.join('<X{}/>'.format(i) for i in range(20))
+    OLD = '<A UUID="1">\n' + PAD + '\n<B val="1"/>\n'
+    NEW = '<A UUID="9">\n' + PAD + '\n<B val="2"/>\n'
+
+    # the dense case the windows exist for: a uuid every 3 lines, so every
+    # hunk's own window touches the next one's
+    DENSE_OLD = '\n'.join(
+        ['<E{0} UUID="a{0}"/>\n<K{0}/>\n<K{0}b/>'.format(i) for i in range(12)]
+        + ['<B val="1"/>', ''])
+    DENSE_NEW = '\n'.join(
+        ['<E{0} UUID="f{0}"/>\n<K{0}/>\n<K{0}b/>'.format(i) for i in range(12)]
+        + ['<B val="2"/>', ''])
+
+    def setUp(self):
+        self.r = compare_pair(self.OLD, self.NEW, 'f.arxml')
+        self.out = _groups_html(self.OLD.split('\n'), self.NEW.split('\n'),
+                                self.r['hunks'])
+
+    def test_the_noise_group_renders_no_context_lines(self):
+        lean = _group_table(self.OLD.split('\n'), self.NEW.split('\n'),
+                            _group_hunks(self.r['hunks'])[0], lean=True)
+        self.assertNotIn('class="ctx"', lean)
+        self.assertIn('<tr class="minor">', lean)   # still in the record
+
+    def test_the_real_group_keeps_its_context(self):
+        # fail-safe: only noise loses its window. A real change read without
+        # the lines around it is the one thing this must not cost.
+        self.assertIn('class="ctx"', self.out)
+        self.assertEqual(self.out.count('<div class="grp lean">'), 1)
+        self.assertIn('class="del"', self.out)
+
+    def test_a_lean_group_shows_nothing_at_all_until_the_badge_is_clicked(self):
+        # the placeholder WAS the noise once the context around it went: a
+        # wall of "1 minor (uuid) line hidden" is the same scrolling the
+        # window removal was there to stop
+        self.assertNotIn('line hidden', self.out)
+        self.assertNotIn('minorph', self.out)
+        self.assertIn('<tr class="minor">', self.out)   # still in the record
+
+    def test_a_file_with_no_real_change_keeps_every_context_line(self):
+        # nothing louder is competing for the space, and an Unimportant file
+        # opened deliberately is still meant to be read
+        out = _groups_html(OLD_ARXML.split('\n'), NEW_ARXML.split('\n'),
+                           compare_pair(OLD_ARXML, NEW_ARXML, 'f.arxml')['hunks'])
+        self.assertIn('class="ctx"', out)
+        self.assertNotIn('grp lean', out)
+
+    def test_dense_noise_does_not_chain_the_whole_file_back_in(self):
+        # this is the case the change is FOR: widening a window by the noise it
+        # absorbs cascades one uuid at a time straight back to the whole file
+        r = compare_pair(self.DENSE_OLD, self.DENSE_NEW, 'f.arxml')
+        old = self.DENSE_OLD.split('\n')
+        out = _groups_html(old, self.DENSE_NEW.split('\n'), r['hunks'])
+        self.assertEqual(sum(1 for h in r['hunks'] if h['kind'] == 'real'), 1)
+        # 36 lines of unchanged padding; only the last few may survive
+        self.assertLess(len(_ctx_rows(out)), 8, 'the file printed itself again')
+
+    def test_no_context_row_ever_straddles_a_hidden_change(self):
+        # a context row prints old[k] beside new[k] and calls the pair equal.
+        # Once groups can leave a hunk out, a lead or tail running past that
+        # hunk would paint a real difference as unchanged code -- which is the
+        # single failure this tool exists to prevent, and it is invisible: the
+        # row looks like ordinary context.
+        pairs = [(self.OLD, self.NEW, 'f.arxml'),
+                 (self.DENSE_OLD, self.DENSE_NEW, 'f.arxml'),
+                 (OLD_ARXML, NEW_ARXML, 'f.arxml')]
+        for rel in sorted(p.name for p in (FIX / 'old' / 'src').iterdir()):
+            new = FIX / 'new' / 'src' / rel
+            if new.exists():
+                pairs.append(((FIX / 'old' / 'src' / rel).read_text(),
+                              new.read_text(), rel))
+        for old, new, rel in pairs:
+            r = compare_pair(old, new, rel)
+            out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
+            for o_txt, n_txt in _ctx_rows(out):
+                self.assertEqual(o_txt, n_txt, rel)
+
+
 class TestCharDiff(unittest.TestCase):
     """One contiguous highlight span per side: first to last differing char,
     common prefix/suffix plain, grown to the enclosing identifier. No
@@ -304,12 +410,20 @@ class TestCleanDefaults(unittest.TestCase):
         self.assertRegex(self.page, r'badge b-ign off[^>]*>\d+ Unimportant<')
         self.assertNotIn('class="badge b-cmt', self.page)
 
-    def test_added_and_deleted_share_one_badge(self):
-        self.assertRegex(self.page,
-                         r'badge b-adddel[^>]*>\d+ Added / \d+ Deleted<')
-        self.assertIn("tg2(this,'add','del')", self.page)
-        self.assertNotIn('class="badge b-add"', self.page)
-        self.assertNotIn('class="badge b-del"', self.page)
+    def test_added_and_deleted_get_a_badge_each(self):
+        # they used to share one control. A new file and a deleted one are not
+        # read the same way, and "1 / 1" made the reader work out which count
+        # was which.
+        self.assertRegex(self.page, r'badge b-add"[^>]*>\d+ Added<')
+        self.assertRegex(self.page, r'badge b-del"[^>]*>\d+ Deleted<')
+        self.assertIn("tg(this,'add')", self.page)
+        self.assertIn("tg(this,'del')", self.page)
+        self.assertNotIn('b-adddel', self.page)
+        self.assertNotIn('tg2(', self.page)
+
+    def test_the_categories_read_before_the_one_that_starts_off(self):
+        order = [m for m in re.findall(r'badge b-(real|add|del|ign)\b', self.page)]
+        self.assertEqual(order[:4], ['real', 'add', 'del', 'ign'])
 
     def test_comment_only_files_still_have_no_detail_section(self):
         # a whole file whose only differences are comments still gets no
@@ -401,10 +515,15 @@ class TestIfaceSection(unittest.TestCase):
     def test_a2l_per_file_note_rendered(self):
         self.assertIn('A2L: +VehSpd (MEASUREMENT)', self.page)
 
-    def test_no_section_without_arxml_iface_info(self):
+    def test_the_section_stays_and_says_so_when_there_is_nothing_to_list(self):
+        # it used to vanish, which is exactly the run where the reviewer most
+        # needs the answer: an absent heading looks like the report forgot to
+        # check, while "no AUTOSAR-level changes" IS the finding
         results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*', 'a2l/*'])
         page = build_report(results, FIX / 'old', FIX / 'new')
-        self.assertNotIn('AUTOSAR changes', page)
+        self.assertIn('<h2>AUTOSAR changes</h2>', page)
+        self.assertIn('No AUTOSAR-level changes', page)
+        self.assertNotIn('Port interfaces', page)
 
 
 class TestOneColourLanguage(unittest.TestCase):

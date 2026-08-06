@@ -34,9 +34,12 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--f
 .b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
 .b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
 .b-id { background: var(--tag-id-bg); color: var(--tag-id-fg); }
-/* added and deleted share one control: both are "a whole file appeared or
-   vanished", and a reviewer flips them together */
-.b-adddel { background: var(--tag-adddel-bg); color: var(--tag-adddel-fg); }
+/* added and deleted get a badge each, in the colours the folder tree already
+   marks them with. They used to share one: "a whole file appeared or vanished"
+   sounded like one question, but a new file and a deleted one are not read the
+   same way, and neither is a count of "1 / 1" */
+.b-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
+.b-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
 .bgroup + .bgroup { border-left: 1px solid var(--border-strong); margin-left: 4px;
                     padding-left: 18px; }
 .b-err { background: var(--tag-err-bg); color: var(--tag-err-fg);
@@ -99,6 +102,13 @@ table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
+/* the gutter's own tint follows the code cell it sits beside -- see _row's
+   ln-del/ln-add/ln-mut. Without this the number column stayed the plain
+   gutter colour while the code beside it changed, so a coloured row visibly
+   stopped short of its own line number. */
+td.ln-del { background: var(--gutter-del-bg); }
+td.ln-add { background: var(--gutter-add-bg); }
+td.ln-mut { background: var(--muted-bg); }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Unimportant hides behind its own badge, default OFF -- the report opens
    on real changes, a click reveals the rest. Revealed rows are flat neutral
@@ -136,6 +146,10 @@ td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg);
 .sw-mv { background: var(--seg-mv-bg); } .sw-mut { background: var(--muted-bg); }
 tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2);
             font-size: 11px; }
+/* a context-less noise group (see _groups_html) has nothing visible in it
+   until the Unimportant badge reveals its rows -- so it must take up no
+   height at all until then, not a table's worth of margin */
+.grp.lean table.diff { margin: 0; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
 /* Unimportant rows hide per ROW, not per group: a group used to be wrapped
@@ -152,7 +166,6 @@ body.hide-ign tr.minorph { display: table-row; }
 tr.commentph { display: table-row; }
 tr.minorph td, tr.commentph td { color: var(--st-cmt); }
 .filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
-.renames { font-size: 12px; color: var(--st-ign); margin: 2px 0 8px; }
 .iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
           border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
           margin: 0 0 20px; }
@@ -361,6 +374,12 @@ def _note_html(note, reviewed, where='', show_where=False):
                     loc, _esc(note)))
 
 
+# the modes that earn a code window around them. Everything else is noise, and
+# noise only gets context when there is nothing louder in the file to spend the
+# screen on (see _focus_groups).
+_LOUD = ('real', 'moved')
+
+
 def _group_hunks(hunks):
     """Group hunks whose CONTEXT windows would overlap or touch, so nearby
     hunks render as ONE continuous table instead of repeating shared lines."""
@@ -373,11 +392,98 @@ def _group_hunks(hunks):
     return groups
 
 
+def _in_window(rng, lo, hi):
+    """Does hunk range ``rng`` (old-line indices, ``[i1, i2)``) touch
+    ``[lo, hi)``? A pure insertion has ``i1 == i2`` and would miss every window
+    on a plain overlap test, so it counts as occupying its one position."""
+    i1, i2 = rng
+    return i1 < hi and max(i2, i1 + 1) > lo
+
+
+def _focus_runs(hunks):
+    """``(i, j, lean)`` slices of ``hunks``, in order -- one rendered table
+    each.
+
+    With no real or moved hunk in the file this is :func:`_group_hunks`
+    unchanged: every group keeps its context window, because there is nothing
+    louder competing for the space and an Unimportant file is opened
+    deliberately.
+
+    Otherwise the CONTEXT window is measured from the REAL changes ALONE.
+    Letting every hunk pull three lines of code along is what printed a
+    regenerated file end to end: it carries a uuid or a banner line every few
+    lines, so their windows touch, the whole file chains into one group, and a
+    single real change anywhere in it brings the entire file back on screen --
+    greyed, but there. Noise falling INSIDE a real change's window still
+    renders in full and grey: it is already inside the block being read.
+    Everything else collapses to its placeholder (``lean``, no context lines).
+
+    The windows are NOT widened by the noise they absorb. Doing that cascades:
+    one uuid three lines past the edge pulls in the next, and a file with a
+    uuid every few lines chains straight back to printing itself.
+    """
+    def runs_of(seq, offset):
+        at, out = 0, []
+        for g in _group_hunks(seq):
+            out.append((offset + at, offset + at + len(g), True))
+            at += len(g)
+        return out
+
+    if not any(mode_of(h['kind']) in _LOUD for h in hunks):
+        return [(i, j, False) for i, j, _ in runs_of(hunks, 0)]
+
+    spans = []
+    for h in hunks:
+        if mode_of(h['kind']) not in _LOUD:
+            continue
+        i1, i2 = h['old_range']
+        lo, hi = i1 - CONTEXT, max(i2, i1 + 1) + CONTEXT
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    # which window each hunk renders in, None for the ones that collapse. Two
+    # hunks in DIFFERENT windows must not share a table: the equal lines
+    # between them are exactly what this is here to leave out.
+    win = []
+    for h in hunks:
+        win.append(next((k for k, (lo, hi) in enumerate(spans)
+                         if _in_window(h['old_range'], lo, hi)), None))
+    out, at = [], 0
+    while at < len(hunks):
+        end = at + 1
+        while end < len(hunks) and win[end] == win[at]:
+            end += 1
+        if win[at] is None:
+            # out-of-window noise still merges by proximity, so a run of it
+            # reads as one list of placeholders, not a column of one-row tables
+            out.extend(runs_of(hunks[at:end], at))
+        else:
+            out.append((at, end, False))
+        at = end
+    return out
+
+
 def _group_table(old_lines, new_lines, group, language=None, old_states=None,
-                 new_states=None):
+                 new_states=None, lean=False, limits=None):
     """One continuous side-by-side table for a run of nearby hunks: leading /
     trailing CONTEXT lines, the equal lines between hunks shown once, real
     hunks in red/green, noise hunks in the same pair, dimmer.
+
+    ``lean`` drops every equal line -- the leading and trailing windows and the
+    gaps between hunks -- leaving the hunk rows alone. The caller sets it for
+    noise that fell outside every real change's window (see :func:`_focus_runs`):
+    those rows are hidden by default anyway, so their context was pure padding,
+    and in a regenerated file there is enough of it to bury the hunks worth
+    reading.
+
+    ``limits`` is ``(old_lo, new_lo, old_hi, new_hi)``: where the neighbouring
+    hunks OUTSIDE this group end and begin. A context row prints
+    ``old_lines[o]`` beside ``new_lines[n]`` at the same offset and calls the
+    pair equal, so a lead or tail that ran past a hunk left out of this group
+    would paint a real difference as unchanged code -- the one mistake this
+    tool exists to prevent. Left None (no other group in the file) the limits
+    are the file ends, which is what they always were.
 
     ``old_states``/``new_states`` are the per-line syntax-highlighter entry
     state computed once for the whole file (see ``_line_states``); omit them
@@ -385,6 +491,7 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
     colouring existed."""
     old_states = old_states or []
     new_states = new_states or []
+    o_lo, n_lo, o_hi, n_hi = limits or (0, 0, len(old_lines), len(new_lines))
     # a noise hunk sitting next to a real/moved one is already inside the
     # code block the reviewer is reading -- collapsing it to a placeholder
     # would hide context they need, and un-hiding it costs a click they have
@@ -392,10 +499,10 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
     # group with NO real/moved hunk is pure noise with nothing to read it
     # alongside, and keeps the placeholder + existing toggle rules (Comment
     # stays uncounted/unrevealable, Unimportant stays behind its badge).
-    mixed = any(mode_of(hh['kind']) in ('real', 'moved') for hh in group)
+    mixed = any(mode_of(hh['kind']) in _LOUD for hh in group)
     rows = []
     i1, j1 = group[0]['old_range'][0], group[0]['new_range'][0]
-    lead = min(CONTEXT, i1, j1)
+    lead = 0 if lean else max(0, min(CONTEXT, i1 - o_lo, j1 - n_lo))
     for k in range(lead):
         o, n = i1 - lead + k, j1 - lead + k
         rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
@@ -414,7 +521,14 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
             rows.append(_row(o_no, o_txt, n_no, n_txt, mode, language, o_state, n_state,
                              hideable=not mixed))
         if mode in _MODE_TR:
-            if not mixed:
+            # A lean group gets NO placeholder: with its context gone there is
+            # nothing else in the table, so the placeholder WAS the noise on
+            # screen -- a wall of "1 minor (uuid) line hidden" is the same
+            # scrolling the window removal was there to stop. It collapses to
+            # nothing until the Unimportant badge reveals the rows themselves.
+            # A group that kept its context still gets one: that is a file with
+            # no real change at all, and it must not open to an empty box.
+            if not mixed and not lean:
                 what = ('comment' if mode == 'comment'
                         else 'minor ({})'.format(_esc(h['kind'])))
                 rows.append('<tr class="gap {}ph"><td colspan="4">⋯ {} {} line{} '
@@ -429,13 +543,14 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
             rows.append('<tr class="mvnote"><td colspan="4">{}</td></tr>'.format(note))
         if idx + 1 < len(group):
             # equal lines between this hunk and the next of the group
-            gap = group[idx + 1]['old_range'][0] - hi2
+            gap = 0 if lean else group[idx + 1]['old_range'][0] - hi2
             for k in range(gap):
                 o, n = hi2 + k, hj2 + k
                 rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
                                  language, _state_at(old_states, o), _state_at(new_states, n)))
     i2, j2 = group[-1]['old_range'][1], group[-1]['new_range'][1]
-    tail = min(CONTEXT, len(old_lines) - i2, len(new_lines) - j2)
+    tail = 0 if lean else max(0, min(CONTEXT, o_hi - i2, n_hi - j2,
+                                     len(old_lines) - i2, len(new_lines) - j2))
     for k in range(tail):
         o, n = i2 + k, j2 + k
         rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
@@ -473,6 +588,12 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
     Reviewed badge can fold it away -- with its notes, which belong to the
     changes being hidden.
 
+    Which hunks share a group, and which of them get a code window at all, is
+    :func:`_focus_runs`: once the file has a real change, the noise outside
+    that change's CONTEXT window renders as its placeholder alone (``lean``).
+    Each group is handed the neighbouring hunks' edges as ``limits`` so its
+    context can never run past a change left out of it.
+
     ``language`` (see ``syntax.language_for``) turns on code colouring; the
     per-line comment-state tables are built once here, from the WHOLE file,
     and handed to every group -- a group only renders a CONTEXT window, so it
@@ -480,12 +601,20 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
     old_states = _line_states(old_lines, language)
     new_states = _line_states(new_lines, language)
     out = []
-    for g in _group_hunks(hunks):
+    for i, j, lean in _focus_runs(hunks):
+        g = hunks[i:j]
+        before = hunks[i - 1] if i else None
+        after = hunks[j] if j < len(hunks) else None
+        limits = (before['old_range'][1] if before else 0,
+                  before['new_range'][1] if before else 0,
+                  after['old_range'][0] if after else len(old_lines),
+                  after['new_range'][0] if after else len(new_lines))
         notes_html, done = _group_notes(g, notes)
         cls = ' grp-rev' if done else ''
-        out.append('<div class="grp{}">'.format(cls))
+        out.append('<div class="grp{}{}">'.format(' lean' if lean else '', cls))
         out.append(notes_html)
-        out.append(_group_table(old_lines, new_lines, g, language, old_states, new_states))
+        out.append(_group_table(old_lines, new_lines, g, language, old_states,
+                                new_states, lean, limits))
         out.append('</div>')
     return ''.join(out)
 
@@ -593,9 +722,23 @@ def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
     # _group_table) skips the tr.comment/tr.minor class entirely, so none of
     # the hide-by-default CSS applies to it -- it just renders, like a ctx row
     trcls = ' class="{}"'.format(_MODE_TR[mode]) if mode in _MODE_TR and hideable else ''
-    return ('<tr{}><td class="ln">{}</td><td class="{}">{}</td>'
-            '<td class="ln">{}</td><td class="{}">{}</td></tr>').format(
-                trcls, o_no, lcls, l, n_no, rcls, r)
+    # the gutter's own tint follows the code cell it sits beside -- a real
+    # change gets the del/add wash, a revealed comment/minor row gets the same
+    # flat grey its code cell has (one tint, same as the code cell, not a
+    # second colour). Moved is the one mode left untinted here: it already
+    # reads as its own thing in blue, and the gutter number was never part of
+    # that language.
+    if mode == 'real':
+        lnl = 'ln ln-del' if o_txt is not None else 'ln'
+        lnr = 'ln ln-add' if n_txt is not None else 'ln'
+    elif mode in ('comment', 'minor'):
+        lnl = 'ln ln-mut' if o_txt is not None else 'ln'
+        lnr = 'ln ln-mut' if n_txt is not None else 'ln'
+    else:
+        lnl = lnr = 'ln'
+    return ('<tr{}><td class="{}">{}</td><td class="{}">{}</td>'
+            '<td class="{}">{}</td><td class="{}">{}</td></tr>').format(
+                trcls, lnl, o_no, lcls, l, lnr, n_no, rcls, r)
 
 
 # status -> (tree marker, marker css class, section css class for badge toggling)
@@ -609,8 +752,9 @@ _TREE = {
     'identical':      ('=',      't-id',   'sec-id'),
     'error':          ('!',      't-err',  'sec-err'),
 }
-# status -> (display label, tag css class); terms follow common compare-tool
-# convention (git: Modified/Added/Deleted, Beyond Compare: Unimportant, Identical)
+# status -> (display label, tag css class); the wording a reviewer already
+# expects from a folder compare -- Modified/Added/Deleted for the file's fate,
+# Unimportant/Identical for the ones that need no reading
 _LABEL = {
     'real-change':    ('Modified',    'tag-real'),
     'comment-only':   ('Comment',     'tag-cmt'),
@@ -863,10 +1007,11 @@ def _content_table(lines, cls, language=None):
     """One-sided table for added/deleted file content, capped at MAX_CONTENT."""
     rows = []
     state = syntax.PLAIN
+    lncls = 'ln ln-{}'.format(cls)  # cls is 'del' or 'add', so this is ln-del/ln-add
     for no, txt in enumerate(lines[:MAX_CONTENT], 1):
         spans, state = syntax.spans(txt, language, state)
-        rows.append('<tr><td class="ln">{}</td><td class="{}">{}</td></tr>'
-                    .format(no, cls, _code_html(txt, spans)))
+        rows.append('<tr><td class="{}">{}</td><td class="{}">{}</td></tr>'
+                    .format(lncls, no, cls, _code_html(txt, spans)))
     out = '<table class="diff">' + ''.join(rows) + '</table>'
     if len(lines) > MAX_CONTENT:
         out += ('<div class="filenote">… {} more line(s) not shown.</div>'
@@ -886,11 +1031,13 @@ def _kinds_of(r):
 def _autosar_section(results, anchors):
     """Top-of-report rollup of every AUTOSAR-level change across all files:
     port-interfaces, software components, ports, runnables, events, RTE
-    access points and A2L calibration objects. Empty string when no file
-    carries semantic info."""
-    if not any(('ifaces' in r or 'swc' in r or 'rte' in r or 'a2l' in r)
-               for r in results.values()):
-        return ''
+    access points and A2L calibration objects.
+
+    Always rendered, even with nothing to list. The section used to vanish
+    whenever no file carried semantic info -- which is exactly the run where
+    the reviewer most needs the answer: an absent heading looks like the report
+    forgot to check, while "no AUTOSAR-level changes" IS the finding. It is
+    also the same shape either way, so the reader learns where to look once."""
 
     def flink(rel):
         loc = _esc(rel)
@@ -1071,10 +1218,6 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
                 parts.append(_note_html(*whole))
             parts.append('<div class="filenote">Binary file differs.</div>')
         else:
-            if r['renames']:
-                pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
-                                  for a, b in sorted(r['renames'].items()))
-                parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
             parts.append(_groups_html(old_lines, new_lines, hunks, notes,
                                       syntax.language_for(rel)))
     elif status in ('comment-only', 'ignorable-only'):
@@ -1085,10 +1228,6 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
         else:
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
-            if r['renames']:
-                pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
-                                  for a, b in sorted(r['renames'].items()))
-                parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
             parts.append(_groups_html(old_lines, new_lines, r['hunks'], None,
                                       syntax.language_for(rel)))
     elif status in ('added', 'deleted'):
@@ -1329,10 +1468,13 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                      'review">{} of {} Reviewed</span></span>'
                      .format(rv.reviewed, rv.units))
     parts.append('<div class="summary"><span class="bgroup">' + err_badge +
+                 # reportable categories first, in the order they are read:
+                 # Modified, Added, Deleted. Unimportant is last because it is
+                 # the one that starts off.
                  '<span class="badge b-real" onclick="tg(this,\'real\')">{real-change} Modified</span>'
+                 '<span class="badge b-add" onclick="tg(this,\'add\')">{added} Added</span>'
+                 '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} Deleted</span>'
                  '<span class="badge b-ign off" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
-                 '<span class="badge b-adddel" onclick="tg2(this,\'add\',\'del\')">'
-                 '{added} Added / {deleted} Deleted</span>'
                  '</span>'.format(**counts) + rev_group + '</div>')
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
@@ -1367,11 +1509,6 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
 
     parts.append('<script>'
                  'function tg(el,k){document.body.classList.toggle("hide-"+k);'
-                 'el.classList.toggle("off");}'
-                 # added and deleted move together under one badge, so their two
-                 # body classes flip together and the badge state stays true
-                 'function tg2(el,a,b){document.body.classList.toggle("hide-"+a);'
-                 'document.body.classList.toggle("hide-"+b);'
                  'el.classList.toggle("off");}'
                  'function go(id){var d=document.getElementById(id);if(!d)return;'
                  'var m=d.closest("details.model");if(m)m.open=true;'

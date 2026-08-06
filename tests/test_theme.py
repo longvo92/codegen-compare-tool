@@ -51,6 +51,59 @@ class TestPalettes(unittest.TestCase):
                                    '{} {} on {}'.format(name, fg, bg))
 
 
+def _sat(role, name):
+    """Rough saturation of a role: max channel minus min channel."""
+    h = theme.color(role, name).lstrip('#')
+    ch = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    return max(ch) - min(ch)
+
+
+class TestDiffColoursMatchTheSourcePalette(unittest.TestCase):
+    """The red/green pair comes from a reference palette that was specified
+    exactly, pinned here so an edit reaching for "a nicer red" does not quietly
+    drift off it. Three roles LAYER on the same line -- row wash, gutter tint,
+    word highlight -- each a step more saturated than the last, and error roles
+    are a separate, louder pair on purpose: a failed compare is the one thing
+    that must not be easy to slide past."""
+
+    # exact values from the source palette (light only -- it did not specify
+    # a dark theme, see theme.py's roles for how dark was derived)
+    _LIGHT_SOURCE = {
+        'del-bg': '#ffebe9', 'add-bg': '#e6ffec',
+        'seg-del-bg': '#ffc1c0', 'seg-add-bg': '#abf2bc',
+        'gutter-del-bg': '#ffd7d5', 'gutter-add-bg': '#ccffd8',
+        'fg': '#1f2328',
+    }
+
+    def test_light_theme_pins_the_exact_source_hex_values(self):
+        for role, value in self._LIGHT_SOURCE.items():
+            self.assertEqual(theme.color(role, theme.LIGHT), value, role)
+
+    def test_error_red_is_louder_than_removed_red(self):
+        for name in theme.THEMES:
+            self.assertGreater(_sat('st-err', name), _sat('st-real', name), name)
+
+    def test_each_layer_is_more_saturated_than_the_one_under_it(self):
+        # row bg only says which side a line is on; the gutter number picks up
+        # a touch more; the word-level highlight is what actually has to stand
+        # out -- true in both themes even though the exact numbers differ
+        for name in theme.THEMES:
+            for kind in ('del', 'add'):
+                row = _sat('{}-bg'.format(kind), name)
+                gutter = _sat('gutter-{}-bg'.format(kind), name)
+                seg = _sat('seg-{}-bg'.format(kind), name)
+                self.assertLess(row, gutter, '{} {}'.format(name, kind))
+                self.assertLess(gutter, seg, '{} {}'.format(name, kind))
+
+    def test_word_highlight_does_not_recolour_the_text(self):
+        # a highlighted span recolours only the background under it, never the
+        # text -- seg-*-fg is the ordinary code text colour
+        for name in theme.THEMES:
+            body = theme.color('code-fg', name)
+            self.assertEqual(theme.color('seg-del-fg', name), body, name)
+            self.assertEqual(theme.color('seg-add-fg', name), body, name)
+
+
 class TestLookup(unittest.TestCase):
     def test_an_unknown_theme_falls_back_instead_of_raising(self):
         # a colour scheme is never worth refusing to open the tool over

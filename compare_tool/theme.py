@@ -25,6 +25,15 @@ Two conventions worth knowing before adding a role:
 * Red means removed and green means added, in both themes, on every surface.
   Noise is the same pair one notch closer to the background, never a fourth
   hue -- see the note in ``qtviewer/diffpane.py``.
+* The row background (``del-bg``/``add-bg``) only has to say WHICH side a line
+  is on, so it stays a pale wash; the ``seg-del-bg``/``seg-add-bg`` pair on top
+  of it carries the emphasis. Text is never recoloured on top of a highlighted
+  span -- ``seg-*-fg`` equals the ordinary body/code text colour, so a long
+  highlighted run still reads as code rather than as a coloured blob. Error and
+  status roles
+  (``st-err``, ``err-*``, ``state-error``) are a separate, louder pair on
+  purpose -- a failed compare is the one thing that must not be easy to slide
+  past.
 """
 
 DARK = 'dark'
@@ -54,24 +63,23 @@ _DARK = {
     'link-hover': '#ffffff',
 
     # --- verdict colours (tree marks, counts, status text) ---
-    'st-real': '#ff7b7b',
+    'st-real': '#e39494',
     'st-cmt': '#8f96a2',
     'st-cmt-text': '#b9bec6',
     'st-ign': '#9aa1ad',
-    'st-add': '#7bd88a',
+    'st-add': '#8cc998',
     'st-del': '#c88ad8',
     'st-id': '#8a8a8a',
     'st-err': '#ff5c5c',
 
     # --- verdict chips / badges ---
-    'tag-real-bg': '#6e2b2b', 'tag-real-fg': '#ffb3b3',
+    'tag-real-bg': '#5e3232', 'tag-real-fg': '#eec2c2',
     'tag-cmt-bg': '#33353a', 'tag-cmt-fg': '#b9bec6',
     'tag-ign-bg': '#3a3b40', 'tag-ign-fg': '#c3c7cd',
-    'tag-add-bg': '#2b5232', 'tag-add-fg': '#a8e6b0',
+    'tag-add-bg': '#33513a', 'tag-add-fg': '#b6dcbc',
     'tag-del-bg': '#4a2b52', 'tag-del-fg': '#d9a8e6',
     'tag-err-bg': '#7a1f1f', 'tag-err-fg': '#ffc2c2',
     'tag-id-bg': '#333333', 'tag-id-fg': '#aaaaaa',
-    'tag-adddel-bg': '#33404a', 'tag-adddel-fg': '#cfe0ec',
     'tag-rev-bg': '#274a45', 'tag-rev-fg': '#9fe0cf',
 
     # --- the incomplete-compare banner ---
@@ -81,16 +89,22 @@ _DARK = {
     'err-code-bg': '#5c2626',
 
     # --- diff rows ---
-    'del-bg': '#3a2222', 'add-bg': '#1f3a24',
-    'del-bg-dim': '#2f2020', 'add-bg-dim': '#1e2f21',
+    'del-bg': '#4d232a', 'add-bg': '#244528',
+    'del-bg-dim': '#3d1e23', 'add-bg-dim': '#1e3a22',
     'mv-bg': '#1d2f3e',
-    'seg-del-bg': '#7a2f2f', 'seg-del-fg': '#ffc2c2',
-    'seg-add-bg': '#2f6e3d', 'seg-add-fg': '#c9f7d1',
-    'seg-del-dim-bg': '#5e2a2a', 'seg-del-dim-fg': '#f0c4c4',
-    'seg-add-dim-bg': '#2c5738', 'seg-add-dim-fg': '#bfe8c8',
+    'seg-del-bg': '#702433', 'seg-del-fg': '#e1e4e8',
+    'seg-add-bg': '#26612f', 'seg-add-fg': '#e1e4e8',
+    'seg-del-dim-bg': '#5e1e2a', 'seg-del-dim-fg': '#e8c4c4',
+    'seg-add-dim-bg': '#1e4e28', 'seg-add-dim-fg': '#c1e0c8',
     'seg-mv-bg': '#2f5a7a',
     'mv-fg': '#7fb3d9',
     'ln-fg': '#6a6a6a',
+    # the gutter's own background tint on a real-change row -- a touch more
+    # saturated than the row bg, a touch less than the word-highlight, so the
+    # number column reads as part of the same change without competing with
+    # the chg-seg pair. Not given by the source palette (light only); derived
+    # halfway between del-bg/add-bg and seg-del-bg/seg-add-bg
+    'gutter-del-bg': '#5e232e', 'gutter-add-bg': '#255329',
     'gap-fg': '#666666',
     # a row the current compare rules do not report: still on screen, still
     # readable, painted so the eye slides off it. The band has to be visibly
@@ -111,8 +125,8 @@ _DARK = {
     'btn-hover': '#35363b', 'btn-focus': '#6a6a6a',
 
     # --- viewer: editors, gutter, overlays ---
-    'code-bg': '#232427',
-    'code-fg': '#d4d4d4',
+    'code-bg': '#20201f',
+    'code-fg': '#e1e4e8',
     'gutter-bg': '#1e1f22',
     'gutter-fg': '#6a6a6a',
     'filler-bg': '#26272b',
@@ -120,14 +134,14 @@ _DARK = {
     'find-bg': '#5a4715',
     'find-cur-bg': '#8f7220',
     'pane-banner-bg': '#2a2c31',
-    'pane-old-accent': '#c98b8b',
-    'pane-new-accent': '#8ec69a',
+    'pane-old-accent': '#bf9797',
+    'pane-new-accent': '#98bfa2',
 
     # --- viewer: minimap ---
     'map-bg': '#202124',
     'map-ctx': '#565b62',
-    'map-real': '#e8908d',
-    'map-noise': '#a4706e',
+    'map-real': '#d59d9b',
+    'map-noise': '#9a7f7e',
     'map-moved': '#7fb0d9',
     'map-muted': '#3f4348',
     'map-strip-real': '#46d9524f',
@@ -193,23 +207,22 @@ _LIGHT = {
     'link-underline': '#b8c0c8',
     'link-hover': '#0550ae',
 
-    'st-real': '#cf222e',
+    'st-real': '#b8434b',
     'st-cmt': '#7d848d',
     'st-cmt-text': '#57606a',
     'st-ign': '#6e7781',
-    'st-add': '#1a7f37',
+    'st-add': '#357f4b',
     'st-del': '#8250df',
     'st-id': '#8c959f',
     'st-err': '#d1242f',
 
-    'tag-real-bg': '#ffe1e1', 'tag-real-fg': '#a40e26',
+    'tag-real-bg': '#fbe9e9', 'tag-real-fg': '#93373f',
     'tag-cmt-bg': '#eef1f4', 'tag-cmt-fg': '#57606a',
     'tag-ign-bg': '#eaeef2', 'tag-ign-fg': '#4a525c',
-    'tag-add-bg': '#dafbe1', 'tag-add-fg': '#0f6626',
+    'tag-add-bg': '#e4f5e9', 'tag-add-fg': '#2b6440',
     'tag-del-bg': '#f5eafd', 'tag-del-fg': '#6639ba',
     'tag-err-bg': '#ffdcdc', 'tag-err-fg': '#a40e26',
     'tag-id-bg': '#eaeef2', 'tag-id-fg': '#6e7781',
-    'tag-adddel-bg': '#ddf4ff', 'tag-adddel-fg': '#0a3069',
     'tag-rev-bg': '#d7f5ec', 'tag-rev-fg': '#0f5d4e',
 
     'err-bg': '#fff5f5',
@@ -217,16 +230,20 @@ _LIGHT = {
     'err-fg': '#a40e26',
     'err-code-bg': '#ffe0e0',
 
+    # --- diff rows ---
     'del-bg': '#ffebe9', 'add-bg': '#e6ffec',
-    'del-bg-dim': '#fff5f4', 'add-bg-dim': '#f1fff5',
+    'del-bg-dim': '#fdf5f4', 'add-bg-dim': '#f4fbf6',
     'mv-bg': '#ddf4ff',
-    'seg-del-bg': '#ffc9c4', 'seg-del-fg': '#6e0a17',
-    'seg-add-bg': '#abefc0', 'seg-add-fg': '#03502a',
-    'seg-del-dim-bg': '#ffdedb', 'seg-del-dim-fg': '#8a2b2b',
-    'seg-add-dim-bg': '#cdf3d8', 'seg-add-dim-fg': '#17512c',
+    'seg-del-bg': '#ffc1c0', 'seg-del-fg': '#1f2328',
+    'seg-add-bg': '#abf2bc', 'seg-add-fg': '#1f2328',
+    'seg-del-dim-bg': '#fae8e6', 'seg-del-dim-fg': '#8a4141',
+    'seg-add-dim-bg': '#dcefe2', 'seg-add-dim-fg': '#2b5b3c',
     'seg-mv-bg': '#b6e3ff',
     'mv-fg': '#0969da',
     'ln-fg': '#8c959f',
+    # the gutter's own background tint on a real-change row, from the source
+    # palette
+    'gutter-del-bg': '#ffd7d5', 'gutter-add-bg': '#ccffd8',
     'gap-fg': '#8c959f',
     'muted-bg': '#eaecef',
     'muted-fg': '#9aa1a9',
@@ -249,13 +266,13 @@ _LIGHT = {
     'find-bg': '#fff0b3',
     'find-cur-bg': '#ffd633',
     'pane-banner-bg': '#eef1f4',
-    'pane-old-accent': '#a4343a',
-    'pane-new-accent': '#1a7f37',
+    'pane-old-accent': '#a8555a',
+    'pane-new-accent': '#357f4b',
 
     'map-bg': '#f0f2f5',
     'map-ctx': '#c2c8d0',
-    'map-real': '#e5484d',
-    'map-noise': '#efa8a8',
+    'map-real': '#d1686c',
+    'map-noise': '#e3bcbc',
     'map-moved': '#5b9bd5',
     'map-muted': '#dfe3e8',
     'map-strip-real': '#38d9524f',

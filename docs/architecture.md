@@ -2,9 +2,10 @@
 
 🇻🇳 Bản tiếng Việt: [vi/architecture.md](vi/architecture.md)
 
-How the compare tool is put together, and why. For what it *does* — flags,
-noise rules, screenshots — read the [README](../README.md) first; this document
-is for someone about to change the code.
+How the compare tool is put together, and why. For what it *does*, read the
+[README](../README.md) first, and [usage.md](usage.md) for the flags, the noise
+rules and the report's layout; this document is for someone about to change the
+code.
 
 ## The claim the design has to protect
 
@@ -72,6 +73,24 @@ viewer opens, so the test suite runs headless.
 says *what* a stretch of text is and never what colour it gets — that is
 `theme.py`'s job, answered once for both surfaces — so the Qt layer and any
 second surface can reuse it without the mapping being written twice.
+
+```
+compare_tool/
+├── main.py          # entry point: picks the CLI or the viewer, run_compare() core
+├── resources.py     # finds the shipped icons/logo, in a checkout and in the .exe
+├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs)
+├── scanner.py       # walks both trees, pairs files by relative path
+├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
+├── c_rules.py       # C/H rules: strip comments, tokenize, detect renames, extract RTE access points
+├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments, DESC/LONG-NAME + extract port interfaces, SWCs (ports/runnables/events)
+├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
+├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
+├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
+├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
+├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
+├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
+└── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
+```
 
 ## Data flow of one compare
 
