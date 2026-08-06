@@ -166,7 +166,6 @@ body.hide-ign tr.minorph { display: table-row; }
 tr.commentph { display: table-row; }
 tr.minorph td, tr.commentph td { color: var(--st-cmt); }
 .filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
-.renames { font-size: 12px; color: var(--st-ign); margin: 2px 0 8px; }
 .iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
           border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
           margin: 0 0 20px; }
@@ -1219,10 +1218,6 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
                 parts.append(_note_html(*whole))
             parts.append('<div class="filenote">Binary file differs.</div>')
         else:
-            if r['renames']:
-                pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
-                                  for a, b in sorted(r['renames'].items()))
-                parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
             parts.append(_groups_html(old_lines, new_lines, hunks, notes,
                                       syntax.language_for(rel)))
     elif status in ('comment-only', 'ignorable-only'):
@@ -1233,10 +1228,6 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
         else:
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
-            if r['renames']:
-                pairs = ', '.join('{} → {}'.format(_esc(a), _esc(b))
-                                  for a, b in sorted(r['renames'].items()))
-                parts.append('<div class="renames">Renames ignored: {}</div>'.format(pairs))
             parts.append(_groups_html(old_lines, new_lines, r['hunks'], None,
                                       syntax.language_for(rel)))
     elif status in ('added', 'deleted'):
