@@ -25,12 +25,15 @@ Two conventions worth knowing before adding a role:
 * Red means removed and green means added, in both themes, on every surface.
   Noise is the same pair one notch closer to the background, never a fourth
   hue -- see the note in ``qtviewer/diffpane.py``.
-* Those two hues are deliberately DESATURATED. A diff is read for minutes at a
-  time, and a saturated field behind every changed line is what makes that
-  tiring; the row backgrounds only have to say WHICH side a line is on, and the
-  chg-seg pair on top of them is what has to stand out. Error and status roles
-  (``st-err``, ``err-*``, ``state-error``) are exempt and stay loud -- a failed
-  compare is the one thing that must not be easy to slide past.
+* The row background (``del-bg``/``add-bg``) only has to say WHICH side a line
+  is on, so it stays a pale wash; the ``seg-del-bg``/``seg-add-bg`` pair on top
+  of it is the actual GitHub-style diff palette and carries the emphasis. Text
+  is never recoloured on top of a highlighted span -- ``seg-*-fg`` equals the
+  ordinary body/code text colour, because GitHub's own diff view does not
+  recolour text either, only the background under it. Error and status roles
+  (``st-err``, ``err-*``, ``state-error``) are a separate, louder pair on
+  purpose -- a failed compare is the one thing that must not be easy to slide
+  past.
 """
 
 DARK = 'dark'
@@ -85,17 +88,23 @@ _DARK = {
     'err-fg': '#ffd6d6',
     'err-code-bg': '#5c2626',
 
-    # --- diff rows ---
-    'del-bg': '#352626', 'add-bg': '#243429',
-    'del-bg-dim': '#2d2323', 'add-bg-dim': '#222d25',
+    # --- diff rows (GitHub dark palette) ---
+    'del-bg': '#4d232a', 'add-bg': '#244528',
+    'del-bg-dim': '#3d1e23', 'add-bg-dim': '#1e3a22',
     'mv-bg': '#1d2f3e',
-    'seg-del-bg': '#6b3c3c', 'seg-del-fg': '#f4cccc',
-    'seg-add-bg': '#3c6147', 'seg-add-fg': '#cbeed3',
-    'seg-del-dim-bg': '#553434', 'seg-del-dim-fg': '#e8c4c4',
-    'seg-add-dim-bg': '#354e3f', 'seg-add-dim-fg': '#c1e0c8',
+    'seg-del-bg': '#702433', 'seg-del-fg': '#e1e4e8',
+    'seg-add-bg': '#26612f', 'seg-add-fg': '#e1e4e8',
+    'seg-del-dim-bg': '#5e1e2a', 'seg-del-dim-fg': '#e8c4c4',
+    'seg-add-dim-bg': '#1e4e28', 'seg-add-dim-fg': '#c1e0c8',
     'seg-mv-bg': '#2f5a7a',
     'mv-fg': '#7fb3d9',
     'ln-fg': '#6a6a6a',
+    # the gutter's own background tint on a real-change row -- a touch more
+    # saturated than the row bg, a touch less than the word-highlight, so the
+    # number column reads as part of the same change without competing with
+    # the chg-seg pair. Not given by the source palette (light only); derived
+    # halfway between del-bg/add-bg and seg-del-bg/seg-add-bg
+    'gutter-del-bg': '#5e232e', 'gutter-add-bg': '#255329',
     'gap-fg': '#666666',
     # a row the current compare rules do not report: still on screen, still
     # readable, painted so the eye slides off it. The band has to be visibly
@@ -116,8 +125,8 @@ _DARK = {
     'btn-hover': '#35363b', 'btn-focus': '#6a6a6a',
 
     # --- viewer: editors, gutter, overlays ---
-    'code-bg': '#232427',
-    'code-fg': '#d4d4d4',
+    'code-bg': '#20201f',
+    'code-fg': '#e1e4e8',
     'gutter-bg': '#1e1f22',
     'gutter-fg': '#6a6a6a',
     'filler-bg': '#26272b',
@@ -221,16 +230,20 @@ _LIGHT = {
     'err-fg': '#a40e26',
     'err-code-bg': '#ffe0e0',
 
-    'del-bg': '#fdeceb', 'add-bg': '#ebf7ef',
+    # --- diff rows (GitHub light palette) ---
+    'del-bg': '#ffebe9', 'add-bg': '#e6ffec',
     'del-bg-dim': '#fdf5f4', 'add-bg-dim': '#f4fbf6',
     'mv-bg': '#ddf4ff',
-    'seg-del-bg': '#f7d8d5', 'seg-del-fg': '#762a30',
-    'seg-add-bg': '#c8e9d2', 'seg-add-fg': '#1f5a3a',
+    'seg-del-bg': '#ffc1c0', 'seg-del-fg': '#1f2328',
+    'seg-add-bg': '#abf2bc', 'seg-add-fg': '#1f2328',
     'seg-del-dim-bg': '#fae8e6', 'seg-del-dim-fg': '#8a4141',
     'seg-add-dim-bg': '#dcefe2', 'seg-add-dim-fg': '#2b5b3c',
     'seg-mv-bg': '#b6e3ff',
     'mv-fg': '#0969da',
     'ln-fg': '#8c959f',
+    # the gutter's own background tint on a real-change row, from the source
+    # palette
+    'gutter-del-bg': '#ffd7d5', 'gutter-add-bg': '#ccffd8',
     'gap-fg': '#8c959f',
     'muted-bg': '#eaecef',
     'muted-fg': '#9aa1a9',

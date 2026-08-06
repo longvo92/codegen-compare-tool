@@ -102,6 +102,9 @@ table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
+/* the gutter's own tint on a real-change row -- see _row's ln-del/ln-add */
+td.ln-del { background: var(--gutter-del-bg); }
+td.ln-add { background: var(--gutter-add-bg); }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Unimportant hides behind its own badge, default OFF -- the report opens
    on real changes, a click reveals the rest. Revealed rows are flat neutral
@@ -716,9 +719,14 @@ def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
     # _group_table) skips the tr.comment/tr.minor class entirely, so none of
     # the hide-by-default CSS applies to it -- it just renders, like a ctx row
     trcls = ' class="{}"'.format(_MODE_TR[mode]) if mode in _MODE_TR and hideable else ''
-    return ('<tr{}><td class="ln">{}</td><td class="{}">{}</td>'
-            '<td class="ln">{}</td><td class="{}">{}</td></tr>').format(
-                trcls, o_no, lcls, l, n_no, rcls, r)
+    # the gutter's own tint is a REAL-change thing only -- moved is a
+    # different colour language and comment/minor stay flat grey when
+    # revealed, so neither gets a second, competing tint on its line number
+    lnl = 'ln ln-del' if mode == 'real' and o_txt is not None else 'ln'
+    lnr = 'ln ln-add' if mode == 'real' and n_txt is not None else 'ln'
+    return ('<tr{}><td class="{}">{}</td><td class="{}">{}</td>'
+            '<td class="{}">{}</td><td class="{}">{}</td></tr>').format(
+                trcls, lnl, o_no, lcls, l, lnr, n_no, rcls, r)
 
 
 # status -> (tree marker, marker css class, section css class for badge toggling)
@@ -986,10 +994,11 @@ def _content_table(lines, cls, language=None):
     """One-sided table for added/deleted file content, capped at MAX_CONTENT."""
     rows = []
     state = syntax.PLAIN
+    lncls = 'ln ln-{}'.format(cls)  # cls is 'del' or 'add', so this is ln-del/ln-add
     for no, txt in enumerate(lines[:MAX_CONTENT], 1):
         spans, state = syntax.spans(txt, language, state)
-        rows.append('<tr><td class="ln">{}</td><td class="{}">{}</td></tr>'
-                    .format(no, cls, _code_html(txt, spans)))
+        rows.append('<tr><td class="{}">{}</td><td class="{}">{}</td></tr>'
+                    .format(lncls, no, cls, _code_html(txt, spans)))
     out = '<table class="diff">' + ''.join(rows) + '</table>'
     if len(lines) > MAX_CONTENT:
         out += ('<div class="filenote">… {} more line(s) not shown.</div>'

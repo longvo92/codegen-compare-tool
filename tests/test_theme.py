@@ -58,27 +58,50 @@ def _sat(role, name):
     return max(ch) - min(ch)
 
 
-class TestDiffColoursStayCalmerThanErrors(unittest.TestCase):
-    """The red/green pair is deliberately desaturated -- a diff is read for
-    minutes at a time and a saturated field behind every changed line is what
-    makes that tiring. The error roles are the exception and stay loud: a
-    failed compare is the one thing that must not be easy to slide past.
+class TestDiffColoursMatchTheSourcePalette(unittest.TestCase):
+    """The red/green pair is the GitHub diff palette, pinned here so an edit
+    that reaches for "a nicer red" does not quietly drift off the reference
+    the user actually asked for. Three roles LAYER on the same line -- row
+    wash, gutter tint, word highlight -- each a step more saturated than the
+    last, and error roles are a separate, louder pair on purpose: a failed
+    compare is the one thing that must not be easy to slide past."""
 
-    Softening the palette again without noticing the error roles were in the
-    same block is exactly how the loud one goes quiet, so it is asserted."""
+    # exact values from the source palette (light only -- it did not specify
+    # a dark theme, see theme.py's roles for how dark was derived)
+    _LIGHT_SOURCE = {
+        'del-bg': '#ffebe9', 'add-bg': '#e6ffec',
+        'seg-del-bg': '#ffc1c0', 'seg-add-bg': '#abf2bc',
+        'gutter-del-bg': '#ffd7d5', 'gutter-add-bg': '#ccffd8',
+        'fg': '#1f2328',
+    }
+
+    def test_light_theme_pins_the_exact_source_hex_values(self):
+        for role, value in self._LIGHT_SOURCE.items():
+            self.assertEqual(theme.color(role, theme.LIGHT), value, role)
 
     def test_error_red_is_louder_than_removed_red(self):
         for name in theme.THEMES:
             self.assertGreater(_sat('st-err', name), _sat('st-real', name), name)
 
-    def test_diff_row_backgrounds_are_low_saturation(self):
-        # they only have to say WHICH side a line is on; the chg-seg pair on
-        # top of them is what carries the emphasis
+    def test_each_layer_is_more_saturated_than_the_one_under_it(self):
+        # row bg only says which side a line is on; the gutter number picks up
+        # a touch more; the word-level highlight is what actually has to stand
+        # out -- true in both themes even though the exact numbers differ
         for name in theme.THEMES:
-            for role in ('del-bg', 'add-bg', 'del-bg-dim', 'add-bg-dim'):
-                self.assertLess(_sat(role, name), 26, '{} {}'.format(name, role))
-            for role in ('seg-del-bg', 'seg-add-bg'):
-                self.assertLess(_sat(role, name), 56, '{} {}'.format(name, role))
+            for kind in ('del', 'add'):
+                row = _sat('{}-bg'.format(kind), name)
+                gutter = _sat('gutter-{}-bg'.format(kind), name)
+                seg = _sat('seg-{}-bg'.format(kind), name)
+                self.assertLess(row, gutter, '{} {}'.format(name, kind))
+                self.assertLess(gutter, seg, '{} {}'.format(name, kind))
+
+    def test_word_highlight_does_not_recolour_the_text(self):
+        # GitHub's own diff view does not recolour text on a highlighted span,
+        # only the background under it -- seg-*-fg is the ordinary text colour
+        for name in theme.THEMES:
+            body = theme.color('code-fg', name)
+            self.assertEqual(theme.color('seg-del-fg', name), body, name)
+            self.assertEqual(theme.color('seg-add-fg', name), body, name)
 
 
 class TestLookup(unittest.TestCase):

@@ -17,7 +17,8 @@ in front of it is easier on the eyes.
   takes up no space until `Unimportant` is clicked. Noise sitting inside the
   change's window still shows in full, greyed. A file with no real change is
   unchanged.
-- **Softer red and green** across the report and the viewer. Errors stay loud.
+- **New diff colours** in the report and the viewer, matching GitHub's red/green,
+  including a tinted line-number gutter on every changed line. Errors stay loud.
 - **The `AUTOSAR changes` section is always shown.** With nothing to list it now
   says there were no AUTOSAR-level changes instead of disappearing — the answer
   the reviewer came for, on a run that used to have no heading at all.

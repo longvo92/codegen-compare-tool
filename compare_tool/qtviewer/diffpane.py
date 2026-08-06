@@ -22,7 +22,7 @@ itself, and the two never touch -- the diff owns background, syntax owns text.
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (QColor, QFont, QKeySequence, QPainter, QPolygonF,
                            QShortcut, QTextBlockFormat, QTextCharFormat,
                            QTextCursor)
@@ -172,6 +172,7 @@ class DiffEditor(QPlainTextEdit):
         self.setFont(f)
         self.apply_theme()
         self._nos = []  # per block: line-number string ('' for padding)
+        self._tints = []  # per block: gutter role name for a real-change row, or ''
         self._cur_rows = frozenset()  # blocks carrying the current-change arrow
         self._gutter = _Gutter(self)
         self.blockCountChanged.connect(lambda _n: self._update_gutter_width())
@@ -200,8 +201,14 @@ class DiffEditor(QPlainTextEdit):
         self._update_gutter_width()
         self._gutter.update()
 
-    def set_numbers(self, nos):
+    def set_numbers(self, nos, tints=None):
+        """``nos`` is the line-number string per block; ``tints`` is the
+        matching gutter role name per block ('gutter-del-bg' / 'gutter-add-bg'
+        / '' for no tint), the number column's own real-change wash. Real
+        change only -- moved is a different colour language and comment/minor
+        stay flat grey when revealed, so neither gets a second tint here."""
         self._nos = nos
+        self._tints = tints or []
         self._update_gutter_width()
         self._gutter.update()
 
@@ -249,6 +256,9 @@ class DiffEditor(QPlainTextEdit):
             if block.isVisible() and bottom >= event.rect().top():
                 idx = block.blockNumber()
                 num = self._nos[idx] if idx < len(self._nos) else ''
+                tint = self._tints[idx] if idx < len(self._tints) else ''
+                if tint:
+                    painter.fillRect(QRectF(0, top, num_w, bottom - top), _qc(tint))
                 if num:
                     painter.setPen(_qc('gutter-fg'))
                     painter.drawText(0, int(top), num_w - 6, h, Qt.AlignRight, num)
@@ -884,8 +894,14 @@ class DiffPane(QStackedWidget):
         self._hl_new.configure(lang, modes, repaint=False)
         self._set_text(self.old_edit, '\n'.join(r.old_txt or '' for r in rows))
         self._set_text(self.new_edit, '\n'.join(r.new_txt or '' for r in rows))
-        self.old_edit.set_numbers([str(r.old_no) if r.old_no else '' for r in rows])
-        self.new_edit.set_numbers([str(r.new_no) if r.new_no else '' for r in rows])
+        self.old_edit.set_numbers(
+            [str(r.old_no) if r.old_no else '' for r in rows],
+            ['gutter-del-bg' if r.mode == 'real' and r.old_txt is not None else ''
+             for r in rows])
+        self.new_edit.set_numbers(
+            [str(r.new_no) if r.new_no else '' for r in rows],
+            ['gutter-add-bg' if r.mode == 'real' and r.new_txt is not None else ''
+             for r in rows])
         # back to the two-pane layout: the old editor drives again (its
         # scrollbar mirror carries the new pane), whatever a previous
         # one-sided file left the map pointing at
@@ -970,7 +986,9 @@ class DiffPane(QStackedWidget):
         self._hl_old.configure(lang, (), repaint=False)
         self._hl_new.configure(lang, (), repaint=False)
         self._set_text(edit, '\n'.join(lines))
-        edit.set_numbers([str(i + 1) for i in range(len(lines))])
+        gutter_tint = 'gutter-del-bg' if side == 'old' else 'gutter-add-bg'
+        edit.set_numbers([str(i + 1) for i in range(len(lines))],
+                         [gutter_tint] * len(lines))
         self._set_text(other, '')
         other.set_numbers([])
         for i in range(len(lines)):
