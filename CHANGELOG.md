@@ -22,7 +22,7 @@ in front of it is easier on the eyes.
 - **The `AUTOSAR changes` section is always shown.** With nothing to list it now
   says there were no AUTOSAR-level changes instead of disappearing — the answer
   the reviewer came for, on a run that used to have no heading at all.
-- Improve the report's summary badges.
+- Improve the report's summary badges and file headers.
 
 ## [1.5.0] — 2026-08-04
 
