@@ -31,6 +31,7 @@ flowchart TD
     subgraph core[Compare core — chỉ stdlib]
         SC[scanner.py<br/>duyệt + ghép cặp + fold]
         DE[diff_engine.py<br/>diff hai lượt + verdict]
+        LD[linediff.py<br/>khớp dòng patience + fallback exact]
         RULES[c_rules · arxml_rules · a2l_rules<br/>bóc, tokenize, trích]
     end
     subgraph shared[Seam dùng chung]
@@ -46,7 +47,9 @@ flowchart TD
     QT --> SC
     GS --> QT
     SC --> DE
+    DE --> LD
     DE --> RULES
+    RULES --> LD
     CLI --> RP
     QT --> RP
     RP --> VM
@@ -102,7 +105,20 @@ sequenceDiagram
 
 ### Hai lượt diff
 
-`compare_pair` diff hai file hai lần.
+`compare_pair` diff hai file hai lần. Cả hai lượt đều gọi chung một matcher,
+`linediff.hunks`, nên không thể căn cùng hai file theo hai kiểu khác nhau.
+
+Matcher đó là **patience**, không phải `difflib` trực tiếp, và lý do nằm ở
+shadow: `arxml_shadow` xoá ruột mọi UUID và khối ADMIN-DATA, nên các dòng cấu
+trúc của shadow giống hệt nhau từ package này sang package khác. Heuristic
+`autojunk` của `difflib` từ chối neo vào bất kỳ dòng nào chiếm hơn 1% của một
+chuỗi dài — mà với input đó thì là *mọi* dòng. Không còn neo nào, nó trả về cả
+file như một khối thay đổi duy nhất; và vì lượt 2 mới là cái quyết định
+`real-change`, toàn bộ churn xung quanh bị nuốt vào một hunk real và mất khả
+năng fold. Patience chỉ neo vào dòng xuất hiện đúng một lần ở cả hai bên rồi đệ
+quy vào khoảng giữa, nên các đoạn còn lại đủ nhỏ để giao cho matcher chính xác
+(`autojunk=False`). Xem `linediff.py` — số đo nằm ngay trong đó, vì hoá ra cái
+đường nhanh mà heuristic kia đánh đổi để có được là không cần thiết.
 
 - **Lượt 2 quyết định sự thật.** Mỗi bên được rút gọn thành một *shadow*: bóc
   comment, gộp whitespace, bỏ UUID, ngày tháng, version stamp, và với C thì áp một

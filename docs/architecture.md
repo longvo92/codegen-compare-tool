@@ -32,6 +32,7 @@ flowchart TD
     subgraph core[Compare core — stdlib only]
         SC[scanner.py<br/>walk + pair + fold]
         DE[diff_engine.py<br/>two-pass diff + verdict]
+        LD[linediff.py<br/>patience line matcher + exact fallback]
         RULES[c_rules · arxml_rules · a2l_rules<br/>strip, tokenize, extract]
     end
     subgraph shared[Shared seams]
@@ -47,7 +48,9 @@ flowchart TD
     QT --> SC
     GS --> QT
     SC --> DE
+    DE --> LD
     DE --> RULES
+    RULES --> LD
     CLI --> RP
     QT --> RP
     RP --> VM
@@ -81,6 +84,7 @@ compare_tool/
 ├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs)
 ├── scanner.py       # walks both trees, pairs files by relative path
 ├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
+├── linediff.py      # the line matcher both passes share: patience anchoring, exact fallback
 ├── c_rules.py       # C/H rules: strip comments, tokenize, detect renames, extract RTE access points
 ├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments, DESC/LONG-NAME + extract port interfaces, SWCs (ports/runnables/events)
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
@@ -122,7 +126,21 @@ sequenceDiagram
 
 ### The two passes
 
-`compare_pair` diffs the files twice.
+`compare_pair` diffs the files twice. Both passes call the same matcher,
+`linediff.hunks`, so they cannot align the same two files differently.
+
+That matcher is **patience**, not `difflib` directly, and the reason is the
+shadow: `arxml_shadow` blanks every UUID and ADMIN-DATA block, so a shadow's
+structural lines are identical from one package to the next. `difflib`'s
+`autojunk` heuristic refuses to anchor on any line making up more than 1% of a
+long sequence — which, on that input, is every line. With no anchor left it
+returns the whole file as one changed block, and because pass 2 is what decides
+`real-change`, all the surrounding churn gets absorbed into a real hunk and
+stops being foldable. Patience anchors only on lines occurring exactly once on
+both sides and recurses into the gaps, so segments are small enough to hand the
+leftovers to the exact (`autojunk=False`) matcher. See `linediff.py` — it also
+records the measurements, because the fast path the heuristic was bought with
+turns out not to be needed.
 
 - **Pass 2 decides the truth.** Each side is reduced to a *shadow*: comments
   stripped, whitespace collapsed, UUIDs and dates and version stamps removed,

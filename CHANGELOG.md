@@ -24,6 +24,16 @@ in front of it is easier on the eyes.
   the reviewer came for, on a run that used to have no heading at all.
 - Improve the report's summary badges and file headers.
 
+### Fixed
+
+- **A regenerated file is no longer reported as changed from top to bottom.**
+  Where every UUID and timestamp had been rewritten, the comparison could lose
+  its footing and mark the whole file as modified — burying the few real edits
+  in thousands of lines, and leaving none of the churn behind the `Unimportant`
+  badge, because a real change is never something a badge may hide. The same
+  file now shows the edited lines with their surroundings and folds the rest
+  away. Large files also compare faster.
+
 ## [1.5.0] — 2026-08-04
 
 The report reads like code instead of plain text, noise stops hiding the change

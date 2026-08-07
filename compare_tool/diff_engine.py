@@ -17,9 +17,7 @@ a moved-only file still counts as real-change (statement reordering can be a
 semantic change).
 """
 
-from difflib import SequenceMatcher
-
-from . import a2l_rules, arxml_rules, c_rules
+from . import a2l_rules, arxml_rules, c_rules, linediff
 
 # a block must have at least this many non-blank shadow lines to qualify as
 # moved; single lines (`break;`, `}`) reappear by coincidence far too often
@@ -45,42 +43,16 @@ def _lines(text):
     return text.split('\n')
 
 
-def _trim_common(a, b):
-    """(head, a_middle, b_middle) with the identical leading and trailing
-    lines removed; head is how far the middles were shifted."""
-    n = min(len(a), len(b))
-    head = 0
-    while head < n and a[head] == b[head]:
-        head += 1
-    tail = 0
-    while tail < n - head and a[-1 - tail] == b[-1 - tail]:
-        tail += 1
-    return head, a[head:len(a) - tail], b[head:len(b) - tail]
-
-
 def _diff_hunks(old_lines, new_lines):
-    """Non-equal opcodes of a line diff as (i1, i2, j1, j2) tuples.
+    """Changed ranges of a line diff as (i1, i2, j1, j2) tuples.
 
-    Two things keep this from going quadratic on a generated file, where the
-    same banner and brace lines repeat thousands of times:
-
-    The identical head and tail are trimmed before difflib sees them. Both
-    the trimmed and the untrimmed run describe the same two files; trimming
-    only removes work, and the block-boundary ambiguity it can shift is the
-    one _slide_down already normalises.
-
-    ``autojunk`` (difflib's own default) stops lines that make up more than
-    1% of a sequence of 200+ from being used as match anchors. Without it a
-    24k-line AUTOSAR file does not finish in ten minutes; with it, 0.7s. It
-    cannot hide a difference: a difflib matching block is a stretch where the
-    two sides are *identical*, so dropping anchors can only produce shorter
-    matches and therefore larger hunks -- it errs towards reporting more, not
-    less. What it does affect is where an ambiguous hunk boundary lands.
+    One line: the matcher itself lives in :mod:`compare_tool.linediff`, which
+    both passes and the rename map share so they cannot align the same two
+    files differently. Read its docstring before touching the alignment --
+    the choice of matcher is what decides how much of a regenerated file the
+    reviewer is asked to look at.
     """
-    head, a, b = _trim_common(old_lines, new_lines)
-    sm = SequenceMatcher(None, a, b)
-    return [(i1 + head, i2 + head, j1 + head, j2 + head)
-            for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != 'equal']
+    return linediff.hunks(old_lines, new_lines)
 
 
 def _is_blank_hunk(h, old_shadow_lines, new_shadow_lines):
