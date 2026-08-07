@@ -31,6 +31,7 @@ flowchart TD
     subgraph core[Compare core — chỉ stdlib]
         SC[scanner.py<br/>duyệt + ghép cặp + fold]
         DE[diff_engine.py<br/>diff hai lượt + verdict]
+        LD[linediff.py<br/>khớp dòng patience + fallback exact]
         RULES[c_rules · arxml_rules · a2l_rules<br/>bóc, tokenize, trích]
     end
     subgraph shared[Seam dùng chung]
@@ -46,7 +47,9 @@ flowchart TD
     QT --> SC
     GS --> QT
     SC --> DE
+    DE --> LD
     DE --> RULES
+    RULES --> LD
     CLI --> RP
     QT --> RP
     RP --> VM
@@ -102,7 +105,20 @@ sequenceDiagram
 
 ### Hai lượt diff
 
-`compare_pair` diff hai file hai lần.
+`compare_pair` diff hai file hai lần. Cả hai lượt đều gọi chung một matcher,
+`linediff.hunks`, nên không thể căn cùng hai file theo hai kiểu khác nhau.
+
+Matcher đó là **patience**, không phải `difflib` trực tiếp, và lý do nằm ở
+shadow: `arxml_shadow` xoá ruột mọi UUID và khối ADMIN-DATA, nên các dòng cấu
+trúc của shadow giống hệt nhau từ package này sang package khác. Heuristic
+`autojunk` của `difflib` từ chối neo vào bất kỳ dòng nào chiếm hơn 1% của một
+chuỗi dài — mà với input đó thì là *mọi* dòng. Không còn neo nào, nó trả về cả
+file như một khối thay đổi duy nhất; và vì lượt 2 mới là cái quyết định
+`real-change`, toàn bộ churn xung quanh bị nuốt vào một hunk real và mất khả
+năng fold. Patience chỉ neo vào dòng xuất hiện đúng một lần ở cả hai bên rồi đệ
+quy vào khoảng giữa, nên các đoạn còn lại đủ nhỏ để giao cho matcher chính xác
+(`autojunk=False`). Xem `linediff.py` — số đo nằm ngay trong đó, vì hoá ra cái
+đường nhanh mà heuristic kia đánh đổi để có được là không cần thiết.
 
 - **Lượt 2 quyết định sự thật.** Mỗi bên được rút gọn thành một *shadow*: bóc
   comment, gộp whitespace, bỏ UUID, ngày tháng, version stamp, và với C thì áp một
@@ -186,6 +202,10 @@ Mọi thứ ở phía sau — summary của CLI, HTML report, cây của viewer,
     'binary': False,
     # phần ngữ nghĩa, chỉ có ở thay đổi thật và file một bên:
     'ifaces': ..., 'swc': ..., 'rte': ..., 'a2l': ...,
+    # chỉ có ở file đã ghép cặp qua một lần đổi tên / di chuyển (xem dưới):
+    'moved_from': 'swc_a/Sub.c',   # nằm trên entry ADDED
+    'moved_to': 'swc_b/Sub.c',     # nằm trên entry DELETED
+    'move_status': 'real-change', 'move_similarity': 0.89,
 }
 ```
 
@@ -195,6 +215,27 @@ Range đánh số từ 0, hở đầu cuối (end-exclusive), tính trên dòng 
 
 Phần ngữ nghĩa chỉ được tính ở chỗ nó có thể có nghĩa: file có shadow bằng nhau thì
 nội dung như nhau, nên không thể làm xê dịch bề mặt AUTOSAR.
+
+### Đổi tên và di chuyển file
+
+`scanner` ghép file theo đường dẫn tương đối — đúng, cho tới khi chính đường dẫn
+là thứ bị đổi. Sau khi mọi verdict đã chốt, `_link_moves` lấy các file ra kết quả
+`added` và `deleted` rồi hỏi `filepair` xem cái nào là cùng một file: khớp nội
+dung y hệt trước, rồi tới độ giống trên dòng **shadow**, nhờ vậy file vừa bị
+chuyển chỗ vừa bị regenerate vẫn khớp được.
+
+Một cặp là **công cụ đọc, không phải verdict**. Hai file giữ nguyên trạng thái
+`added` / `deleted`, vẫn nằm trong các con số đếm, và exit code không đổi: file
+đổi thư mục là một thay đổi của cây, pipeline nào đang gate theo đó phải tiếp tục
+thấy nó. Cái mà cặp thêm vào là `hunks` trên entry added — mô tả nó so với file
+nó đi ra — để report vẽ một cái diff thay vì hai file nguyên vẹn, còn entry
+deleted thì trỏ sang đó chứ không in lại đúng từng byte lần nữa.
+
+Vì ghép cặp là một *lời khẳng định* có thể sai, nó chỉ được đưa ra khi không phải
+đoán: cùng phần mở rộng, hai bên cùng chọn nhau là tốt nhất, và phải cách người
+đứng thứ hai một khoảng. File codegen dùng chung banner và chung dạng lời gọi,
+nên chuyện hai SWC không liên quan chấm điểm sát nhau là bình thường chứ không
+hiếm. File không khớp được thì báo cáo y như trước.
 
 ## Các seam dùng chung
 

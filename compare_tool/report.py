@@ -11,7 +11,7 @@ import html
 import re
 from pathlib import Path
 
-from . import review, syntax, theme
+from . import filepair, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -313,7 +313,12 @@ def _root_html(tag, root, label=None):
 
     `label` overrides the name when the folder is not the real answer: a
     commit checked out to a temp folder must be recorded as that commit, or
-    the report claims a compare that nobody can reproduce.
+    the report claims a compare that nobody can reproduce. A pipeline that
+    stages the baseline into a fixed scratch directory has the same problem --
+    `cg_temp` names the mechanism, not the thing compared.
+
+    The real path stays in the tooltip either way: a label renames the side,
+    it never hides where the bytes came from.
     """
     p = Path(str(root))
     return '{} <code title="{}">{}</code>'.format(
@@ -1242,13 +1247,40 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             if whole:
                 parts.append(_note_html(*whole))
             parts.append('<div class="filenote">Binary file {}.</div>'.format(status))
+        elif status == 'added' and r.get('moved_from'):
+            # the file was found again under another path, so the answer the
+            # reviewer needs is what changed on the way -- not the whole file
+            # a second time. The deleted twin still gets its own section and
+            # says where the content went.
+            old_lines = read_text(Path(old_root) / r['moved_from']).split('\n')
+            new_lines = read_text(path).split('\n')
+            notes = rv.annotate(rel, r, old_lines, new_lines)
+            parts.append(_file_open(anchors[rel], rel, status, _move_note(r),
+                                    expanded=True, reviewed=rel in rv.files))
+            whole = notes.get(None)
+            if whole:
+                parts.append(_note_html(*whole))
+            parts.append(_notes(r))
+            parts.append(_groups_html(old_lines, new_lines, r['hunks'], notes,
+                                      syntax.language_for(rel)))
+        elif status == 'deleted' and r.get('moved_to') in anchors:
+            # its content is on screen already, as the OLD side of the paired
+            # file's diff. Printing the file again here would be the same bytes
+            # a second time -- so this section says where they went and sends
+            # the reader there instead.
+            parts.append(_file_open(anchors[rel], rel, status, _move_note(r),
+                                    reviewed=rel in rv.files))
+            parts.append(_notes(r))
+            parts.append('<div class="filenote">Content shown under '
+                         '<a onclick="go(\'{}\')">{}</a>.</div>'.format(
+                             anchors[r['moved_to']], _esc(r['moved_to'])))
         else:
             lines = read_text(path).split('\n')
             kw = {'new_lines' if status == 'added' else 'old_lines': lines}
             notes = rv.annotate(rel, r, **kw)
             parts.append(_file_open(anchors[rel], rel, status,
-                                    '({} line{})'.format(len(lines),
-                                                         '' if len(lines) == 1 else 's'),
+                                    _move_note(r) or '({} line{})'.format(
+                                        len(lines), '' if len(lines) == 1 else 's'),
                                     reviewed=rel in rv.files))
             whole = notes.get(None)
             if whole:
@@ -1257,6 +1289,13 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append(_content_table(lines, side, syntax.language_for(rel)))
     parts.append('</div></details>')
     return ''.join(parts)
+
+
+def _move_note(r):
+    """The one line beside a moved file's name, in the same words the viewer's
+    tree uses -- see :func:`compare_tool.filepair.describe`."""
+    text = filepair.describe(r)
+    return '({})'.format(_esc(text)) if text else ''
 
 
 def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
@@ -1274,11 +1313,11 @@ def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
 
 
 def build_arxml_report(results, old_root, new_root, old_label=None,
-                       theme_name=theme.DEFAULT):
+                       theme_name=theme.DEFAULT, new_label=None):
     """Compact ARXML / A2L update report: did the AUTOSAR model or the
     calibration surface change, and how.
 
-    ``old_label`` names the OLD side when its folder does not -- see
+    ``old_label`` / ``new_label`` name a side when its folder does not -- see
     :func:`build_report`. ``theme_name`` is which palette the page opens with;
     both are always embedded, and the reader can switch.
 
@@ -1303,7 +1342,8 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
     parts.append(_head('ARXML / A2L Update Report', theme_name))
     parts.append('<h1>ARXML / A2L Update Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
+        _root_html('BASELINE', old_root, old_label),
+        _root_html('CURRENT', new_root, new_label), now))
     parts.append('<div class="meta">{}</div>'.format(
         ' &middot; '.join('{} {} file(s) compared'.format(len(by_type[label]), label)
                           for label, _rs in types)))
@@ -1378,12 +1418,15 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
 
 
 def build_report(results, old_root, new_root, reviews=None, old_label=None,
-                 theme_name=theme.DEFAULT):
+                 theme_name=theme.DEFAULT, new_label=None):
     """Full self-contained HTML report.
 
-    ``old_label`` names the OLD side when its folder does not: comparing
-    against a commit checks it out to a temp folder, and the record has to say
-    which commit that was.
+    ``old_label`` / ``new_label`` name a side when its folder does not:
+    comparing against a commit checks it out to a temp folder and the record
+    has to say which commit that was, and a pipeline that always stages the
+    baseline into the same scratch directory produces a header naming the
+    scratch directory rather than the build. The folder path stays in the
+    tooltip, so a label adds an answer without removing one.
 
     ``theme_name`` is which palette the page opens with (``--theme`` on the
     CLI). Both are embedded either way, so the reader's own button -- and their
@@ -1444,7 +1487,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                        body_class='hide-ign'))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
+        _root_html('BASELINE', old_root, old_label),
+        _root_html('CURRENT', new_root, new_label), now))
     parts.append(_error_banner(results))
     if reviews is not None and reviews.error:
         # the notes are missing, not merely absent -- say so, or the reader

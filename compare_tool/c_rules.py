@@ -8,6 +8,8 @@ always corresponds to line N in the original file.
 import re
 from difflib import SequenceMatcher
 
+from . import linediff
+
 C_KEYWORDS = frozenset("""
     auto break case char const continue default do double else enum extern
     float for goto if inline int long register restrict return short signed
@@ -206,9 +208,9 @@ def detect_renames(old_shadow, new_shadow, hunks=None):
     old_lines = old_shadow.split('\n')
     new_lines = new_shadow.split('\n')
     if hunks is None:
-        sm = SequenceMatcher(None, old_lines, new_lines, autojunk=False)
-        hunks = [(i1, i2, j1, j2) for tag, i1, i2, j1, j2 in sm.get_opcodes()
-                 if tag != 'equal']
+        # the same matcher the caller would have used, so a map built here and
+        # a map built from passed-in hunks describe the same alignment
+        hunks = linediff.hunks(old_lines, new_lines)
     fwd = {}  # old name -> set of new names seen
     rev = {}  # new name -> set of old names seen
     for i1, i2, j1, j2 in hunks:

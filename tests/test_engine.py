@@ -590,5 +590,71 @@ class TestFoldRules(unittest.TestCase):
         self.assertEqual(results['src/real_change.c']['status'], 'real-change')
 
 
+class TestArxmlShadowStillAligns(unittest.TestCase):
+    """An ARXML shadow is far more repetitive than the file it came from --
+    arxml_shadow blanks the UUID value and the ADMIN-DATA block, so every
+    package's structural lines become identical to every other package's.
+
+    That is the exact input on which a popularity-based matcher runs out of
+    anchors and returns the whole file as one changed block. It matters here
+    and not only in test_linediff because the shadow pass is what decides
+    `real-change`: a collapsed alignment turns one edited element into a file
+    the reviewer has to read end to end.
+    """
+
+    # A regenerate rewrites every UUID and DATE, so those lines really do
+    # differ side to side -- that churn is the whole point, and a corpus whose
+    # UUIDs match on both sides tests nothing. The two real edits sit at the
+    # FIRST and LAST package so trimming the identical head and tail cannot
+    # shrink the problem: the matcher has to work on the full, and now
+    # fully-repetitive, shadow.
+    @staticmethod
+    def _arxml(new_side, n=120):
+        edited = (0, n - 1)
+        out = ['<?xml version="1.0" encoding="UTF-8"?>', '<AUTOSAR>', '  <AR-PACKAGES>']
+        for i in range(n):
+            out += ['    <AR-PACKAGE UUID="{:08d}-0000-0000-0000-{:012d}">'.format(
+                        i, 999999 if new_side else 111111),
+                    '      <SHORT-NAME>Pkg</SHORT-NAME>',
+                    '      <ADMIN-DATA><DATE>{}</DATE></ADMIN-DATA>'.format(
+                        '2026-08-07' if new_side else '2026-01-02'),
+                    '      <ELEMENTS>',
+                    '        <DATA-TYPE>',
+                    '          <SHORT-NAME>Type</SHORT-NAME>',
+                    '          <BASE-TYPE>{}</BASE-TYPE>'.format(
+                        'uint16' if (new_side and i in edited) else 'uint8'),
+                    '        </DATA-TYPE>',
+                    '      </ELEMENTS>',
+                    '    </AR-PACKAGE>']
+        return '\n'.join(out + ['  </AR-PACKAGES>', '</AUTOSAR>']) + '\n'
+
+    @staticmethod
+    def _lines_of_kind(result, kind):
+        return sum(h['old_range'][1] - h['old_range'][0]
+                   + h['new_range'][1] - h['new_range'][0]
+                   for h in result['hunks'] if h['kind'] == kind)
+
+    def test_two_edited_lines_do_not_become_a_whole_file_real_change(self):
+        old, new = self._arxml(False), self._arxml(True)
+        r = compare_pair(old, new, 'Pkg.arxml')
+        self.assertEqual(r['status'], 'real-change')
+        # A collapsed shadow makes every raw hunk overlap the one giant
+        # "changed" range, so the UUID and DATE churn is absorbed INTO the real
+        # hunk -- and `real-change` is the one verdict no toggle can fold away,
+        # so the reviewer is handed the whole file with no way to put it down.
+        # Measured on the old matcher: 3982 real lines for two edited ones.
+        self.assertLess(self._lines_of_kind(r, 'real'), 40,
+                        '{} real lines over {} hunks'.format(
+                            self._lines_of_kind(r, 'real'), len(r['hunks'])))
+
+    def test_the_uuid_and_date_churn_keeps_its_own_foldable_kinds(self):
+        # the other half of the same failure: churn swallowed by a real hunk
+        # stops being labelled, so it can no longer be hidden behind a badge
+        old, new = self._arxml(False), self._arxml(True)
+        r = compare_pair(old, new, 'Pkg.arxml')
+        self.assertGreater(self._lines_of_kind(r, 'uuid'), 100)
+        self.assertGreater(self._lines_of_kind(r, 'timestamp'), 100)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -10,6 +10,21 @@ All notable changes to this project are documented here. Versions follow
 The report shows the change instead of the file it lives in, and a long session
 in front of it is easier on the eyes.
 
+### Added
+
+- **A renamed or moved file is recognised as one file.** Renaming a model or
+  moving a file between folders used to come back as one Added plus one
+  Deleted, leaving you to read both in full to work out that nothing in them
+  had moved. The two are now matched up: the report shows the file once, as a
+  diff against where it came from, the viewer's tree marks both rows `(moved)`,
+  and both say how alike the two are. Files that cannot
+  be matched with confidence are reported as before, and the counts and exit
+  code are unchanged — a file that moved is still a change to the tree.
+- **Name the two sides in the report header** with `--baseline-name` and
+  `--current-name`. A pipeline stages the previous codegen into a scratch
+  directory, so the header used to announce that directory instead of the build
+  it held. The folder path stays on hover either way.
+
 ### Changed
 
 - **The report shows the changes, not the file.** A file with a real change now
@@ -23,6 +38,16 @@ in front of it is easier on the eyes.
   says there were no AUTOSAR-level changes instead of disappearing — the answer
   the reviewer came for, on a run that used to have no heading at all.
 - Improve the report's summary badges and file headers.
+
+### Fixed
+
+- **A regenerated file is no longer reported as changed from top to bottom.**
+  Where every UUID and timestamp had been rewritten, the comparison could lose
+  its footing and mark the whole file as modified — burying the few real edits
+  in thousands of lines, and leaving none of the churn behind the `Unimportant`
+  badge, because a real change is never something a badge may hide. The same
+  file now shows the edited lines with their surroundings and folds the rest
+  away. Large files also compare faster.
 
 ## [1.5.0] — 2026-08-04
 

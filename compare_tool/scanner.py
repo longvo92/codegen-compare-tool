@@ -1,10 +1,11 @@
 """Walk two folder trees, pair files by relative path, compare each pair."""
 
 import fnmatch
+import hashlib
 import os
 from pathlib import Path
 
-from . import a2l_rules, arxml_rules, c_rules
+from . import a2l_rules, arxml_rules, c_rules, filepair
 from .diff_engine import compare_pair, ruleset_for
 
 SKIP_DIRS = {'.git', '__pycache__', '.svn'}
@@ -177,6 +178,72 @@ def apply_fold(results, fold):
     return out
 
 
+def _shadow_lines(rel, text):
+    """The file's non-blank shadow lines, under its own ruleset.
+
+    Similarity is scored on the shadow so a file that moved AND was regenerated
+    still matches: on the raw text every other line carries a fresh UUID or
+    timestamp, which is exactly the churn the rest of the tool exists to look
+    past."""
+    rs = ruleset_for(rel)
+    if rs == 'c':
+        shadow = c_rules.c_shadow(text)
+    elif rs == 'arxml':
+        shadow = arxml_rules.arxml_shadow(text)
+    elif rs == 'a2l':
+        shadow = a2l_rules.a2l_shadow(text)
+    else:
+        shadow = c_rules.collapse_ws(text)
+    return [ln for ln in shadow.split('\n') if ln.strip()]
+
+
+def _candidate(root, rel):
+    """One side of a possible move, or None when the file cannot be read.
+
+    Unreadable is not an error here: the file already has its own `added` /
+    `deleted` entry and stays in the report either way. Failing to pair it
+    costs a convenience, not a change.
+    """
+    path = Path(root) / rel
+    ext = rel[rel.rfind('.'):].lower() if '.' in rel.rsplit('/', 1)[-1] else ''
+    try:
+        digest = hashlib.sha1(path.read_bytes()).hexdigest()
+        lines = None if looks_binary(path) else _shadow_lines(rel, read_text(path))
+    except OSError:
+        return None
+    return filepair.Candidate(rel, ext, digest, lines)
+
+
+def _link_moves(results, old_root, new_root):
+    """Cross-reference added files with the deleted ones they came from.
+
+    The two entries KEEP their `added` / `deleted` verdicts and their place in
+    the counts: a file that moved is a change to the tree, and a pipeline
+    gating on that must not stop seeing it. What the pair adds is the diff --
+    `hunks` on the added entry describe it against the file it came from
+    instead of leaving the reviewer to read both in full -- plus `move_status`,
+    the verdict that pair WOULD have had if the path had not changed.
+    """
+    added = [c for c in (_candidate(new_root, rel) for rel, r in results.items()
+                         if r['status'] == 'added') if c]
+    deleted = [c for c in (_candidate(old_root, rel) for rel, r in results.items()
+                           if r['status'] == 'deleted') if c]
+    for a_rel, (d_rel, sim) in filepair.find_moves(added, deleted).items():
+        try:
+            pair = compare_pair(read_text(Path(old_root) / d_rel),
+                                read_text(Path(new_root) / a_rel), a_rel)
+        except (OSError, UnicodeError):
+            continue
+        results[a_rel]['moved_from'] = d_rel
+        results[a_rel]['move_similarity'] = sim
+        results[a_rel]['move_status'] = pair['status']
+        results[a_rel]['hunks'] = pair['hunks']
+        results[a_rel]['renames'] = pair['renames']
+        results[d_rel]['moved_to'] = a_rel
+        results[d_rel]['move_similarity'] = sim
+        results[d_rel]['move_status'] = pair['status']
+
+
 def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
     """Compare two trees. Returns {rel_path: result} sorted by path.
     result: {status, hunks, renames, notes, binary[, ifaces]}.
@@ -240,6 +307,10 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
             fold_status(results[rel], fold)
         if progress:
             progress(idx + 1, len(all_paths), rel)
+    # after every verdict is settled: folding cannot reach 'added'/'deleted',
+    # so the candidate set is the same either way, and pairing must never be
+    # what decides a verdict
+    _link_moves(results, old_root, new_root)
     return results
 
 

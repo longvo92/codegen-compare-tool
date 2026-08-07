@@ -74,6 +74,10 @@ steps:
         BASE=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
       fi
       echo "OLD = $BASE ($(git log -1 --format='%s' $BASE))"
+      # hand the compare step something to call the BASELINE side: it reads
+      # from a temp worktree, so without this the report header names the
+      # scratch folder instead of the revision it holds
+      echo "##vso[task.setvariable variable=BASE_NAME]$(git log -1 --format='%h %s' $BASE)"
       git worktree add "$(OLD_DIR)" "$BASE"
       # on the very first run the old revision has no codegen folder yet ->
       # create an empty one so every file counts as Added
@@ -87,6 +91,8 @@ steps:
         "$(OLD_DIR)/${{ parameters.codegenPath }}" \
         "$(CODE_DIR)/${{ parameters.codegenPath }}" \
         --report "$(CODE_DIR)/${{ parameters.codegenPath }}/compare_report.html" \
+        --baseline-name "$(BASE_NAME)" \
+        --current-name "build $(Build.BuildNumber)" \
         --exclude compare_report.html \
         --exit-zero
     displayName: 'Diff old vs new codegen'

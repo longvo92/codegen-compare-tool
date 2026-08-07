@@ -656,6 +656,48 @@ class TestOldSideNaming(unittest.TestCase):
         self.assertIn('&lt;script&gt;', page)
 
 
+class TestCurrentSideNaming(unittest.TestCase):
+    """The same problem from the other end. A pipeline stages the previous
+    codegen into a fixed scratch directory and generates the new one into
+    another, so BOTH header names can be about the mechanism rather than the
+    builds -- `--baseline-name` / `--current-name` on the CLI."""
+
+    @staticmethod
+    def _results():
+        return scan(FIX / 'old', FIX / 'new')
+
+    def test_a_label_replaces_the_folder_name_on_the_new_side_only(self):
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            new_label='PR 312')
+        self.assertIn('>PR 312</code>', page)
+        self.assertNotIn('>new</code>', page)
+        self.assertIn('>old</code>', page)  # BASELINE is still its own folder
+
+    def test_both_sides_can_be_named_at_once(self):
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            old_label='build 4820', new_label='build 4821')
+        self.assertIn('>build 4820</code>', page)
+        self.assertIn('>build 4821</code>', page)
+
+    def test_the_real_path_stays_on_hover(self):
+        # naming a side must not cost the reader the folder it was read from:
+        # a rerun of a failed compare needs the actual path
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            new_label='PR 312')
+        self.assertIn('title="{}"'.format(FIX / 'new'), page)
+
+    def test_the_arxml_report_takes_it_too(self):
+        page = build_arxml_report(self._results(), FIX / 'old', FIX / 'new',
+                                  new_label='PR 312')
+        self.assertIn('>PR 312</code>', page)
+
+    def test_a_label_is_escaped_like_any_other_text(self):
+        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+                            new_label='<script>alert(1)</script>')
+        self.assertNotIn('<script>alert(1)</script>', page)
+        self.assertIn('&lt;script&gt;', page)
+
+
 class TestPageTheme(unittest.TestCase):
     """The report carries BOTH palettes and a switch between them.
 

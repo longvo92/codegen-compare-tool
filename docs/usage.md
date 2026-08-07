@@ -29,6 +29,8 @@ python -m compare_tool <old_gen_folder> <new_gen_folder> [--report out.html]
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
 | `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact per-type report (default `arxml_update.html`) — always written, even when nothing changed |
 | `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, plus a `Reviewed` badge that hides the changes already signed off. Must be named explicitly — a report must not pick up someone else's sign-off by accident; no effect with `--arxml-only` |
+| `--baseline-name NAME` | Name the BASELINE side in the report header instead of using its folder name. For a pipeline that stages the previous codegen into a fixed scratch directory, where `cg_temp` names the mechanism rather than the build. Example: `--baseline-name "build 4821"` |
+| `--current-name NAME` | Same for the CURRENT side. Either flag only changes the header text — the folder path stays in the tooltip, so a compare is still traceable to where the files were read from |
 | `--theme dark\|light` | Colour scheme the report and the viewer open with (default `dark`). The report carries **both** and has its own switch, so this only sets what the reader sees first |
 | `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra |
 
@@ -82,6 +84,31 @@ your working copy is never touched), and compares as usual.
 | `−` | Deleted | file exists only in BASELINE |
 | `=` | Identical | no difference |
 | `‼` | NOT compared | treat as changed |
+
+### Renamed and moved files
+
+Rename a model, move `Foo.c` from `swc_a/` to `swc_b/`, or restructure the
+output folders, and the file comes back as one Added plus one Deleted. The tool
+matches those two back up and reports them as one move:
+
+> `swc_b/Sub.c` **Added** *(moved from swc_a/Sub.c — and changed, 89% alike)*
+
+The Added entry then shows a **diff against the file it came from** instead of
+its whole contents, and the Deleted entry links to it rather than printing the
+same lines a second time.
+
+In the viewer both rows read `Added (moved)` / `Deleted (moved)` in the Status
+column, with the path and the similarity on hover. Rows that did not move are
+labelled exactly as before.
+
+The pairing needs the two files to share an extension, to pick each other as
+the best match, and to be clearly better than the runner-up — generated files
+resemble each other enough that a near-tie is not an answer. Files it cannot
+match are reported as plain Added / Deleted, exactly as before.
+
+Both files keep their own verdict and their place in the counts, and **the exit
+code does not change**: a file that moved is still a change to the tree, so a
+pipeline gating on Added/Deleted keeps working.
 
 ### Review mode
 
@@ -237,6 +264,16 @@ python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
 `--exit-zero` keeps the build green on regenerated code; `--exclude` keeps the
 previous run's report from counting as a diff. Publish `compare_report.html` as
 a build artifact.
+
+A pipeline usually stages the baseline into a scratch directory, which leaves
+the report header naming that directory. Name the two sides after what was
+actually compared:
+
+```bash
+python -m compare_tool "$OLD_DIR" "$NEW_DIR" \
+  --baseline-name "$(git log -1 --format='%h %s' "$BASE")" \
+  --current-name "build $BUILD_NUMBER"
+```
 
 See [azure-pipelines.yml](../azure-pipelines.yml) for a working example (OLD
 checked out via `git worktree`, NEW is the working tree).

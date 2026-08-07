@@ -6,7 +6,8 @@ import unittest
 from compare_tool import theme
 from compare_tool.qtviewer.tree import (PRIO, REVIEW_COLOR, STATUS,
                                         build_nodes, filter_nodes,
-                                        review_state)
+                                        move_tooltip, review_state,
+                                        status_label)
 
 
 def _res(mapping):
@@ -153,6 +154,69 @@ class TestReviewState(unittest.TestCase):
             self.assertIn(state, REVIEW_COLOR)
             for name in theme.THEMES:
                 self.assertTrue(theme.color(REVIEW_COLOR[state], name))
+
+
+class TestMoveLabel(unittest.TestCase):
+    """The tree's marker for a file matched to one under another path."""
+
+    @staticmethod
+    def _moved():
+        return build_nodes({
+            'swc_b/Sub.c': {'status': 'added', 'moved_from': 'swc_a/Sub.c',
+                            'move_status': 'identical', 'move_similarity': 1.0},
+            'swc_a/Sub.c': {'status': 'deleted', 'moved_to': 'swc_b/Sub.c',
+                            'move_status': 'identical', 'move_similarity': 1.0},
+        })
+
+    @staticmethod
+    def _leaf(nodes, folder):
+        return next(n for n in nodes if n.name == folder).children[0]
+
+    def test_a_file_that_did_not_move_is_labelled_exactly_as_before(self):
+        # the label is the verdict and nothing else unless there IS a move --
+        # an extra word on every row would cost the column its scannability
+        nodes = build_nodes(_res({'src/ctrl.c': 'real-change',
+                                  'src/new.c': 'added'}))
+        for leaf in nodes[0].children:
+            self.assertEqual(status_label(leaf), STATUS[leaf.status][1])
+            self.assertEqual(move_tooltip(leaf), '')
+
+    def test_both_sides_of_a_move_are_marked(self):
+        nodes = self._moved()
+        self.assertEqual(status_label(self._leaf(nodes, 'swc_b')), 'Added (moved)')
+        self.assertEqual(status_label(self._leaf(nodes, 'swc_a')), 'Deleted (moved)')
+
+    def test_the_tooltip_carries_the_path_the_column_has_no_room_for(self):
+        nodes = self._moved()
+        tip = move_tooltip(self._leaf(nodes, 'swc_b'))
+        self.assertIn('moved from swc_a/Sub.c', tip)
+        self.assertIn('content unchanged', tip)
+        self.assertIn('100% alike', tip)
+
+    def test_a_folder_is_never_marked_moved(self):
+        # the aggregate row speaks for its descendants; a folder did not move
+        nodes = self._moved()
+        for n in nodes:
+            self.assertTrue(n.is_dir)
+            self.assertEqual(status_label(n), STATUS[n.status][1])
+
+    def test_the_wording_is_the_report_s_wording(self):
+        # one map, two surfaces: a verdict added to one must not describe a
+        # move differently in the other
+        from compare_tool import filepair
+        from compare_tool.report import _move_note
+        r = {'status': 'added', 'moved_from': 'a/x.c',
+             'move_status': 'real-change', 'move_similarity': 0.89}
+        self.assertEqual(_move_note(r),
+                         '({})'.format(filepair.describe(r)))
+        self.assertEqual(_move_note({'status': 'added'}), '')
+
+    def test_every_move_status_has_wording(self):
+        # move_status is a compare_pair verdict, so the map has to cover the
+        # ones a pair can actually come back with
+        from compare_tool import filepair
+        for st in ('identical', 'comment-only', 'ignorable-only', 'real-change'):
+            self.assertIn(st, filepair.MOVE_WORDING)
 
 
 if __name__ == '__main__':
