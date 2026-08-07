@@ -85,6 +85,27 @@ your working copy is never touched), and compares as usual.
 | `=` | Identical | no difference |
 | `‼` | NOT compared | treat as changed |
 
+### Renamed and moved files
+
+Rename a model, move `Foo.c` from `swc_a/` to `swc_b/`, or restructure the
+output folders, and the file comes back as one Added plus one Deleted. The tool
+matches those two back up and reports them as one move:
+
+> `swc_b/Sub.c` **Added** *(moved from swc_a/Sub.c — and changed, 89% alike)*
+
+The Added entry then shows a **diff against the file it came from** instead of
+its whole contents, and the Deleted entry links to it rather than printing the
+same lines a second time.
+
+The pairing needs the two files to share an extension, to pick each other as
+the best match, and to be clearly better than the runner-up — generated files
+resemble each other enough that a near-tie is not an answer. Files it cannot
+match are reported as plain Added / Deleted, exactly as before.
+
+Both files keep their own verdict and their place in the counts, and **the exit
+code does not change**: a file that moved is still a change to the tree, so a
+pipeline gating on Added/Deleted keeps working.
+
 ### Review mode
 
 `Review mode` adds the note box and a `Review` column in the tree — green when

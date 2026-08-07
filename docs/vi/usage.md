@@ -85,6 +85,25 @@ mục đó, lấy commit bạn chọn ra một thư mục tạm (read-only — w
 | `=` | Identical | không khác gì |
 | `‼` | NOT compared | coi như đã đổi |
 
+### File bị đổi tên hoặc chuyển chỗ
+
+Đổi tên model, chuyển `Foo.c` từ `swc_a/` sang `swc_b/`, hay tái cấu trúc thư mục
+output — file sẽ hiện ra thành một Added cộng một Deleted. Tool ghép hai cái đó
+lại và báo như một lần di chuyển:
+
+> `swc_b/Sub.c` **Added** *(moved from swc_a/Sub.c — and changed, 89% alike)*
+
+Entry Added khi đó hiện **diff so với file nó đi ra** thay vì toàn bộ nội dung,
+còn entry Deleted trỏ sang đó chứ không in lại đúng ngần ấy dòng lần nữa.
+
+Để ghép được, hai file phải cùng phần mở rộng, phải cùng chọn nhau là khớp nhất,
+và phải hơn hẳn cái đứng thứ hai — file codegen giống nhau đủ để một tỉ số sát sao
+không phải là câu trả lời. File không ghép được thì vẫn báo Added / Deleted như cũ.
+
+Hai file giữ nguyên verdict và vẫn được đếm, và **exit code không đổi**: file
+chuyển chỗ vẫn là một thay đổi của cây, nên pipeline đang gate theo Added/Deleted
+vẫn chạy đúng.
+
 ### Review mode
 
 `Review mode` bật hộp note và cột `Review` trên cây — xanh khi mọi change trong

@@ -85,6 +85,7 @@ compare_tool/
 ├── scanner.py       # walks both trees, pairs files by relative path
 ├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
 ├── linediff.py      # the line matcher both passes share: patience anchoring, exact fallback
+├── filepair.py      # matches an added file to the deleted one it was renamed/moved from
 ├── c_rules.py       # C/H rules: strip comments, tokenize, detect renames, extract RTE access points
 ├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments, DESC/LONG-NAME + extract port interfaces, SWCs (ports/runnables/events)
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
@@ -226,6 +227,10 @@ consumes one dict per compared path:
     'binary': False,
     # semantic extras, only on real changes and one-sided files:
     'ifaces': ..., 'swc': ..., 'rte': ..., 'a2l': ...,
+    # only on a file paired across a rename/move (see below):
+    'moved_from': 'swc_a/Sub.c',   # on the ADDED entry
+    'moved_to': 'swc_b/Sub.c',     # on the DELETED entry
+    'move_status': 'real-change', 'move_similarity': 0.89,
 }
 ```
 
@@ -235,6 +240,28 @@ Ranges are 0-based, end-exclusive, into the **raw** lines of each side.
 
 The semantic extras are computed only where they can matter: a shadow-equal
 file has the same content, so it cannot have moved the AUTOSAR surface.
+
+### Renames and moves
+
+`scanner` pairs files by relative path, which is right until the path is what
+changed. After every verdict is settled, `_link_moves` takes the files that
+came out `added` and `deleted` and asks `filepair` which of them are the same
+file — exact content first, then similarity over the **shadow** lines, so a
+file that moved *and* was regenerated still matches.
+
+A pair is a **reading aid, not a verdict**. Both files keep their `added` /
+`deleted` status, both stay in the counts, and the exit code does not move: a
+file that changed folder is a change to the tree, and a pipeline gating on that
+must keep seeing it. What the pair adds is `hunks` on the added entry —
+describing it against the file it came from — so the report renders one diff
+instead of two whole files, and the deleted entry points at it rather than
+printing the same bytes again.
+
+Because a pairing is a claim that can be wrong, it is only made when it is not
+a guess: same extension, mutual best match, and a margin over the runner-up.
+Generated files share banners and call shapes, so near-ties between unrelated
+SWCs are the normal case rather than a freak one. An unmatched file simply
+reports as it did before.
 
 ## Shared seams
 

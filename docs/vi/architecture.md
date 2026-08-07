@@ -202,6 +202,10 @@ Mọi thứ ở phía sau — summary của CLI, HTML report, cây của viewer,
     'binary': False,
     # phần ngữ nghĩa, chỉ có ở thay đổi thật và file một bên:
     'ifaces': ..., 'swc': ..., 'rte': ..., 'a2l': ...,
+    # chỉ có ở file đã ghép cặp qua một lần đổi tên / di chuyển (xem dưới):
+    'moved_from': 'swc_a/Sub.c',   # nằm trên entry ADDED
+    'moved_to': 'swc_b/Sub.c',     # nằm trên entry DELETED
+    'move_status': 'real-change', 'move_similarity': 0.89,
 }
 ```
 
@@ -211,6 +215,27 @@ Range đánh số từ 0, hở đầu cuối (end-exclusive), tính trên dòng 
 
 Phần ngữ nghĩa chỉ được tính ở chỗ nó có thể có nghĩa: file có shadow bằng nhau thì
 nội dung như nhau, nên không thể làm xê dịch bề mặt AUTOSAR.
+
+### Đổi tên và di chuyển file
+
+`scanner` ghép file theo đường dẫn tương đối — đúng, cho tới khi chính đường dẫn
+là thứ bị đổi. Sau khi mọi verdict đã chốt, `_link_moves` lấy các file ra kết quả
+`added` và `deleted` rồi hỏi `filepair` xem cái nào là cùng một file: khớp nội
+dung y hệt trước, rồi tới độ giống trên dòng **shadow**, nhờ vậy file vừa bị
+chuyển chỗ vừa bị regenerate vẫn khớp được.
+
+Một cặp là **công cụ đọc, không phải verdict**. Hai file giữ nguyên trạng thái
+`added` / `deleted`, vẫn nằm trong các con số đếm, và exit code không đổi: file
+đổi thư mục là một thay đổi của cây, pipeline nào đang gate theo đó phải tiếp tục
+thấy nó. Cái mà cặp thêm vào là `hunks` trên entry added — mô tả nó so với file
+nó đi ra — để report vẽ một cái diff thay vì hai file nguyên vẹn, còn entry
+deleted thì trỏ sang đó chứ không in lại đúng từng byte lần nữa.
+
+Vì ghép cặp là một *lời khẳng định* có thể sai, nó chỉ được đưa ra khi không phải
+đoán: cùng phần mở rộng, hai bên cùng chọn nhau là tốt nhất, và phải cách người
+đứng thứ hai một khoảng. File codegen dùng chung banner và chung dạng lời gọi,
+nên chuyện hai SWC không liên quan chấm điểm sát nhau là bình thường chứ không
+hiếm. File không khớp được thì báo cáo y như trước.
 
 ## Các seam dùng chung
 

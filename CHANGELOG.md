@@ -12,6 +12,13 @@ in front of it is easier on the eyes.
 
 ### Added
 
+- **A renamed or moved file is recognised as one file.** Renaming a model or
+  moving a file between folders used to come back as one Added plus one
+  Deleted, leaving you to read both in full to work out that nothing in them
+  had moved. The two are now matched up: the file is shown once, as a diff
+  against where it came from, and says how alike the two are. Files that cannot
+  be matched with confidence are reported as before, and the counts and exit
+  code are unchanged — a file that moved is still a change to the tree.
 - **Name the two sides in the report header** with `--baseline-name` and
   `--current-name`. A pipeline stages the previous codegen into a scratch
   directory, so the header used to announce that directory instead of the build

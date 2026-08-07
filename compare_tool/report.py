@@ -1247,13 +1247,40 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             if whole:
                 parts.append(_note_html(*whole))
             parts.append('<div class="filenote">Binary file {}.</div>'.format(status))
+        elif status == 'added' and r.get('moved_from'):
+            # the file was found again under another path, so the answer the
+            # reviewer needs is what changed on the way -- not the whole file
+            # a second time. The deleted twin still gets its own section and
+            # says where the content went.
+            old_lines = read_text(Path(old_root) / r['moved_from']).split('\n')
+            new_lines = read_text(path).split('\n')
+            notes = rv.annotate(rel, r, old_lines, new_lines)
+            parts.append(_file_open(anchors[rel], rel, status, _move_note(r),
+                                    expanded=True, reviewed=rel in rv.files))
+            whole = notes.get(None)
+            if whole:
+                parts.append(_note_html(*whole))
+            parts.append(_notes(r))
+            parts.append(_groups_html(old_lines, new_lines, r['hunks'], notes,
+                                      syntax.language_for(rel)))
+        elif status == 'deleted' and r.get('moved_to') in anchors:
+            # its content is on screen already, as the OLD side of the paired
+            # file's diff. Printing the file again here would be the same bytes
+            # a second time -- so this section says where they went and sends
+            # the reader there instead.
+            parts.append(_file_open(anchors[rel], rel, status, _move_note(r),
+                                    reviewed=rel in rv.files))
+            parts.append(_notes(r))
+            parts.append('<div class="filenote">Content shown under '
+                         '<a onclick="go(\'{}\')">{}</a>.</div>'.format(
+                             anchors[r['moved_to']], _esc(r['moved_to'])))
         else:
             lines = read_text(path).split('\n')
             kw = {'new_lines' if status == 'added' else 'old_lines': lines}
             notes = rv.annotate(rel, r, **kw)
             parts.append(_file_open(anchors[rel], rel, status,
-                                    '({} line{})'.format(len(lines),
-                                                         '' if len(lines) == 1 else 's'),
+                                    _move_note(r) or '({} line{})'.format(
+                                        len(lines), '' if len(lines) == 1 else 's'),
                                     reviewed=rel in rv.files))
             whole = notes.get(None)
             if whole:
@@ -1262,6 +1289,32 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append(_content_table(lines, side, syntax.language_for(rel)))
     parts.append('</div></details>')
     return ''.join(parts)
+
+
+_MOVE_WORDING = {
+    'identical': 'content unchanged',
+    'comment-only': 'only comments differ',
+    'ignorable-only': 'noise only',
+    'real-change': 'and changed',
+}
+
+
+def _move_note(r):
+    """The one line beside a moved file's name: where it came from or went,
+    and whether anything happened to it on the way.
+
+    The similarity is printed because the pairing is a claim, not a fact read
+    off disk -- a reviewer who sees `72% alike` and disagrees can say so, which
+    a bare arrow would not let them do.
+    """
+    other = r.get('moved_from') or r.get('moved_to')
+    if not other:
+        return ''
+    arrow = 'from' if r.get('moved_from') else 'to'
+    what = _MOVE_WORDING.get(r.get('move_status'), '')
+    pct = int(round(r.get('move_similarity', 0) * 100))
+    return '(moved {} {} &mdash; {}, {}% alike)'.format(
+        arrow, _esc(other), what, pct)
 
 
 def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
