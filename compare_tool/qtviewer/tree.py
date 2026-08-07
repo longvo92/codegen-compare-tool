@@ -7,7 +7,7 @@ to walk the returned Node list and paint it.
 
 from collections import namedtuple
 
-from .. import theme
+from .. import filepair, theme
 
 # status -> (tree marker, display label, theme role). Mirrors the HTML
 # report's verdict vocabulary (Modified / Unimportant / Added / Deleted /
@@ -62,8 +62,30 @@ def review_state(reviewed, total):
         return 'done'
     return 'partial' if reviewed else 'none'
 
-# a directory node's .rel is None; a file node carries its relative path
-Node = namedtuple('Node', 'name is_dir status rel children')
+# a directory node's .rel is None; a file node carries its relative path.
+# `move` is '' unless the file was paired across a rename or move -- see
+# status_label / move_tooltip for what the two surfaces do with it.
+Node = namedtuple('Node', 'name is_dir status rel children move')
+
+
+def status_label(node):
+    """The Status column's text: the verdict, plus `(moved)` when the file was
+    matched to one under another path.
+
+    Only the word, not the path: the tree is for triage -- "this Added is not
+    new code" is what changes where the reviewer looks next, and the path it
+    came from is a detail the tooltip and the diff header already carry, in
+    a place with room for it."""
+    label = STATUS[node.status][1]
+    return '{} (moved)'.format(label) if node.move else label
+
+
+def move_tooltip(node):
+    """The full move sentence for the row's tooltip, '' when it did not move.
+
+    Same words as the report's file header, from the same function, so the two
+    surfaces cannot describe one move two ways."""
+    return node.move
 
 
 def _agg_status(nodes):
@@ -97,10 +119,11 @@ def build_nodes(results):
         files = sorted(k for k, v in node.items() if not isinstance(v, dict))
         for d in dirs:
             children = walk(node[d])
-            out.append(Node(d, True, _agg_status(children), None, children))
+            out.append(Node(d, True, _agg_status(children), None, children, ''))
         for f in files:
             rel = node[f]
-            out.append(Node(f, False, results[rel]['status'], rel, ()))
+            out.append(Node(f, False, results[rel]['status'], rel, (),
+                            filepair.describe(results[rel])))
         return out
 
     return walk(root)

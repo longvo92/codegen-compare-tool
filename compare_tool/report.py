@@ -11,7 +11,7 @@ import html
 import re
 from pathlib import Path
 
-from . import review, syntax, theme
+from . import filepair, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -1291,30 +1291,11 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
     return ''.join(parts)
 
 
-_MOVE_WORDING = {
-    'identical': 'content unchanged',
-    'comment-only': 'only comments differ',
-    'ignorable-only': 'noise only',
-    'real-change': 'and changed',
-}
-
-
 def _move_note(r):
-    """The one line beside a moved file's name: where it came from or went,
-    and whether anything happened to it on the way.
-
-    The similarity is printed because the pairing is a claim, not a fact read
-    off disk -- a reviewer who sees `72% alike` and disagrees can say so, which
-    a bare arrow would not let them do.
-    """
-    other = r.get('moved_from') or r.get('moved_to')
-    if not other:
-        return ''
-    arrow = 'from' if r.get('moved_from') else 'to'
-    what = _MOVE_WORDING.get(r.get('move_status'), '')
-    pct = int(round(r.get('move_similarity', 0) * 100))
-    return '(moved {} {} &mdash; {}, {}% alike)'.format(
-        arrow, _esc(other), what, pct)
+    """The one line beside a moved file's name, in the same words the viewer's
+    tree uses -- see :func:`compare_tool.filepair.describe`."""
+    text = filepair.describe(r)
+    return '({})'.format(_esc(text)) if text else ''
 
 
 def _safe_file_section(rel, results, old_root, new_root, anchors, rv):

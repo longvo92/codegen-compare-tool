@@ -31,8 +31,8 @@ from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
 from .summary import SummaryPanel
-from .tree import (STATUS, build_nodes, filter_nodes, review_color,
-                   review_state, status_color)
+from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip, review_color,
+                   review_state, status_color, status_label)
 from .worker import ScanWorker
 
 REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
@@ -1040,11 +1040,18 @@ class MainWindow(QMainWindow):
 
     def _fill_tree(self, nodes):
         def add(parent, node, prefix):
-            marker, label, _role = STATUS[node.status]
-            item = QTreeWidgetItem(['{}  {}'.format(marker, node.name), label])
+            marker, _label, _role = STATUS[node.status]
+            item = QTreeWidgetItem(['{}  {}'.format(marker, node.name),
+                                    status_label(node)])
             brush = QBrush(QColor(status_color(node.status)))
             item.setForeground(0, brush)
             item.setForeground(1, brush)
+            tip = move_tooltip(node)
+            if tip:
+                # the path it came from does not fit the column, and a file
+                # that moved is exactly the row somebody wants the detail on
+                item.setToolTip(0, tip)
+                item.setToolTip(1, tip)
             rel = node.rel or (prefix + node.name)
             item.setData(0, PATH_ROLE, rel)  # folders included: the menu opens those too
             if not node.is_dir:

@@ -97,6 +97,10 @@ The Added entry then shows a **diff against the file it came from** instead of
 its whole contents, and the Deleted entry links to it rather than printing the
 same lines a second time.
 
+In the viewer both rows read `Added (moved)` / `Deleted (moved)` in the Status
+column, with the path and the similarity on hover. Rows that did not move are
+labelled exactly as before.
+
 The pairing needs the two files to share an extension, to pick each other as
 the best match, and to be clearly better than the runner-up — generated files
 resemble each other enough that a near-tie is not an answer. Files it cannot

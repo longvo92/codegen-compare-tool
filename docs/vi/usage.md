@@ -96,6 +96,10 @@ lại và báo như một lần di chuyển:
 Entry Added khi đó hiện **diff so với file nó đi ra** thay vì toàn bộ nội dung,
 còn entry Deleted trỏ sang đó chứ không in lại đúng ngần ấy dòng lần nữa.
 
+Trong viewer, hai dòng đó hiện `Added (moved)` / `Deleted (moved)` ở cột Status,
+đường dẫn và độ giống nằm ở tooltip khi rê chuột. Dòng không bị move thì nhãn y
+như cũ.
+
 Để ghép được, hai file phải cùng phần mở rộng, phải cùng chọn nhau là khớp nhất,
 và phải hơn hẳn cái đứng thứ hai — file codegen giống nhau đủ để một tỉ số sát sao
 không phải là câu trả lời. File không ghép được thì vẫn báo Added / Deleted như cũ.

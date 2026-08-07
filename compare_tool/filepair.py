@@ -143,6 +143,35 @@ def _scored_pairs(added, deleted):
     return out
 
 
+# What happened to a paired file on its way, in the words both the report and
+# the viewer use. One map: the report's file header and the viewer's tree read
+# the same result dict, and two copies of this would drift the day a verdict is
+# added.
+MOVE_WORDING = {
+    'identical': 'content unchanged',
+    'comment-only': 'only comments differ',
+    'ignorable-only': 'noise only',
+    'real-change': 'and changed',
+}
+
+
+def describe(result):
+    """One plain-text sentence for a file paired across a rename or move, or
+    ``''`` when it was not paired.
+
+    The similarity is part of it because the pairing is a claim, not something
+    read off disk -- a reviewer who sees `72% alike` and disagrees can say so,
+    which a bare arrow would not let them do.
+    """
+    other = result.get('moved_from') or result.get('moved_to')
+    if not other:
+        return ''
+    return '{} {} — {}, {}% alike'.format(
+        'moved from' if result.get('moved_from') else 'moved to', other,
+        MOVE_WORDING.get(result.get('move_status'), ''),
+        int(round(result.get('move_similarity', 0) * 100)))
+
+
 def find_moves(added, deleted):
     """Match added files to deleted ones.
 
