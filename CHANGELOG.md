@@ -5,10 +5,11 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
-## [1.6.0] — 2026-08-05
+## [1.6.0] — 2026-08-07
 
-The report shows the change instead of the file it lives in, and a long session
-in front of it is easier on the eyes.
+The report shows the change instead of the file it lives in, a regenerated file
+no longer reads as changed from top to bottom, and a file that was renamed or
+moved is recognised as the file it already was.
 
 ### Added
 
