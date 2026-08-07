@@ -48,8 +48,13 @@ def default_report_name(arxml_only):
 
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
-                progress=None, reviews=None, theme_name=theme.DEFAULT):
+                progress=None, reviews=None, theme_name=theme.DEFAULT,
+                old_label=None, new_label=None):
     """Scan two trees and write the HTML report.
+
+    ``old_label`` / ``new_label`` name the two sides in the report header when
+    their folder names do not (``--baseline-name`` / ``--current-name``).
+
     Returns (results, counts). Raises :class:`ReportWriteError` when the report
     could not be written -- a run whose record does not exist is not a run that
     may report success."""
@@ -73,10 +78,12 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
         # ALWAYS written: "no changes" must be an explicit statement, never
         # a silently absent file (indistinguishable from a run that died)
         page = build_arxml_report(results, old_root, new_root,
-                                  theme_name=theme_name)
+                                  old_label=old_label, theme_name=theme_name,
+                                  new_label=new_label)
     else:
         page = build_report(results, old_root, new_root, reviews,
-                            theme_name=theme_name)
+                            old_label=old_label, theme_name=theme_name,
+                            new_label=new_label)
     try:
         out.write_text(page, encoding='utf-8')
     except OSError as e:
@@ -171,11 +178,10 @@ def _parser():
                     help='new codegen output folder')
     ap.add_argument('--qt', '--viewer', dest='qt', action='store_true',
                     help='open the side-by-side compare viewer (PySide6): a '
-                         'folder tree with a two-pane old/new diff, like Beyond '
-                         'Compare. This is also what runs when no folders are '
-                         'given, so the flag is only needed to view folders '
-                         'passed on the command line instead of comparing them '
-                         'in the terminal')
+                         'folder tree with a two-pane BASELINE/CURRENT diff. '
+                         'This is also what runs when no folders are given, so '
+                         'the flag is only needed to view folders passed on the '
+                         'command line instead of comparing them in the terminal')
     ap.add_argument('--report', metavar='OUT.html', default=None,
                     help='HTML report output path (default: compare_report.html, '
                          'or arxml_update.html with --arxml-only)')
@@ -186,6 +192,18 @@ def _parser():
                          'diff report; the report is ALWAYS written -- when '
                          'nothing real changed it states "no changes" '
                          'explicitly per file type')
+    # A pipeline stages the baseline into a fixed scratch directory, so the
+    # header ends up naming the mechanism (`cg_temp`) instead of what was
+    # compared. The folder path stays in the tooltip either way -- these rename
+    # a side in the report, they never stand in for one.
+    ap.add_argument('--baseline-name', metavar='NAME', default=None,
+                    help='name the BASELINE side in the report header instead '
+                         'of using its folder name -- for a pipeline that '
+                         'stages the previous codegen into a scratch directory, '
+                         'where the folder name says nothing. Example: '
+                         '--baseline-name "build 4821"')
+    ap.add_argument('--current-name', metavar='NAME', default=None,
+                    help='same for the CURRENT side')
     ap.add_argument('--theme', choices=theme.THEMES, default=theme.DEFAULT,
                     help='colour scheme the viewer opens with, and the one the '
                          'HTML report opens with (default: dark). The report '
@@ -283,7 +301,9 @@ def main(argv=None):
     try:
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
                                       exclude=args.exclude, progress=progress,
-                                      reviews=reviews, theme_name=args.theme)
+                                      reviews=reviews, theme_name=args.theme,
+                                      old_label=args.baseline_name,
+                                      new_label=args.current_name)
     except ReportWriteError as e:
         # what WAS scanned still goes to the terminal -- the compare itself may
         # have been fine, it is only the record that is missing

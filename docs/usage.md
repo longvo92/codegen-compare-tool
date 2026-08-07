@@ -29,6 +29,8 @@ python -m compare_tool <old_gen_folder> <new_gen_folder> [--report out.html]
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
 | `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact per-type report (default `arxml_update.html`) — always written, even when nothing changed |
 | `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, plus a `Reviewed` badge that hides the changes already signed off. Must be named explicitly — a report must not pick up someone else's sign-off by accident; no effect with `--arxml-only` |
+| `--baseline-name NAME` | Name the BASELINE side in the report header instead of using its folder name. For a pipeline that stages the previous codegen into a fixed scratch directory, where `cg_temp` names the mechanism rather than the build. Example: `--baseline-name "build 4821"` |
+| `--current-name NAME` | Same for the CURRENT side. Either flag only changes the header text — the folder path stays in the tooltip, so a compare is still traceable to where the files were read from |
 | `--theme dark\|light` | Colour scheme the report and the viewer open with (default `dark`). The report carries **both** and has its own switch, so this only sets what the reader sees first |
 | `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra |
 
@@ -237,6 +239,16 @@ python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
 `--exit-zero` keeps the build green on regenerated code; `--exclude` keeps the
 previous run's report from counting as a diff. Publish `compare_report.html` as
 a build artifact.
+
+A pipeline usually stages the baseline into a scratch directory, which leaves
+the report header naming that directory. Name the two sides after what was
+actually compared:
+
+```bash
+python -m compare_tool "$OLD_DIR" "$NEW_DIR" \
+  --baseline-name "$(git log -1 --format='%h %s' "$BASE")" \
+  --current-name "build $BUILD_NUMBER"
+```
 
 See [azure-pipelines.yml](../azure-pipelines.yml) for a working example (OLD
 checked out via `git worktree`, NEW is the working tree).

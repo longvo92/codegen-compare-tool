@@ -10,6 +10,13 @@ All notable changes to this project are documented here. Versions follow
 The report shows the change instead of the file it lives in, and a long session
 in front of it is easier on the eyes.
 
+### Added
+
+- **Name the two sides in the report header** with `--baseline-name` and
+  `--current-name`. A pipeline stages the previous codegen into a scratch
+  directory, so the header used to announce that directory instead of the build
+  it held. The folder path stays on hover either way.
+
 ### Changed
 
 - **The report shows the changes, not the file.** A file with a real change now

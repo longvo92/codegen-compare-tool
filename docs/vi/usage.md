@@ -30,6 +30,8 @@ python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> [--report out
 | `--exit-zero` | Luôn exit 0 kể cả khi có thay đổi thật (chế độ chỉ ghi report cho pipeline). Lỗi compare vẫn exit 2 |
 | `--arxml-only` | Chỉ scan `.arxml`/`.xml`/`.a2l` và ghi report gọn theo từng loại file (mặc định `arxml_update.html`) — luôn được ghi, kể cả khi không có gì đổi |
 | `--review FILE` | Render note và sign-off từ review file (`codegen-review.json`, do viewer ghi) ngay cạnh change tương ứng, kèm badge `Reviewed` để ẩn các change đã ký duyệt. Phải chỉ tên tường minh — một report không được vô tình mang sign-off của người khác; không có tác dụng với `--arxml-only` |
+| `--baseline-name NAME` | Đặt tên phía BASELINE trên header report thay vì lấy tên thư mục. Dành cho pipeline luôn dựng bản codegen cũ vào một thư mục tạm cố định, chỗ mà `cg_temp` là tên của cơ chế chứ không phải của bản build. Ví dụ: `--baseline-name "build 4821"` |
+| `--current-name NAME` | Tương tự cho phía CURRENT. Cả hai cờ chỉ đổi chữ trên header — đường dẫn thư mục vẫn nằm ở tooltip, nên vẫn truy được file đã đọc từ đâu |
 | `--theme dark\|light` | Bảng màu lúc mở của report và viewer (mặc định `dark`). Report mang sẵn **cả hai** và có nút đổi riêng, nên cờ này chỉ quyết định người đọc thấy màu nào trước |
 | `--qt`, `--viewer` | Mở viewer trên hai thư mục truyền ở command line, thay vì so sánh trong terminal. Cần extra `viewer` |
 
@@ -234,6 +236,15 @@ python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
 `--exit-zero` giữ build xanh khi code chỉ bị regenerate; `--exclude` không cho
 report của lần chạy trước bị tính thành diff. Publish `compare_report.html` như
 một build artifact.
+
+Pipeline thường dựng bản baseline vào một thư mục tạm, khiến header report ghi
+tên thư mục đó. Đặt tên hai phía theo đúng cái đã được so sánh:
+
+```bash
+python -m compare_tool "$OLD_DIR" "$NEW_DIR" \
+  --baseline-name "$(git log -1 --format='%h %s' "$BASE")" \
+  --current-name "build $BUILD_NUMBER"
+```
 
 Xem [azure-pipelines.yml](../../azure-pipelines.yml) để có ví dụ chạy được (OLD
 lấy ra bằng `git worktree`, NEW là working tree).

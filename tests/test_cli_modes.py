@@ -71,6 +71,36 @@ class TestThemeFlag(unittest.TestCase):
         self.assertFalse(viewer_requested(['old', 'new', '--theme', 'light']))
 
 
+class TestSideNameFlags(unittest.TestCase):
+    """``--baseline-name`` / ``--current-name``.
+
+    A pipeline stages the previous codegen into a fixed scratch directory, so
+    the report header reads `BASELINE cg_temp` -- the name of the mechanism,
+    not of the build being compared.
+    """
+
+    def _parse(self, argv):
+        from compare_tool.main import _parser
+        return _parser().parse_args(argv)
+
+    def test_both_default_to_none_so_the_folder_name_is_used(self):
+        args = self._parse(['old', 'new'])
+        self.assertIsNone(args.baseline_name)
+        self.assertIsNone(args.current_name)
+
+    def test_the_names_are_read_off_the_command_line(self):
+        args = self._parse(['old', 'new', '--baseline-name', 'build 4821',
+                            '--current-name', 'PR 312'])
+        self.assertEqual(args.baseline_name, 'build 4821')
+        self.assertEqual(args.current_name, 'PR 312')
+
+    def test_a_name_does_not_count_as_a_folder(self):
+        # the value follows the flag, so argv still holds two positionals only
+        # when two folders were really given
+        self.assertTrue(viewer_requested(['--baseline-name', 'x']))
+        self.assertFalse(viewer_requested(['old', 'new', '--baseline-name', 'x']))
+
+
 class TestTkinterPanelIsGone(unittest.TestCase):
     def test_gui_flag_is_rejected(self):
         self.assertFalse(quiet(viewer_requested, ['--gui']))

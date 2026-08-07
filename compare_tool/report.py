@@ -313,7 +313,12 @@ def _root_html(tag, root, label=None):
 
     `label` overrides the name when the folder is not the real answer: a
     commit checked out to a temp folder must be recorded as that commit, or
-    the report claims a compare that nobody can reproduce.
+    the report claims a compare that nobody can reproduce. A pipeline that
+    stages the baseline into a fixed scratch directory has the same problem --
+    `cg_temp` names the mechanism, not the thing compared.
+
+    The real path stays in the tooltip either way: a label renames the side,
+    it never hides where the bytes came from.
     """
     p = Path(str(root))
     return '{} <code title="{}">{}</code>'.format(
@@ -1274,11 +1279,11 @@ def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
 
 
 def build_arxml_report(results, old_root, new_root, old_label=None,
-                       theme_name=theme.DEFAULT):
+                       theme_name=theme.DEFAULT, new_label=None):
     """Compact ARXML / A2L update report: did the AUTOSAR model or the
     calibration surface change, and how.
 
-    ``old_label`` names the OLD side when its folder does not -- see
+    ``old_label`` / ``new_label`` name a side when its folder does not -- see
     :func:`build_report`. ``theme_name`` is which palette the page opens with;
     both are always embedded, and the reader can switch.
 
@@ -1303,7 +1308,8 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
     parts.append(_head('ARXML / A2L Update Report', theme_name))
     parts.append('<h1>ARXML / A2L Update Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
+        _root_html('BASELINE', old_root, old_label),
+        _root_html('CURRENT', new_root, new_label), now))
     parts.append('<div class="meta">{}</div>'.format(
         ' &middot; '.join('{} {} file(s) compared'.format(len(by_type[label]), label)
                           for label, _rs in types)))
@@ -1378,12 +1384,15 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
 
 
 def build_report(results, old_root, new_root, reviews=None, old_label=None,
-                 theme_name=theme.DEFAULT):
+                 theme_name=theme.DEFAULT, new_label=None):
     """Full self-contained HTML report.
 
-    ``old_label`` names the OLD side when its folder does not: comparing
-    against a commit checks it out to a temp folder, and the record has to say
-    which commit that was.
+    ``old_label`` / ``new_label`` name a side when its folder does not:
+    comparing against a commit checks it out to a temp folder and the record
+    has to say which commit that was, and a pipeline that always stages the
+    baseline into the same scratch directory produces a header naming the
+    scratch directory rather than the build. The folder path stays in the
+    tooltip, so a label adds an answer without removing one.
 
     ``theme_name`` is which palette the page opens with (``--theme`` on the
     CLI). Both are embedded either way, so the reader's own button -- and their
@@ -1444,7 +1453,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                        body_class='hide-ign'))
     parts.append('<h1>AUTOSAR Code Generation Report</h1>')
     parts.append('<div class="meta">{} &rarr; {} &middot; {}</div>'.format(
-        _root_html('BASELINE', old_root, old_label), _root_html('CURRENT', new_root), now))
+        _root_html('BASELINE', old_root, old_label),
+        _root_html('CURRENT', new_root, new_label), now))
     parts.append(_error_banner(results))
     if reviews is not None and reviews.error:
         # the notes are missing, not merely absent -- say so, or the reader
