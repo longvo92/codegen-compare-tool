@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import (_char_diff, _counts_html, _group_hunks,
+from compare_tool.report import (_char_diff, _counts_html, _CSS, _group_hunks,
                                  _group_table, _groups_html, _model_groups,
-                                 build_arxml_report, build_report)
+                                 _THEME_JS, build_arxml_report, build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -903,6 +903,36 @@ class TestOverviewCountsStayTrue(unittest.TestCase):
         self.assertIn('1 Modified', html)
         self.assertNotIn('Unimportant', html)
         self.assertNotIn('unchanged', html)
+
+
+class TestModelGroupHidesWhenEmpty(unittest.TestCase):
+    """A model group whose every file section is hidden hides itself, so a
+    regenerated SWC with nothing but Unimportant diffs stops leaving an empty
+    header in Detailed changes. mv() decides that in JS; what a test can hold
+    is the wiring -- every toggle the CSS knows about must be in mv()'s table,
+    or a future badge would hide the files and leave the header behind."""
+
+    def setUp(self):
+        self.page = build_report(scan(FIX / 'model_old', FIX / 'model_new'),
+                                 FIX / 'model_old', FIX / 'model_new')
+
+    def test_every_css_file_toggle_is_in_the_mv_table(self):
+        # body.hide-X .sec-Y  and  body.hide-rev details.file.file-rev
+        pairs = set(re.findall(r'body\.hide-(\w+)\s+(?:details\.file)?\.'
+                               r'((?:sec|file)-\w+)', _CSS))
+        self.assertTrue(pairs)
+        for toggle, cls in pairs:
+            self.assertIn('["hide-{}","{}"]'.format(toggle, cls), self.page,
+                          'mv() does not know the {} toggle'.format(toggle))
+
+    def test_mv_runs_on_load_and_after_every_toggle(self):
+        self.assertRegex(self.page, r'function tg\([^)]*\)\{[^}]*mv\(\);\}')
+        self.assertRegex(self.page, r'function flt\(q\)\{.*?mv\(\);\}',)
+        self.assertIn('mv();</script>', self.page.replace(_THEME_JS, ''))
+
+    def test_the_filter_no_longer_decides_model_visibility_itself(self):
+        # one seam: flt() marks files, mv() draws the conclusion
+        self.assertNotIn('mo.style.display', self.page)
 
 
 class TestArxmlOnlyReport(unittest.TestCase):

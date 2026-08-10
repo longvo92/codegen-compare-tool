@@ -1552,8 +1552,30 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     parts.extend(detail)
 
     parts.append('<script>'
+                 # A model group whose every file section is hidden -- by a
+                 # badge toggle or by the filter -- hides itself too. Otherwise
+                 # a regenerated SWC whose only diffs are Unimportant left an
+                 # empty "no real change" header in Detailed changes: a heading
+                 # inviting a click that opens onto nothing. Recomputed in JS
+                 # rather than written as CSS :has(), because five toggles
+                 # combine and the selector would have to spell out every
+                 # combination. mv() is the single place model visibility is
+                 # decided, so the badges and the filter cannot disagree.
+                 'var HID=[["hide-real","sec-real"],["hide-ign","sec-ign"],'
+                 '["hide-add","sec-add"],["hide-del","sec-del"],'
+                 '["hide-rev","file-rev"]];'
+                 'function mv(){var b=document.body.classList;'
+                 'document.querySelectorAll("details.model").forEach(function(m){'
+                 'var any=false;'
+                 'm.querySelectorAll("details.file").forEach(function(f){'
+                 'if(f.style.display==="none")return;'
+                 'var c=f.classList;'
+                 'if(HID.some(function(p){'
+                 'return b.contains(p[0])&&c.contains(p[1]);}))return;'
+                 'any=true;});'
+                 'm.style.display=any?"":"none";});}'
                  'function tg(el,k){document.body.classList.toggle("hide-"+k);'
-                 'el.classList.toggle("off");}'
+                 'el.classList.toggle("off");mv();}'
                  'function go(id){var d=document.getElementById(id);if(!d)return;'
                  'var m=d.closest("details.model");if(m)m.open=true;'
                  'if(d.tagName==="DETAILS")d.open=true;'
@@ -1566,10 +1588,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  'd.style.display=hit?"":"none";});'
                  'document.querySelectorAll(".tf[data-p]").forEach(function(t){'
                  't.style.display=(!q||t.dataset.p.toLowerCase().indexOf(q)>=0)?"":"none";});'
-                 'document.querySelectorAll("details.model").forEach(function(mo){'
-                 'var any=!q;if(!any)mo.querySelectorAll("details.file").forEach(function(d){'
-                 'if(d.style.display!=="none")any=true;});'
-                 'mo.style.display=any?"":"none";});}'
+                 'mv();}'
+                 'mv();'
                  + _THEME_JS +
                  '</script>')
     parts.append('</body></html>')

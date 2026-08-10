@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Changed
+
+- **A model / SWC with nothing to show is left out of Detailed changes.** A
+  regenerated component whose only differences were hidden used to leave an
+  empty heading behind; now the section appears only while it has something
+  to open. Reveal the hidden category and the section comes back with it.
+
 ## [1.6.0] — 2026-08-07
 
 The report shows the change instead of the file it lives in, a regenerated file
