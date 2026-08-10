@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import (_char_diff, _counts_html, _group_hunks,
+from compare_tool.report import (_char_diff, _counts_html, _CSS, _group_hunks,
                                  _group_table, _groups_html, _model_groups,
-                                 build_arxml_report, build_report)
+                                 _THEME_JS, build_arxml_report, build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -841,8 +841,8 @@ class TestModelReport(unittest.TestCase):
         self.assertIn('Shared / other', self.page)
 
     def test_overview_chips_summarize_autosar_changes(self):
-        self.assertIn('port', self.page)
-        self.assertIn('<span class="a-chg">~1</span> event', self.page)
+        self.assertIn('Port', self.page)
+        self.assertIn('<span class="a-chg">~1</span> Event', self.page)
         self.assertIn('<span class="a-add">+1</span> RTE', self.page)
 
     def test_details_grouped_per_model_and_open_on_real_change(self):
@@ -862,7 +862,7 @@ class TestModelReport(unittest.TestCase):
         self.assertIn('+ Rte_Write_Out2_Diag', self.page)       # new RTE call
 
     def test_per_file_notes(self):
-        self.assertIn('Behavior: +port Ctrl.Out2', self.page)
+        self.assertIn('Behavior: +Port Ctrl.Out2', self.page)
         self.assertIn('RTE: +Rte_Write_Out2_Diag', self.page)
 
     def test_filter_plumbing_present(self):
@@ -887,22 +887,97 @@ class TestOverviewCountsStayTrue(unittest.TestCase):
                    for i, s in enumerate(statuses)}
         return _counts_html(list(results), results)[0]
 
-    def test_a_noise_only_model_is_not_called_unchanged(self):
-        self.assertIn('no real change', self._counts(['ignorable-only']))
-        self.assertIn('no real change', self._counts(['comment-only']))
-        self.assertIn('no real change',
+    def test_a_noise_only_model_is_not_called_identical(self):
+        self.assertIn('No functional change', self._counts(['ignorable-only']))
+        self.assertIn('No functional change', self._counts(['comment-only']))
+        self.assertIn('No functional change',
                       self._counts(['identical', 'ignorable-only']))
 
-    def test_a_genuinely_untouched_model_still_says_unchanged(self):
+    def test_a_genuinely_untouched_model_still_says_identical(self):
         html = self._counts(['identical', 'identical'])
-        self.assertIn('unchanged', html)
-        self.assertNotIn('no real change', html)
+        self.assertIn('Identical', html)
+        self.assertNotIn('No functional change', html)
 
     def test_unimportant_is_never_tallied_beside_a_real_count(self):
         html = self._counts(['real-change', 'ignorable-only', 'comment-only'])
         self.assertIn('1 Modified', html)
         self.assertNotIn('Unimportant', html)
-        self.assertNotIn('unchanged', html)
+        self.assertNotIn('Identical', html)
+
+
+class TestOneSidedContentPicksItsSide(unittest.TestCase):
+    """An added or deleted file has no second side, but it still has a side.
+    Its content is laid out in the same four columns a diff uses and filled on
+    the half the file is on -- a new file under BASELINE would be the report
+    showing it where "before" is read."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.page = build_report(scan(FIX / 'old', FIX / 'new'),
+                                FIX / 'old', FIX / 'new')
+
+    def _rows(self, rel):
+        # the folder tree carries data-p too, so the section is the chunk that
+        # OPENS with a file's own class, not merely one mentioning the path
+        sect = next(s for s in self.page.split('<details class="file')
+                    if s.startswith(' sec-') and
+                    'data-p="{}"'.format(rel) in s.split('<summary>')[0])
+        return re.findall(r'<tr>(.*?)</tr>', sect.split('</details>')[0])
+
+    def test_added_content_sits_in_the_current_half(self):
+        rows = self._rows('src/added.c')
+        self.assertTrue(rows)
+        for row in rows:
+            cells = re.findall(r'<td[^>]*>', row)
+            self.assertEqual(len(cells), 4, row)
+            self.assertTrue(row.startswith('<td class="ln ln-empty"></td><td></td>'),
+                            row)
+            self.assertIn('<td class="add">', row)
+
+    def test_deleted_content_sits_in_the_baseline_half(self):
+        rows = self._rows('src/deleted.h')
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertTrue(row.endswith('<td class="ln ln-empty"></td><td></td>'),
+                            row)
+            self.assertIn('<td class="del">', row)
+
+    def test_both_sides_are_ruled_apart(self):
+        # the third cell opens CURRENT: one rule there is what says where
+        # BASELINE stopped, in a diff table and in a one-sided one alike
+        self.assertIn('table.diff td:nth-child(3) { border-left: 1px solid '
+                      'var(--split-line); }', self.page)
+        self.assertIn('border-right: 1px solid var(--gutter-line);', self.page)
+
+
+class TestModelGroupHidesWhenEmpty(unittest.TestCase):
+    """A model group whose every file section is hidden hides itself, so a
+    regenerated SWC with nothing but Unimportant diffs stops leaving an empty
+    header in Detailed changes. mv() decides that in JS; what a test can hold
+    is the wiring -- every toggle the CSS knows about must be in mv()'s table,
+    or a future badge would hide the files and leave the header behind."""
+
+    def setUp(self):
+        self.page = build_report(scan(FIX / 'model_old', FIX / 'model_new'),
+                                 FIX / 'model_old', FIX / 'model_new')
+
+    def test_every_css_file_toggle_is_in_the_mv_table(self):
+        # body.hide-X .sec-Y  and  body.hide-rev details.file.file-rev
+        pairs = set(re.findall(r'body\.hide-(\w+)\s+(?:details\.file)?\.'
+                               r'((?:sec|file)-\w+)', _CSS))
+        self.assertTrue(pairs)
+        for toggle, cls in pairs:
+            self.assertIn('["hide-{}","{}"]'.format(toggle, cls), self.page,
+                          'mv() does not know the {} toggle'.format(toggle))
+
+    def test_mv_runs_on_load_and_after_every_toggle(self):
+        self.assertRegex(self.page, r'function tg\([^)]*\)\{[^}]*mv\(\);\}')
+        self.assertRegex(self.page, r'function flt\(q\)\{.*?mv\(\);\}',)
+        self.assertIn('mv();</script>', self.page.replace(_THEME_JS, ''))
+
+    def test_the_filter_no_longer_decides_model_visibility_itself(self):
+        # one seam: flt() marks files, mv() draws the conclusion
+        self.assertNotIn('mo.style.display', self.page)
 
 
 class TestArxmlOnlyReport(unittest.TestCase):

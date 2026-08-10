@@ -5,6 +5,25 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-08-10
+
+The report spends its space on what changed: a component with nothing to show
+stays out of the way, a file that exists on one side only is drawn on that
+side, and every surface names a verdict the same way.
+
+### Changed
+
+- **A model / SWC with nothing to show is left out of Detailed changes.** A
+  regenerated component whose only differences were hidden used to leave an
+  empty heading behind; now the section appears only while it has something
+  to open. Reveal the hidden category and the section comes back with it.
+- **An added or deleted file is shown on its own side of the report.** A new
+  file now fills the CURRENT half and a removed one the BASELINE half, instead
+  of a single band across both, and a rule marks where the two sides meet.
+- **Polish the on-screen wording.** Labels, legends and counters are spelled
+  the same way in the report and in the viewer, so one state never goes by two
+  names.
+
 ## [1.6.0] — 2026-08-07
 
 The report shows the change instead of the file it lives in, a regenerated file

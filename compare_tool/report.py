@@ -101,7 +101,14 @@ table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
              font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
-td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
+td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none;
+        background: var(--ln-bg); border-right: 1px solid var(--gutter-line); }
+/* BASELINE and CURRENT share one table, so a rule down the middle is the only
+   thing marking where one side stops -- without it a one-sided file reads as a
+   band running the full width. The gutter rule beside every line number is
+   fainter on purpose: it separates a number from its own code, which is a
+   smaller claim than separating the two sides of the compare. */
+table.diff td:nth-child(3) { border-left: 1px solid var(--split-line); }
 /* the gutter's own tint follows the code cell it sits beside -- see _row's
    ln-del/ln-add/ln-mut. Without this the number column stayed the plain
    gutter colour while the code beside it changed, so a coloured row visibly
@@ -109,6 +116,10 @@ td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; 
 td.ln-del { background: var(--gutter-del-bg); }
 td.ln-add { background: var(--gutter-add-bg); }
 td.ln-mut { background: var(--muted-bg); }
+/* the missing half of a one-sided file: the cell still has to be there for the
+   fixed column widths to line up with a real diff, but a rule beside line
+   numbers that do not exist is a divider with nothing to divide */
+td.ln-empty { background: none; border-right: none; }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Unimportant hides behind its own badge, default OFF -- the report opens
    on real changes, a click reveals the rest. Revealed rows are flat neutral
@@ -876,8 +887,10 @@ def _counts_html(rels, results):
     Unimportant tally restated what the folder tree marks file by file. The
     fallback still has to be TRUE of the scan, though -- a model whose files
     all changed by UUID/timestamp alone is the everyday regenerated case, and
-    calling it 'unchanged' would be the report claiming something the hunks
-    say otherwise (see CLAUDE.md, "the record is never the filtered view")."""
+    calling it 'Identical' would be the report claiming something the hunks
+    say otherwise (see CLAUDE.md, "the record is never the filtered view").
+    'Identical' is the verdict word the folder tree and the tags already use,
+    so the two surfaces name the same state the same way."""
     c = {'real-change': 0, 'comment-only': 0, 'ignorable-only': 0, 'added': 0,
          'deleted': 0, 'identical': 0, 'error': 0}
     for rel in rels:
@@ -892,13 +905,13 @@ def _counts_html(rels, results):
     if not bits:
         noise = c['ignorable-only'] + c['comment-only']
         bits.append('<span class="cnt cnt-id">{}</span>'
-                    .format('no real change' if noise else 'unchanged'))
+                    .format('No functional change' if noise else 'Identical'))
     return ''.join(bits), c
 
 
 def _autosar_chips(rels, results):
     """Compact AUTOSAR change rollup for one model group, e.g.
-    '+1 interface · +2/−1 port · ~1 event · +3 RTE'."""
+    '+1 Interface · +2/−1 Port · ~1 Event · +3 RTE'."""
     ia = ir = sa = sr = ra = rr = aa = ar = 0
     cats = {cat.key: [0, 0, 0] for cat in SWC_DISPLAY}
     for rel in rels:
@@ -934,7 +947,7 @@ def _autosar_chips(rels, results):
             bits.append('<span class="a-chg">~{}</span>'.format(c))
         return '{} {}'.format('/'.join(bits), label) if bits else ''
 
-    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'interface')]
+    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'Interface')]
     chips += [chip(*(cats[cat.key] + [cat.noun])) for cat in SWC_DISPLAY]
     chips += [chip(ra, rr, 0, 'RTE'), chip(aa, ar, 0, 'A2L')]
     return ' &middot; '.join(c for c in chips if c)
@@ -997,7 +1010,7 @@ def _tree_html(results, anchors, reviewed=()):
                 name = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], name)
             # tc-* colors only: tree rows never hide, so the full tree stays
             # visible even while badges hide detail categories (sec-*)
-            check = (' <span class="rvcheck" title="every change in this file '
+            check = (' <span class="rvcheck" title="Every change in this file '
                      'is reviewed">&#10003;</span>' if rel in reviewed else '')
             out.append('<div class="tf {}" data-p="{}">'
                        '<span class="tmark {}" title="{}">{}</span>{}{}</div>'
@@ -1009,14 +1022,23 @@ def _tree_html(results, anchors, reviewed=()):
 
 
 def _content_table(lines, cls, language=None):
-    """One-sided table for added/deleted file content, capped at MAX_CONTENT."""
+    """One-sided table for added/deleted file content, capped at MAX_CONTENT.
+
+    Laid out in the same four columns a diff uses, and filled on the side the
+    file is actually on: an added file occupies the CURRENT half and leaves
+    BASELINE empty, a deleted file the reverse. It used to paint one band
+    across the whole width, which put a brand new file's text under the
+    BASELINE half -- the side the reader takes as "before"."""
     rows = []
     state = syntax.PLAIN
     lncls = 'ln ln-{}'.format(cls)  # cls is 'del' or 'add', so this is ln-del/ln-add
+    empty = '<td class="ln ln-empty"></td><td></td>'
     for no, txt in enumerate(lines[:MAX_CONTENT], 1):
         spans, state = syntax.spans(txt, language, state)
-        rows.append('<tr><td class="{}">{}</td><td class="{}">{}</td></tr>'
-                    .format(lncls, no, cls, _code_html(txt, spans)))
+        side = ('<td class="{}">{}</td><td class="{}">{}</td>'
+                .format(lncls, no, cls, _code_html(txt, spans)))
+        rows.append('<tr>{}</tr>'.format(empty + side if cls == 'add'
+                                         else side + empty))
     out = '<table class="diff">' + ''.join(rows) + '</table>'
     if len(lines) > MAX_CONTENT:
         out += ('<div class="filenote">… {} more line(s) not shown.</div>'
@@ -1024,13 +1046,29 @@ def _content_table(lines, cls, language=None):
     return out
 
 
+# How a noise kind is SPELLED beside a file name. The keys are the rules'
+# own vocabulary, which is lower-case because it is a dict key, not a label.
+# Anything not listed here still shows, with its first letter raised: a kind
+# added to a rules module may look plain, it may never go missing.
+_KIND_LABEL = {'uuid': 'UUID', 'sw-version': 'SW version',
+               'line-endings': 'Line endings'}
+
+
+def _kind_label(kind):
+    return _KIND_LABEL.get(kind, kind[:1].upper() + kind[1:])
+
+
 def _kinds_of(r):
-    """Short ignorable-kind summary for a file, e.g. 'comment, rename ×3'."""
+    """Short ignorable-kind summary for a file, e.g. 'Comment, Rename ×3'."""
     kinds = {h['kind'] for h in r['hunks'] if h['kind'] != 'real'} | set(r['notes'])
+    labels = set()
+    # only the counted spelling replaces the plain one -- a rename hunk with no
+    # pair recorded still has to say 'Rename'
     if r['renames']:
         kinds.discard('rename')
-        kinds.add('rename ×{}'.format(len(r['renames'])))
-    return ', '.join(sorted(kinds))
+        labels.add('Rename ×{}'.format(len(r['renames'])))
+    labels |= {_kind_label(k) for k in kinds}
+    return ', '.join(sorted(labels))
 
 
 def _autosar_section(results, anchors):
@@ -1162,7 +1200,7 @@ def _file_open(anchor, rel, status, extra='', expanded=False, reviewed=False):
     sec = _TREE[status][2]
     if extra:
         extra = ' <span class="hcount">{}</span>'.format(extra)
-    check = (' <span class="rvcheck" title="every change in this file is '
+    check = (' <span class="rvcheck" title="Every change in this file is '
              'reviewed">&#10003;</span>' if reviewed else '')
     return ('<details class="file {}{}" id="{}" data-p="{}"{}><summary>{}'
             ' <span class="tag {}">{}</span>{}{}</summary><div class="body">'
@@ -1540,9 +1578,9 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
         parts.append('<div class="legend">'
-                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>removed / added&emsp;'
-                     '<span class="sw sw-mv"></span>moved block&emsp;'
-                     '<span class="sw sw-mut"></span>Unimportant, revealed</div>')
+                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>Removed / Added&emsp;'
+                     '<span class="sw sw-mv"></span>Moved, not changed&emsp;'
+                     '<span class="sw sw-mut"></span>Unimportant (revealed)</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=false)">Collapse all</button>'
@@ -1552,8 +1590,30 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     parts.extend(detail)
 
     parts.append('<script>'
+                 # A model group whose every file section is hidden -- by a
+                 # badge toggle or by the filter -- hides itself too. Otherwise
+                 # a regenerated SWC whose only diffs are Unimportant left an
+                 # empty "no real change" header in Detailed changes: a heading
+                 # inviting a click that opens onto nothing. Recomputed in JS
+                 # rather than written as CSS :has(), because five toggles
+                 # combine and the selector would have to spell out every
+                 # combination. mv() is the single place model visibility is
+                 # decided, so the badges and the filter cannot disagree.
+                 'var HID=[["hide-real","sec-real"],["hide-ign","sec-ign"],'
+                 '["hide-add","sec-add"],["hide-del","sec-del"],'
+                 '["hide-rev","file-rev"]];'
+                 'function mv(){var b=document.body.classList;'
+                 'document.querySelectorAll("details.model").forEach(function(m){'
+                 'var any=false;'
+                 'm.querySelectorAll("details.file").forEach(function(f){'
+                 'if(f.style.display==="none")return;'
+                 'var c=f.classList;'
+                 'if(HID.some(function(p){'
+                 'return b.contains(p[0])&&c.contains(p[1]);}))return;'
+                 'any=true;});'
+                 'm.style.display=any?"":"none";});}'
                  'function tg(el,k){document.body.classList.toggle("hide-"+k);'
-                 'el.classList.toggle("off");}'
+                 'el.classList.toggle("off");mv();}'
                  'function go(id){var d=document.getElementById(id);if(!d)return;'
                  'var m=d.closest("details.model");if(m)m.open=true;'
                  'if(d.tagName==="DETAILS")d.open=true;'
@@ -1566,10 +1626,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  'd.style.display=hit?"":"none";});'
                  'document.querySelectorAll(".tf[data-p]").forEach(function(t){'
                  't.style.display=(!q||t.dataset.p.toLowerCase().indexOf(q)>=0)?"":"none";});'
-                 'document.querySelectorAll("details.model").forEach(function(mo){'
-                 'var any=!q;if(!any)mo.querySelectorAll("details.file").forEach(function(d){'
-                 'if(d.style.display!=="none")any=true;});'
-                 'mo.style.display=any?"":"none";});}'
+                 'mv();}'
+                 'mv();'
                  + _THEME_JS +
                  '</script>')
     parts.append('</body></html>')

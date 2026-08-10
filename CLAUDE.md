@@ -143,7 +143,7 @@ app.
 Screen space spent restating something is space not spent on the diff.
 
 - The verdict is the tree's Status column, so the diff header does not repeat
-  it — it names the file, the moved-line note and `change 3 of 7`.
+  it — it names the file, the moved-line note and `Change 3 of 7`.
 - The quick-changes panel does not list changed files: the folder tree above
   already does.
 

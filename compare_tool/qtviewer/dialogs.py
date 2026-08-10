@@ -45,13 +45,13 @@ GUIDE = """
 
 | Mark | Verdict | Meaning |
 |---|---|---|
-| `≠` | Modified | real changes |
-| `≉` | Comment | only comments differ |
+| `≠` | Modified | Real changes |
+| `≉` | Comment | Only comments differ |
 | `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
-| `+` | Added | file exists only in CURRENT |
-| `−` | Deleted | file exists only in BASELINE |
-| `=` | Identical | no difference |
-| `‼` | NOT compared | treat as changed |
+| `+` | Added | Exists only in CURRENT |
+| `−` | Deleted | Exists only in BASELINE |
+| `=` | Identical | No difference |
+| `‼` | NOT compared | Treat as changed |
 
 ## 4. Fold the noise
 
@@ -74,15 +74,15 @@ GUIDE = """
 
 | Row colour | Meaning |
 |---|---|
-| red / green | removed / added |
-| dim red / green | noise: comment, UUID, rename, whitespace |
-| flat grey | a category you switched off -- shown, but not a change |
-| blue | moved block |
+| Red / green | Removed / Added |
+| Dim red / green | Noise: comment, UUID, rename, whitespace |
+| Flat grey | A category you switched off -- shown, but not a change |
+| Blue | Moved, not changed |
 
 ## 6. Navigate, find and export
 
 - The scan opens on the first change it found -- no hunting for it
-- Header shows `change 3 of 7`
+- Header shows `Change 3 of 7`
 - `F8` past the last change of a file goes on to the **next file** with
   something to review; `F7` goes back the same way. One key walks the whole
   compare, and it wraps round at the end
@@ -126,10 +126,10 @@ underneath it.
 
 | Review column | Meaning |
 |---|---|
-| green `7/7` | every change in the row signed off |
-| amber `3/7` | part way through |
-| grey `0/7` | nothing signed off yet |
-| `—` | nothing here can be signed off (noise, identical, NOT compared) |
+| Green `7/7` | Every change in the row signed off |
+| Amber `3/7` | Part way through |
+| Grey `0/7` | Nothing signed off yet |
+| `—` | Nothing here can be signed off (noise, identical, NOT compared) |
 
 ## Fail-safe
 

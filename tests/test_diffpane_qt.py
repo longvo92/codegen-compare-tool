@@ -289,14 +289,14 @@ class TestFindInFile(unittest.TestCase):
             self.app.processEvents()
 
     def test_a_query_that_stops_matching_takes_its_highlights_with_it(self):
-        # typing on past the last hit ("begin" -> "beginal") said "no match"
+        # typing on past the last hit ("begin" -> "beginal") said "No match"
         # while the old word stayed lit, which reads as the wrong answer
         self._open('a2l/comment_only.a2l')
         self.pane.open_find()
         self._type('begin')
         self.assertGreater(self._match_marks(), 0)
         self._type('beginal')
-        self.assertEqual(self.pane._find_count.text(), 'no match')
+        self.assertEqual(self.pane._find_count.text(), 'No match')
         self.assertEqual(self._match_marks(), 0)
 
     def test_clearing_the_box_clears_the_marks(self):
