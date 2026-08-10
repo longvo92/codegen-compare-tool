@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-08-10
+
+The report spends its space on what changed: a component with nothing to show
+stays out of the way, a file that exists on one side only is drawn on that
+side, and every surface names a verdict the same way.
+
 ### Changed
 
 - **A model / SWC with nothing to show is left out of Detailed changes.** A
