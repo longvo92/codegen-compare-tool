@@ -876,8 +876,10 @@ def _counts_html(rels, results):
     Unimportant tally restated what the folder tree marks file by file. The
     fallback still has to be TRUE of the scan, though -- a model whose files
     all changed by UUID/timestamp alone is the everyday regenerated case, and
-    calling it 'unchanged' would be the report claiming something the hunks
-    say otherwise (see CLAUDE.md, "the record is never the filtered view")."""
+    calling it 'Identical' would be the report claiming something the hunks
+    say otherwise (see CLAUDE.md, "the record is never the filtered view").
+    'Identical' is the verdict word the folder tree and the tags already use,
+    so the two surfaces name the same state the same way."""
     c = {'real-change': 0, 'comment-only': 0, 'ignorable-only': 0, 'added': 0,
          'deleted': 0, 'identical': 0, 'error': 0}
     for rel in rels:
@@ -892,7 +894,7 @@ def _counts_html(rels, results):
     if not bits:
         noise = c['ignorable-only'] + c['comment-only']
         bits.append('<span class="cnt cnt-id">{}</span>'
-                    .format('no real change' if noise else 'unchanged'))
+                    .format('No functional change' if noise else 'Identical'))
     return ''.join(bits), c
 
 

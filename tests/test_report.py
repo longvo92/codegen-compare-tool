@@ -887,22 +887,22 @@ class TestOverviewCountsStayTrue(unittest.TestCase):
                    for i, s in enumerate(statuses)}
         return _counts_html(list(results), results)[0]
 
-    def test_a_noise_only_model_is_not_called_unchanged(self):
-        self.assertIn('no real change', self._counts(['ignorable-only']))
-        self.assertIn('no real change', self._counts(['comment-only']))
-        self.assertIn('no real change',
+    def test_a_noise_only_model_is_not_called_identical(self):
+        self.assertIn('No functional change', self._counts(['ignorable-only']))
+        self.assertIn('No functional change', self._counts(['comment-only']))
+        self.assertIn('No functional change',
                       self._counts(['identical', 'ignorable-only']))
 
-    def test_a_genuinely_untouched_model_still_says_unchanged(self):
+    def test_a_genuinely_untouched_model_still_says_identical(self):
         html = self._counts(['identical', 'identical'])
-        self.assertIn('unchanged', html)
-        self.assertNotIn('no real change', html)
+        self.assertIn('Identical', html)
+        self.assertNotIn('No functional change', html)
 
     def test_unimportant_is_never_tallied_beside_a_real_count(self):
         html = self._counts(['real-change', 'ignorable-only', 'comment-only'])
         self.assertIn('1 Modified', html)
         self.assertNotIn('Unimportant', html)
-        self.assertNotIn('unchanged', html)
+        self.assertNotIn('Identical', html)
 
 
 class TestModelGroupHidesWhenEmpty(unittest.TestCase):
