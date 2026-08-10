@@ -930,14 +930,16 @@ class TestOneSidedContentPicksItsSide(unittest.TestCase):
         for row in rows:
             cells = re.findall(r'<td[^>]*>', row)
             self.assertEqual(len(cells), 4, row)
-            self.assertTrue(row.startswith('<td class="ln"></td><td></td>'), row)
+            self.assertTrue(row.startswith('<td class="ln ln-empty"></td><td></td>'),
+                            row)
             self.assertIn('<td class="add">', row)
 
     def test_deleted_content_sits_in_the_baseline_half(self):
         rows = self._rows('src/deleted.h')
         self.assertTrue(rows)
         for row in rows:
-            self.assertTrue(row.endswith('<td class="ln"></td><td></td>'), row)
+            self.assertTrue(row.endswith('<td class="ln ln-empty"></td><td></td>'),
+                            row)
             self.assertIn('<td class="del">', row)
 
     def test_both_sides_are_ruled_apart(self):

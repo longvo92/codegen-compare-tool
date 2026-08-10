@@ -102,7 +102,7 @@ table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
 td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none;
-        border-right: 1px solid var(--gutter-line); }
+        background: var(--ln-bg); border-right: 1px solid var(--gutter-line); }
 /* BASELINE and CURRENT share one table, so a rule down the middle is the only
    thing marking where one side stops -- without it a one-sided file reads as a
    band running the full width. The gutter rule beside every line number is
@@ -116,6 +116,10 @@ table.diff td:nth-child(3) { border-left: 1px solid var(--split-line); }
 td.ln-del { background: var(--gutter-del-bg); }
 td.ln-add { background: var(--gutter-add-bg); }
 td.ln-mut { background: var(--muted-bg); }
+/* the missing half of a one-sided file: the cell still has to be there for the
+   fixed column widths to line up with a real diff, but painting a gutter for
+   lines that do not exist drew a stray block beside an empty half */
+td.ln-empty { background: none; border-right: none; }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Unimportant hides behind its own badge, default OFF -- the report opens
    on real changes, a click reveals the rest. Revealed rows are flat neutral
@@ -1028,7 +1032,7 @@ def _content_table(lines, cls, language=None):
     rows = []
     state = syntax.PLAIN
     lncls = 'ln ln-{}'.format(cls)  # cls is 'del' or 'add', so this is ln-del/ln-add
-    empty = '<td class="ln"></td><td></td>'
+    empty = '<td class="ln ln-empty"></td><td></td>'
     for no, txt in enumerate(lines[:MAX_CONTENT], 1):
         spans, state = syntax.spans(txt, language, state)
         side = ('<td class="{}">{}</td><td class="{}">{}</td>'

@@ -111,7 +111,11 @@ _DARK = {
     # borders. The gutter rule is deliberately fainter: it separates a line
     # number from its own code, not one side of the compare from the other.
     'split-line': '#5a5d66',
-    'gutter-line': '#3a3c42',
+    'gutter-line': '#40434b',
+    # the number column gets a band of its own, a step off the card the table
+    # sits on: a hairline alone vanishes into the red and the green wash, and
+    # the gutter has to stay separable from the code on exactly those rows
+    'ln-bg': '#1c1d20',
     'gap-fg': '#666666',
     # a row the current compare rules do not report: still on screen, still
     # readable, painted so the eye slides off it. The band has to be visibly
@@ -252,7 +256,8 @@ _LIGHT = {
     # palette
     'gutter-del-bg': '#ffd7d5', 'gutter-add-bg': '#ccffd8',
     'split-line': '#b6bcc4',
-    'gutter-line': '#dfe3e8',
+    'gutter-line': '#d3d9e0',
+    'ln-bg': '#edf0f4',
     'gap-fg': '#8c959f',
     'muted-bg': '#eaecef',
     'muted-fg': '#9aa1a9',
