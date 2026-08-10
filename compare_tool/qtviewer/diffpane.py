@@ -67,7 +67,7 @@ def _semantic_summary(result):
                              len(s[cat.key]['removed']), len(s[cat.key]['changed'])))
     d = result.get('ifaces')
     if d:
-        chips.append(_pm('interface', len(d['added']), len(d['removed'])))
+        chips.append(_pm('Interface', len(d['added']), len(d['removed'])))
     t = result.get('rte')
     if t:
         chips.append(_pm('RTE', len(t['added']), len(t['removed'])))
@@ -590,7 +590,7 @@ class DiffPane(QStackedWidget):
         self._hits = self.find_matches(text)
         self._find_count.setText('{} match{}'.format(len(self._hits),
                                                      '' if len(self._hits) == 1 else 'es')
-                                 if self._hits else 'no match')
+                                 if self._hits else 'No match')
         self._mark_matches()
 
     def _find_changed(self, text):
@@ -601,7 +601,7 @@ class DiffPane(QStackedWidget):
             self._mark_matches()  # every path repaints: see _mark_matches
             return
         if not self._hits:
-            self._find_count.setText('no match')
+            self._find_count.setText('No match')
             self._mark_matches()
             return
         self.find_next()
@@ -632,7 +632,7 @@ class DiffPane(QStackedWidget):
 
         Rebuilt from scratch on every call, and every path through the find box
         calls it -- a query that stops matching (typing on past the last hit)
-        has to take its highlights with it, or the pane says 'no match' while
+        has to take its highlights with it, or the pane says 'No match' while
         the old word is still lit, which reads as a wrong answer.
         """
         self._sel_match = [[], []]
@@ -892,7 +892,8 @@ class DiffPane(QStackedWidget):
         # stay: those are about navigating THIS diff, not a repeated label.
         head = rel
         if n_moved:
-            head += '   ·   {} moved line(s)'.format(n_moved)
+            head += '   ·   {} Moved line{}'.format(n_moved,
+                                                    '' if n_moved == 1 else 's')
         self._head_base = head
         self._header.setText(head)
         sem = _semantic_summary(result or {})
@@ -1114,7 +1115,7 @@ class DiffPane(QStackedWidget):
         idx = max(i for i, s in enumerate(self._stops) if s <= row) + 1 \
             if any(s <= row for s in self._stops) else 1
         self._cur_idx = idx - 1
-        self._pos_text = 'change {} of {}'.format(idx, len(self._stops))
+        self._pos_text = 'Change {} of {}'.format(idx, len(self._stops))
         self._header.setText('{}   ·   {}'.format(self._head_base, self._pos_text))
 
     # --- change navigation (real/moved blocks; noise is skipped) ---

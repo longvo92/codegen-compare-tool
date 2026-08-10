@@ -900,7 +900,7 @@ def _counts_html(rels, results):
 
 def _autosar_chips(rels, results):
     """Compact AUTOSAR change rollup for one model group, e.g.
-    '+1 interface · +2/−1 port · ~1 event · +3 RTE'."""
+    '+1 Interface · +2/−1 Port · ~1 Event · +3 RTE'."""
     ia = ir = sa = sr = ra = rr = aa = ar = 0
     cats = {cat.key: [0, 0, 0] for cat in SWC_DISPLAY}
     for rel in rels:
@@ -936,7 +936,7 @@ def _autosar_chips(rels, results):
             bits.append('<span class="a-chg">~{}</span>'.format(c))
         return '{} {}'.format('/'.join(bits), label) if bits else ''
 
-    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'interface')]
+    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'Interface')]
     chips += [chip(*(cats[cat.key] + [cat.noun])) for cat in SWC_DISPLAY]
     chips += [chip(ra, rr, 0, 'RTE'), chip(aa, ar, 0, 'A2L')]
     return ' &middot; '.join(c for c in chips if c)
@@ -999,7 +999,7 @@ def _tree_html(results, anchors, reviewed=()):
                 name = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], name)
             # tc-* colors only: tree rows never hide, so the full tree stays
             # visible even while badges hide detail categories (sec-*)
-            check = (' <span class="rvcheck" title="every change in this file '
+            check = (' <span class="rvcheck" title="Every change in this file '
                      'is reviewed">&#10003;</span>' if rel in reviewed else '')
             out.append('<div class="tf {}" data-p="{}">'
                        '<span class="tmark {}" title="{}">{}</span>{}{}</div>'
@@ -1026,13 +1026,29 @@ def _content_table(lines, cls, language=None):
     return out
 
 
+# How a noise kind is SPELLED beside a file name. The keys are the rules'
+# own vocabulary, which is lower-case because it is a dict key, not a label.
+# Anything not listed here still shows, with its first letter raised: a kind
+# added to a rules module may look plain, it may never go missing.
+_KIND_LABEL = {'uuid': 'UUID', 'sw-version': 'SW version',
+               'line-endings': 'Line endings'}
+
+
+def _kind_label(kind):
+    return _KIND_LABEL.get(kind, kind[:1].upper() + kind[1:])
+
+
 def _kinds_of(r):
-    """Short ignorable-kind summary for a file, e.g. 'comment, rename ×3'."""
+    """Short ignorable-kind summary for a file, e.g. 'Comment, Rename ×3'."""
     kinds = {h['kind'] for h in r['hunks'] if h['kind'] != 'real'} | set(r['notes'])
+    labels = set()
+    # only the counted spelling replaces the plain one -- a rename hunk with no
+    # pair recorded still has to say 'Rename'
     if r['renames']:
         kinds.discard('rename')
-        kinds.add('rename ×{}'.format(len(r['renames'])))
-    return ', '.join(sorted(kinds))
+        labels.add('Rename ×{}'.format(len(r['renames'])))
+    labels |= {_kind_label(k) for k in kinds}
+    return ', '.join(sorted(labels))
 
 
 def _autosar_section(results, anchors):
@@ -1164,7 +1180,7 @@ def _file_open(anchor, rel, status, extra='', expanded=False, reviewed=False):
     sec = _TREE[status][2]
     if extra:
         extra = ' <span class="hcount">{}</span>'.format(extra)
-    check = (' <span class="rvcheck" title="every change in this file is '
+    check = (' <span class="rvcheck" title="Every change in this file is '
              'reviewed">&#10003;</span>' if reviewed else '')
     return ('<details class="file {}{}" id="{}" data-p="{}"{}><summary>{}'
             ' <span class="tag {}">{}</span>{}{}</summary><div class="body">'
@@ -1542,9 +1558,9 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
         parts.append('<div class="legend">'
-                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>removed / added&emsp;'
-                     '<span class="sw sw-mv"></span>moved block&emsp;'
-                     '<span class="sw sw-mut"></span>Unimportant, revealed</div>')
+                     '<span class="sw sw-del"></span>/<span class="sw sw-add"></span>Removed / Added&emsp;'
+                     '<span class="sw sw-mv"></span>Moved, not changed&emsp;'
+                     '<span class="sw sw-mut"></span>Unimportant (revealed)</div>')
         parts.append('<div class="toolbar">'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=true)">Expand all</button>'
                      '<button type="button" onclick="document.querySelectorAll(\'details.file,details.model\').forEach(d=>d.open=false)">Collapse all</button>'

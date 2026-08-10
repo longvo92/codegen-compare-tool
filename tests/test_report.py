@@ -841,8 +841,8 @@ class TestModelReport(unittest.TestCase):
         self.assertIn('Shared / other', self.page)
 
     def test_overview_chips_summarize_autosar_changes(self):
-        self.assertIn('port', self.page)
-        self.assertIn('<span class="a-chg">~1</span> event', self.page)
+        self.assertIn('Port', self.page)
+        self.assertIn('<span class="a-chg">~1</span> Event', self.page)
         self.assertIn('<span class="a-add">+1</span> RTE', self.page)
 
     def test_details_grouped_per_model_and_open_on_real_change(self):
@@ -862,7 +862,7 @@ class TestModelReport(unittest.TestCase):
         self.assertIn('+ Rte_Write_Out2_Diag', self.page)       # new RTE call
 
     def test_per_file_notes(self):
-        self.assertIn('Behavior: +port Ctrl.Out2', self.page)
+        self.assertIn('Behavior: +Port Ctrl.Out2', self.page)
         self.assertIn('RTE: +Rte_Write_Out2_Diag', self.page)
 
     def test_filter_plumbing_present(self):

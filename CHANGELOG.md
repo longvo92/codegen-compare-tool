@@ -11,6 +11,9 @@ All notable changes to this project are documented here. Versions follow
   regenerated component whose only differences were hidden used to leave an
   empty heading behind; now the section appears only while it has something
   to open. Reveal the hidden category and the section comes back with it.
+- **Polish the on-screen wording.** Labels, legends and counters are spelled
+  the same way in the report and in the viewer, so one state never goes by two
+  names.
 
 ## [1.6.0] — 2026-08-07
 

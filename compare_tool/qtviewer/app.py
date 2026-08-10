@@ -939,10 +939,15 @@ class MainWindow(QMainWindow):
             self._autoselect = False
             self._select_first_change()
         counts = summarize(self.results)
+        # the verdict words are spelled the way the tree's Status column and
+        # the report's badges spell them -- one state, one name, whichever
+        # surface the reviewer is reading
+        errors = '{} {}'.format(counts['error'],
+                                'Error' if counts['error'] == 1 else 'Errors')
         self.counts_label.setText(
-            '{real-change} modified · {comment-only} comment-only · '
-            '{ignorable-only} unimportant · {added} added · {deleted} deleted · '
-            '{identical} identical · {error} error(s)'.format(**counts))
+            '{real-change} Modified · {comment-only} Comment · '
+            '{ignorable-only} Unimportant · {added} Added · {deleted} Deleted · '
+            '{identical} Identical · {errors}'.format(errors=errors, **counts))
         # a compare with an uncompared path is NOT a clean result: the chip
         # says so in red, matching the banner, so the state is never green when
         # something could be hiding a change

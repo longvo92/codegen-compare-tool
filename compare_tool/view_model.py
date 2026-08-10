@@ -50,6 +50,8 @@ MUTED = 'muted'
 
 # How the SWC sub-categories are SPELLED, in the two forms the surfaces need:
 # `title` heads a section, `noun` sits inline in a chip or a one-line note.
+# Both are capitalised: these are labels, and a lower-case one beside 'SWC',
+# 'RTE' and 'A2L' read as a typo rather than as a deliberate difference.
 # Six places used to spell this list out -- the report's AUTOSAR rollup, its
 # per-file note and its per-model chips, the quick-changes panel, the viewer's
 # file header and the terminal summary -- so adding a category meant
@@ -59,9 +61,9 @@ MUTED = 'muted'
 # them, and a key with no label raises at import. A category added there can be
 # missed loudly, never silently.
 SwcCategory = namedtuple('SwcCategory', 'key title noun')
-_SWC_LABELS = {'ports': ('Ports', 'port'),
-               'runnables': ('Runnables', 'runnable'),
-               'events': ('Events', 'event')}
+_SWC_LABELS = {'ports': ('Ports', 'Port'),
+               'runnables': ('Runnables', 'Runnable'),
+               'events': ('Events', 'Event')}
 SWC_DISPLAY = tuple(SwcCategory(key, *_SWC_LABELS[key]) for key in SWC_CATEGORIES)
 
 
