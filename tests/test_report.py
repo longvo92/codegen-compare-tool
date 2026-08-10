@@ -905,6 +905,49 @@ class TestOverviewCountsStayTrue(unittest.TestCase):
         self.assertNotIn('Identical', html)
 
 
+class TestOneSidedContentPicksItsSide(unittest.TestCase):
+    """An added or deleted file has no second side, but it still has a side.
+    Its content is laid out in the same four columns a diff uses and filled on
+    the half the file is on -- a new file under BASELINE would be the report
+    showing it where "before" is read."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.page = build_report(scan(FIX / 'old', FIX / 'new'),
+                                FIX / 'old', FIX / 'new')
+
+    def _rows(self, rel):
+        # the folder tree carries data-p too, so the section is the chunk that
+        # OPENS with a file's own class, not merely one mentioning the path
+        sect = next(s for s in self.page.split('<details class="file')
+                    if s.startswith(' sec-') and
+                    'data-p="{}"'.format(rel) in s.split('<summary>')[0])
+        return re.findall(r'<tr>(.*?)</tr>', sect.split('</details>')[0])
+
+    def test_added_content_sits_in_the_current_half(self):
+        rows = self._rows('src/added.c')
+        self.assertTrue(rows)
+        for row in rows:
+            cells = re.findall(r'<td[^>]*>', row)
+            self.assertEqual(len(cells), 4, row)
+            self.assertTrue(row.startswith('<td class="ln"></td><td></td>'), row)
+            self.assertIn('<td class="add">', row)
+
+    def test_deleted_content_sits_in_the_baseline_half(self):
+        rows = self._rows('src/deleted.h')
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertTrue(row.endswith('<td class="ln"></td><td></td>'), row)
+            self.assertIn('<td class="del">', row)
+
+    def test_both_sides_are_ruled_apart(self):
+        # the third cell opens CURRENT: one rule there is what says where
+        # BASELINE stopped, in a diff table and in a one-sided one alike
+        self.assertIn('table.diff td:nth-child(3) { border-left: 1px solid '
+                      'var(--split-line); }', self.page)
+        self.assertIn('border-right: 1px solid var(--gutter-line);', self.page)
+
+
 class TestModelGroupHidesWhenEmpty(unittest.TestCase):
     """A model group whose every file section is hidden hides itself, so a
     regenerated SWC with nothing but Unimportant diffs stops leaving an empty

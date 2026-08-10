@@ -105,6 +105,13 @@ _DARK = {
     # the chg-seg pair. Not given by the source palette (light only); derived
     # halfway between del-bg/add-bg and seg-del-bg/seg-add-bg
     'gutter-del-bg': '#5e232e', 'gutter-add-bg': '#255329',
+    # BASELINE and CURRENT are one HTML table, so the rule down its middle is
+    # the only thing saying where one side ends. It has to stay legible on top
+    # of the red and the green wash, hence a lighter grey than the panel
+    # borders. The gutter rule is deliberately fainter: it separates a line
+    # number from its own code, not one side of the compare from the other.
+    'split-line': '#5a5d66',
+    'gutter-line': '#3a3c42',
     'gap-fg': '#666666',
     # a row the current compare rules do not report: still on screen, still
     # readable, painted so the eye slides off it. The band has to be visibly
@@ -244,6 +251,8 @@ _LIGHT = {
     # the gutter's own background tint on a real-change row, from the source
     # palette
     'gutter-del-bg': '#ffd7d5', 'gutter-add-bg': '#ccffd8',
+    'split-line': '#b6bcc4',
+    'gutter-line': '#dfe3e8',
     'gap-fg': '#8c959f',
     'muted-bg': '#eaecef',
     'muted-fg': '#9aa1a9',

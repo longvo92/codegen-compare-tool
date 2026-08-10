@@ -101,7 +101,14 @@ table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
              font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
 table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
                 word-break: break-all; border: none; }
-td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none; }
+td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none;
+        border-right: 1px solid var(--gutter-line); }
+/* BASELINE and CURRENT share one table, so a rule down the middle is the only
+   thing marking where one side stops -- without it a one-sided file reads as a
+   band running the full width. The gutter rule beside every line number is
+   fainter on purpose: it separates a number from its own code, which is a
+   smaller claim than separating the two sides of the compare. */
+table.diff td:nth-child(3) { border-left: 1px solid var(--split-line); }
 /* the gutter's own tint follows the code cell it sits beside -- see _row's
    ln-del/ln-add/ln-mut. Without this the number column stayed the plain
    gutter colour while the code beside it changed, so a coloured row visibly
@@ -1011,14 +1018,23 @@ def _tree_html(results, anchors, reviewed=()):
 
 
 def _content_table(lines, cls, language=None):
-    """One-sided table for added/deleted file content, capped at MAX_CONTENT."""
+    """One-sided table for added/deleted file content, capped at MAX_CONTENT.
+
+    Laid out in the same four columns a diff uses, and filled on the side the
+    file is actually on: an added file occupies the CURRENT half and leaves
+    BASELINE empty, a deleted file the reverse. It used to paint one band
+    across the whole width, which put a brand new file's text under the
+    BASELINE half -- the side the reader takes as "before"."""
     rows = []
     state = syntax.PLAIN
     lncls = 'ln ln-{}'.format(cls)  # cls is 'del' or 'add', so this is ln-del/ln-add
+    empty = '<td class="ln"></td><td></td>'
     for no, txt in enumerate(lines[:MAX_CONTENT], 1):
         spans, state = syntax.spans(txt, language, state)
-        rows.append('<tr><td class="{}">{}</td><td class="{}">{}</td></tr>'
-                    .format(lncls, no, cls, _code_html(txt, spans)))
+        side = ('<td class="{}">{}</td><td class="{}">{}</td>'
+                .format(lncls, no, cls, _code_html(txt, spans)))
+        rows.append('<tr>{}</tr>'.format(empty + side if cls == 'add'
+                                         else side + empty))
     out = '<table class="diff">' + ''.join(rows) + '</table>'
     if len(lines) > MAX_CONTENT:
         out += ('<div class="filenote">… {} more line(s) not shown.</div>'
