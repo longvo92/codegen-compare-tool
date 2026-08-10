@@ -117,8 +117,8 @@ td.ln-del { background: var(--gutter-del-bg); }
 td.ln-add { background: var(--gutter-add-bg); }
 td.ln-mut { background: var(--muted-bg); }
 /* the missing half of a one-sided file: the cell still has to be there for the
-   fixed column widths to line up with a real diff, but painting a gutter for
-   lines that do not exist drew a stray block beside an empty half */
+   fixed column widths to line up with a real diff, but a rule beside line
+   numbers that do not exist is a divider with nothing to divide */
 td.ln-empty { background: none; border-right: none; }
 td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
 /* Unimportant hides behind its own badge, default OFF -- the report opens

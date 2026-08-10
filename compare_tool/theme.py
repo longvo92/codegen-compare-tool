@@ -111,11 +111,12 @@ _DARK = {
     # borders. The gutter rule is deliberately fainter: it separates a line
     # number from its own code, not one side of the compare from the other.
     'split-line': '#5a5d66',
-    'gutter-line': '#40434b',
-    # the number column gets a band of its own, a step off the card the table
-    # sits on: a hairline alone vanishes into the red and the green wash, and
-    # the gutter has to stay separable from the code on exactly those rows
-    'ln-bg': '#1c1d20',
+    'gutter-line': '#3d4046',
+    # the number column's own band. Dark deliberately matches the card the
+    # table sits on -- against a dark code area any band read as a second,
+    # competing surface, so the hairline above carries the separation alone.
+    # Light has room for the band and uses it.
+    'ln-bg': '#232427',
     'gap-fg': '#666666',
     # a row the current compare rules do not report: still on screen, still
     # readable, painted so the eye slides off it. The band has to be visibly
