@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QSplitter, QStackedWidget, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
 
-from .. import review, theme
+from .. import funcname, review, theme
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
 from ..view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows, char_span,
@@ -40,6 +40,23 @@ from .icons import logo_pixmap
 from .minimap import Minimap
 
 _HINT = 'Select a file in the tree to view its diff.'
+
+
+def _row_labels(rows, old_lines, new_lines, language):
+    """The enclosing scope name for every aligned row, so the "current
+    function" caption is one list index at scroll time -- no per-scroll
+    scan. The CURRENT side names a row; a row that exists only on the
+    BASELINE side (a pure deletion) falls back to it. ``None`` where a row
+    is inside no named scope, or the language has none."""
+    old = funcname.enclosing(old_lines, language)
+    new = funcname.enclosing(new_lines, language)
+    out = []
+    for r in rows:
+        lab = new[r.new_no - 1] if r.new_no and r.new_no <= len(new) else None
+        if lab is None and r.old_no and r.old_no <= len(old):
+            lab = old[r.old_no - 1]
+        out.append(lab)
+    return out
 
 
 def _pm(label, added, removed, changed=0):
@@ -326,10 +343,18 @@ class DiffPane(QStackedWidget):
         self.nav_actions = QHBoxLayout()
         self.nav_actions.setContentsMargins(0, 0, 0, 0)
         self.nav_actions.setSpacing(0)
+        # the enclosing function / SHORT-NAME / A2L block of the top visible
+        # line -- Beyond Compare's "current function" box, tracking the scroll.
+        # Sits between the file name and the nav buttons, its own breadcrumb so
+        # it never crowds the (already long) generated file name.
+        self._fn = QLabel('')
+        self._fn.setVisible(False)
+        self._fn.setTextInteractionFlags(Qt.TextSelectableByMouse)
         head_row = QHBoxLayout()
         head_row.setContentsMargins(10, 6, 6, 0)
         head_row.setSpacing(6)
         head_row.addWidget(self._header, 1)
+        head_row.addWidget(self._fn)
         head_row.addLayout(self.nav_actions)
         self._sem = QLabel('')
         self._sem.setWordWrap(True)
@@ -391,6 +416,7 @@ class DiffPane(QStackedWidget):
         # Unimportant stop -- those are navigable but never reviewable (see
         # review.REVIEWABLE), so current_unit() must not attach a note to one
         self._stop_units = []
+        self._row_fn = []          # enclosing scope name per row, for the caption
         self._muted = ()           # row modes played down in the panes
         self._units = []           # every reviewable review.Unit, file order
         self._rel = None           # file currently shown
@@ -430,6 +456,8 @@ class DiffPane(QStackedWidget):
                                 .format(theme.c('fg-dim')))
         self._header.setStyleSheet('color:{}; font-weight:bold;'
                                    .format(theme.c('fg-strong')))
+        self._fn.setStyleSheet('color:{}; font-family:Consolas, monospace; '
+                               'font-size:11px;'.format(theme.c('fg-muted')))
         self._sem.setStyleSheet('color:{}; padding:0 10px 6px; font-size:12px;'
                                 .format(theme.c('fg-dim')))
         self._find_count.setStyleSheet('color:{}; font-size:12px;'
@@ -705,6 +733,11 @@ class DiffPane(QStackedWidget):
         nv.valueChanged.connect(lambda v: self._mirror(ov, v))
         oh.valueChanged.connect(lambda v: self._mirror(nh, v))
         nh.valueChanged.connect(lambda v: self._mirror(oh, v))
+        # the caption tracks the scroll: whichever pane drives, its top visible
+        # line decides which function is named. Read-only, so it rides on the
+        # mirror rather than fighting it.
+        ov.valueChanged.connect(self._track_fn)
+        nv.valueChanged.connect(self._track_fn)
 
     def _mirror(self, bar, value):
         if self._syncing:
@@ -712,6 +745,30 @@ class DiffPane(QStackedWidget):
         self._syncing = True
         bar.setValue(value)
         self._syncing = False
+
+    def _track_fn(self, _value=None):
+        """Name, in the caption, the first scope visible from the top of the
+        viewport downward. Not strictly the top line: a short file sits with
+        its banner and includes on top and the function just below, and the
+        function you can see is more use than "no function". The scan is
+        bounded to the visible rows, so it never reaches past the screen for a
+        scope the reviewer cannot see."""
+        if not self._row_fn:
+            self._set_fn(None)
+            return
+        edit = self._drive
+        top = edit.firstVisibleBlock().blockNumber()
+        line_h = edit.fontMetrics().lineSpacing() or 1
+        span = max(1, edit.viewport().height() // line_h)
+        for row in range(max(0, top), min(top + span, len(self._row_fn))):
+            if self._row_fn[row]:
+                self._set_fn(self._row_fn[row])
+                return
+        self._set_fn(None)
+
+    def _set_fn(self, label):
+        self._fn.setText('ƒ ' + label if label else '')  # ƒ, git-style
+        self._fn.setVisible(bool(label))
 
     # --- zoom: both editors always share one size ---
 
@@ -755,6 +812,8 @@ class DiffPane(QStackedWidget):
         self._find_bar.setVisible(False)  # no file: nothing to search
         self._hits = []
         self._hit_idx = -1
+        self._row_fn = []
+        self._set_fn(None)
         self._clear_selections()
         self.setCurrentIndex(0)
 
@@ -832,6 +891,8 @@ class DiffPane(QStackedWidget):
         self.rows = []
         self._stops = []
         self._stop_units = []
+        self._row_fn = []
+        self._set_fn(None)
         self._clear_selections()
         self.minimap.set_rows([])
         self._pos_text = ''
@@ -881,6 +942,9 @@ class DiffPane(QStackedWidget):
         # which categories happen to be folded on screen
         self._units = review.units_of(result, old_p, new_p, old_lines, new_lines)
         self.rows = mute_rows(rows, self._muted)
+        # scope caption source, aligned to the rows so scrolling is a lookup
+        self._row_fn = _row_labels(self.rows, old_lines, new_lines,
+                                   language_for(rel))
         self._load_rows(rel, status, result)
 
     def _load_rows(self, rel, status, result=None):
@@ -977,6 +1041,7 @@ class DiffPane(QStackedWidget):
             self._pos_text = ''
             self._clear_selections()
             self.old_edit.verticalScrollBar().setValue(0)
+            self._track_fn()  # no change to reveal: name the scope at line 1
 
     def _load_one_side(self, rel, label, lines, side):
         # rows are marked 'ctx': the pane is already one solid colour, so the
@@ -985,6 +1050,9 @@ class DiffPane(QStackedWidget):
         self.rows = [Row(None, None, i + 1, line, 'ctx', 'ctx')
                      if side == 'new' else Row(i + 1, line, None, None, 'ctx', 'ctx')
                      for i, line in enumerate(lines)]
+        # a one-sided file's rows map 1-1 to its lines, so the caption source
+        # is just that side's scope names
+        self._row_fn = funcname.enclosing(lines, language_for(rel))
         self._stops = []
         self._stop_units = []
         self._pos_text = ''
@@ -1017,6 +1085,7 @@ class DiffPane(QStackedWidget):
         self.minimap.set_editor(edit)
         self.minimap.set_rows(self.rows)
         self.setCurrentIndex(1)
+        self._track_fn()
 
     @staticmethod
     def _bg(mode, side):
@@ -1079,6 +1148,7 @@ class DiffPane(QStackedWidget):
         drive.verticalScrollBar().setValue(max(0, row - context))
         self._highlight_block(row)
         self._update_position(row)
+        self._track_fn()  # setValue may clamp to a no-op, so name the scope here
         self.unitChanged.emit()
 
     def _paint_selections(self):

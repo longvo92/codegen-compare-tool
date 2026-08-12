@@ -128,6 +128,51 @@ class TestCaretDoesNotPaint(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestCurrentFunctionCaption(unittest.TestCase):
+    """The "current function" caption -- where in the file the reviewer is."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.pane.resize(1000, 600)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+
+    def _open(self, rel):
+        self.pane.show_file(rel, self.results[rel],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+
+    def test_opens_on_the_changed_functions_scope(self):
+        # the real change in real_change.c is inside Calc_step, so the file
+        # opens with that named in the caption -- not the banner line above it
+        self._open('src/real_change.c')
+        self.assertIn('Calc_step', self.pane._fn.text())
+        self.assertTrue(self.pane._fn.isVisible())
+
+    def test_row_labels_align_with_rows(self):
+        self._open('src/real_change.c')
+        self.assertEqual(len(self.pane._row_fn), len(self.pane.rows))
+        self.assertIn('Calc_step', self.pane._row_fn)
+
+    def test_one_sided_file_is_captioned_too(self):
+        # a whole added file still has a scope: New_step
+        self._open('src/added.c')
+        self.assertIn('New_step', self.pane._row_fn)
+
+    def test_caption_clears_between_files(self):
+        # deleted.h holds only a declaration -- no function body -- so its
+        # caption must not keep the previous file's function name
+        self._open('src/real_change.c')
+        self._open('src/deleted.h')
+        self.assertNotIn('Calc_step', self.pane._fn.text())
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class TestMinimapOnOneSidedFiles(unittest.TestCase):
     """A whole added or deleted file still gets a map to scroll by."""
 

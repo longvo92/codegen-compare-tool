@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Every change now names the function it lives in.** Each hunk in the report
+  carries the enclosing function, AUTOSAR SHORT-NAME or A2L block above it, and
+  the viewer keeps a "current function" caption that tracks the scroll — so in
+  a regenerated file thousands of lines long you can see *where* a change is,
+  not just how many there are. A modified file's header also lists the
+  functions its real changes touch.
+
 ## [1.7.0] — 2026-08-10
 
 The report spends its space on what changed: a component with nothing to show

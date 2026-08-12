@@ -40,6 +40,7 @@ flowchart TD
         TH[theme.py<br/>dark/light palettes by role]
         RV[review.py<br/>notes keyed by content]
         SY[syntax.py<br/>token spans, Qt-free]
+        FN[funcname.py<br/>enclosing scope per line, Qt-free]
     end
     RP[report.py<br/>self-contained HTML]
     GS[gitsource.py<br/>commit → temp folder]
@@ -92,6 +93,7 @@ compare_tool/
 ├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
 ├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
 ├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
+├── funcname.py      # enclosing scope name per line (C function / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
 └── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
@@ -291,6 +293,12 @@ until someone adds a new kind to one of them.
 - **`review.py`** — notes and sign-offs keyed by a hash of the change's own
   text, not by line number, so an unrelated edit elsewhere in the file does not
   detach them on the next scan.
+- **`funcname.enclosing`** — the scope name for each line (C function, AUTOSAR
+  SHORT-NAME, A2L block), one list the report and the viewer both read. The
+  report captions each hunk group and lists a file's `Affected` functions from
+  it; the viewer tracks a "current function" as the pane scrolls. It never
+  decides a verdict — a wrong name costs a caption, so the heuristics say
+  `None` rather than guess.
 
 ## Front ends
 
