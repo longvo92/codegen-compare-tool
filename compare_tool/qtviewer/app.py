@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import gitsource, review, theme
+from .. import gitsource, review, theme, zipsource
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report
@@ -106,8 +106,11 @@ class MainWindow(QMainWindow):
         self._reviews = review.ReviewStore()  # replaced per scan, see _load_reviews
         self._review_unit = None  # (rel, key, label) the note box is editing
         self._units = {}          # rel -> reviewable units, read once per scan
-        self._git_temp = None     # where commits are checked out, this session
+        # scratch for materialised sources this session: git checkouts and
+        # unpacked zips both land here, and go together on close
+        self._src_temp = None
         self._old_label = None    # what OLD is, when its folder does not say
+        self._new_label = None    # ... and CURRENT, when a zip stands in for it
         # one scan, one automatic jump to the first change. Flipping a compare
         # rule re-judges the same scan and must NOT drag the reviewer off the
         # file they are reading.
@@ -717,11 +720,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._commit_review()
-        if self._git_temp:
-            # checkouts are scratch: they live as long as the session, so
-            # flipping between commits is instant, and go with it
-            shutil.rmtree(self._git_temp, ignore_errors=True)
-            self._git_temp = None
+        if self._src_temp:
+            # checkouts and unpacked zips are scratch: they live as long as the
+            # session, so flipping between sources is instant, and go with it
+            shutil.rmtree(self._src_temp, ignore_errors=True)
+            self._src_temp = None
         super().closeEvent(event)
 
 
@@ -735,8 +738,11 @@ class MainWindow(QMainWindow):
         self._front()  # closing a native dialog can leave the window behind others
         if picked is None:
             return
-        self.old, self.new = picked
-        self._clear_git_old()
+        old, new = picked
+        # a side may be a .zip typed or browsed to: _use_source unpacks it and
+        # labels the side, or clears the label for a plain folder
+        if not (self._use_source('old', old) and self._use_source('new', new)):
+            return
         self._start_scan()
 
     def _front(self):
@@ -744,51 +750,89 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    # --- drag & drop: drop the two folders straight onto the window ---
+    # --- drag & drop: drop the two folders (or .zip artifacts) onto the window ---
 
     @staticmethod
-    def _dropped_dirs(event):
+    def _droppable(event):
+        """Dropped paths that can be a compare source: a folder, or a zip."""
         return [p for p in (u.toLocalFile() for u in event.mimeData().urls())
-                if p and Path(p).is_dir()]
+                if p and (Path(p).is_dir() or zipsource.is_zip(p))]
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls() and self._dropped_dirs(event):
+        if event.mimeData().hasUrls() and self._droppable(event):
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls() and self._dropped_dirs(event):
+        if event.mimeData().hasUrls() and self._droppable(event):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
-        dirs = self._dropped_dirs(event)
-        if not dirs:
+        paths = self._droppable(event)
+        if not paths:
             return
         event.acceptProposedAction()
-        if len(dirs) >= 2:
-            self.old, self.new = dirs[0], dirs[1]
+        if len(paths) >= 2:
+            if not (self._use_source('old', paths[0])
+                    and self._use_source('new', paths[1])):
+                return  # a zip failed to open; the message said why
         elif not self.old or (self.old and self.new):
             # first drop of a pair: OLD, and wait for the second
-            self.old, self.new = dirs[0], None
+            if not self._use_source('old', paths[0]):
+                return
+            self.new = None
+            self.diff.set_new_label(None)
+            self._new_label = None
             self.diff.show_drop_hint(self.old)
             self._set_state('idle', 'Ready')
             self._front()
             return
-        else:
-            self.new = dirs[0]
-        self._clear_git_old()
+        elif not self._use_source('new', paths[0]):
+            return
         self._front()
         self._start_scan()
 
-    # --- comparing against a commit ---
+    # --- comparing against a commit or a zip ---
     #
-    # A commit is not a second kind of compare: it only supplies the OLD
-    # folder, checked out read-only to a temp directory. Everything after that
-    # -- scan, verdicts, folding, notes, export -- is the ordinary path.
+    # Neither is a second kind of compare: a commit or a zip only supplies one
+    # of the two folders, materialised read-only into a temp directory.
+    # Everything after that -- scan, verdicts, folding, notes, export -- is the
+    # ordinary path, none the wiser where the folder came from.
 
-    def _clear_git_old(self):
-        """Dropped or picked folders replace a commit as the OLD side."""
-        self._old_label = None
-        self.diff.set_old_label(None)
+    def _extract_zip(self, path):
+        """Unpack a dropped zip into the session temp, busy cursor up. Returns
+        the content folder, or None (with a message shown) when it will not
+        open -- loud, never a silent empty folder that reads as a clean
+        compare."""
+        if self._src_temp is None:
+            self._src_temp = tempfile.mkdtemp(prefix='codegen-compare-src-')
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()  # let the cursor change before the unzip
+        try:
+            return str(zipsource.extract(path, self._src_temp))
+        except zipsource.ZipError as e:
+            QMessageBox.critical(self, 'Zip could not be opened', str(e))
+            return None
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _use_source(self, side, path):
+        """Assign ``path`` -- a folder or a ``.zip`` -- to 'old' or 'new'. A zip
+        is unpacked and the side labelled by its file name (the temp path names
+        nothing); a folder clears any label. False when a zip failed to open."""
+        if zipsource.is_zip(path):
+            folder = self._extract_zip(path)
+            if folder is None:
+                return False
+            label, tip = Path(path).name, str(path)
+        else:
+            folder, label, tip = str(path), None, None
+        if side == 'old':
+            self.old, self._old_label = folder, label
+            self.diff.set_old_label(label, tip)
+        else:
+            self.new, self._new_label = folder, label
+            self.diff.set_new_label(label, tip)
+        return True
 
     @staticmethod
     def _git_load(folder):
@@ -821,13 +865,13 @@ class MainWindow(QMainWindow):
         self._checkout(root, sub, commit)
 
     def _checkout(self, root, sub, commit):
-        if self._git_temp is None:
-            self._git_temp = tempfile.mkdtemp(prefix='codegen-compare-git-')
+        if self._src_temp is None:
+            self._src_temp = tempfile.mkdtemp(prefix='codegen-compare-src-')
         self._set_state('busy', 'Checking out {}…'.format(commit.short))
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()  # let the status chip paint before the wait
         try:
-            path = gitsource.export(root, commit.sha, sub, self._git_temp)
+            path = gitsource.export(root, commit.sha, sub, self._src_temp)
         except gitsource.GitError as e:
             # loud: a failed checkout must never fall through to a stale or
             # empty OLD folder and produce a compare that looks finished
@@ -996,6 +1040,7 @@ class MainWindow(QMainWindow):
                 # there is nothing for a per-change note to attach to
                 page = build_arxml_report(self._raw_results, self.old, self.new,
                                           old_label=self._old_label,
+                                          new_label=self._new_label,
                                           theme_name=self._theme)
             else:
                 # only pass the store when it holds something: an untouched
@@ -1007,6 +1052,7 @@ class MainWindow(QMainWindow):
                 # carries both palettes so the reader can still switch
                 page = build_report(self._raw_results, self.old, self.new, store,
                                     old_label=self._old_label,
+                                    new_label=self._new_label,
                                     theme_name=self._theme)
             Path(out).write_text(page, encoding='utf-8')
         except Exception as e:

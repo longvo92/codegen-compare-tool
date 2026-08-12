@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog,
                                QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
+from .. import zipsource
 from .icons import app_icon
 
 _COMMIT_ROLE = Qt.UserRole
@@ -33,20 +34,25 @@ def _esc(text):
 
 
 class _PathRow(QHBoxLayout):
-    """Label, the path itself, and a Browse button that replaces it."""
+    """Label, the path itself, a Browse button, and (optionally) a Zip button
+    -- so a side can be a folder or a ``.zip`` artifact."""
 
-    def __init__(self, label, path, on_browse):
+    def __init__(self, label, path, on_browse, on_zip=None):
         super().__init__()
         tag = QLabel(label)
         tag.setMinimumWidth(64)  # fits 'BASELINE', the longest row label
         tag.setStyleSheet('color:#9aa1ad;')
         self.edit = QLineEdit(str(path) if path else '')
-        self.edit.setPlaceholderText('Choose a folder…')
+        self.edit.setPlaceholderText('Choose a folder or a .zip…')
         btn = QPushButton('Browse…')
         btn.clicked.connect(on_browse)
         self.addWidget(tag)
         self.addWidget(self.edit, 1)
         self.addWidget(btn)
+        if on_zip is not None:
+            zbtn = QPushButton('Zip…')
+            zbtn.clicked.connect(on_zip)
+            self.addWidget(zbtn)
 
     def text(self):
         return self.edit.text().strip()
@@ -71,14 +77,16 @@ class FolderPicker(QDialog):
         self.resize(680, 200)
 
         self.old_row = _PathRow('BASELINE', old,
-                                lambda: self._browse(self.old_row, 'BASELINE'))
+                                lambda: self._browse(self.old_row, 'BASELINE'),
+                                lambda: self._browse_zip(self.old_row, 'BASELINE'))
         self.new_row = _PathRow('CURRENT', new,
-                                lambda: self._browse(self.new_row, 'CURRENT'))
+                                lambda: self._browse(self.new_row, 'CURRENT'),
+                                lambda: self._browse_zip(self.new_row, 'CURRENT'))
         for row in (self.old_row, self.new_row):
             row.edit.textChanged.connect(self._sync_ok)
 
         hint = QLabel('BASELINE is the previous generation, CURRENT is the one '
-                      'being reviewed.')
+                      'being reviewed. Either can be a folder or a .zip.')
         hint.setStyleSheet('color:#8a8f98; font-size:11px;')
 
         self.error = QLabel('')
@@ -108,6 +116,14 @@ class FolderPicker(QDialog):
         if picked:
             row.set_text(picked)
 
+    def _browse_zip(self, row, label):
+        start = row.text() or self.old_row.text() or self.new_row.text() or ''
+        picked, _ = QFileDialog.getOpenFileName(
+            self, 'Select the {} zip'.format(label),
+            str(Path(start).parent) if start else '', 'Zip artifact (*.zip)')
+        if picked:
+            row.set_text(picked)
+
     def _sync_ok(self):
         ok = bool(self.old_row.text()) and bool(self.new_row.text())
         self.buttons.button(QDialogButtonBox.Ok).setEnabled(ok)
@@ -116,11 +132,12 @@ class FolderPicker(QDialog):
     def _accept(self):
         old, new = self.old_row.text(), self.new_row.text()
         for path, label in ((old, 'BASELINE'), (new, 'CURRENT')):
-            if not Path(path).is_dir():
-                # said here rather than as a popup on top of this dialog, and
-                # said before the scan so a typo is not reported as a compare
-                # error later
-                self.error.setText('{} is not a folder: {}'.format(label, path))
+            # a side is valid as a folder OR a .zip; anything else is caught
+            # here, before the scan, so a typo is not reported as a compare
+            # error later
+            if not (Path(path).is_dir() or zipsource.is_zip(path)):
+                self.error.setText(
+                    '{} is not a folder or a .zip: {}'.format(label, path))
                 self.error.setVisible(True)
                 return
         self.chosen = (old, new)

@@ -22,6 +22,13 @@ For *how the code is put together*, see [architecture.md](architecture.md).
 python -m compare_tool <old_gen_folder> <new_gen_folder> [--report out.html]
 ```
 
+Either positional may be a `.zip` (an Azure DevOps build artifact, for
+instance). It is unpacked read-only into a temp directory, compared as a
+folder, and removed on exit; a lone wrapper directory inside the archive is
+descended into, and the report header names the zip rather than the temp path
+(`--baseline-name` / `--current-name` still override). A zip that cannot be
+read stops the run loudly — it never falls through to an empty folder.
+
 | Flag | Meaning |
 |---|---|
 | `--report out.html` | Report output path (default `compare_report.html`). An existing file there is deleted before the scan starts |
@@ -64,6 +71,14 @@ Two ways in: `Open folders…` for two folders you name yourself, and
 `Git compare…` for **one** folder in a git checkout — it lists the commits that
 touched that folder, checks the one you pick out to a temp folder (read-only —
 your working copy is never touched), and compares as usual.
+
+Either side can be a `.zip` instead of a folder: drop it onto the window, or use
+the `Zip…` button in `Open folders…`. It is unpacked to a temp folder and the
+pane is labelled by the zip name, not the temp path.
+
+Once a file is open, a **caption beside its name** shows the function you are
+looking at — the enclosing C function, AUTOSAR SHORT-NAME or A2L block — and
+follows the scroll, so you always know where in a long generated file you are.
 
 ### Reading a scan
 

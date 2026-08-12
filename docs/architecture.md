@@ -44,10 +44,13 @@ flowchart TD
     end
     RP[report.py<br/>self-contained HTML]
     GS[gitsource.py<br/>commit → temp folder]
+    ZS[zipsource.py<br/>zip → temp folder]
 
     CLI --> SC
     QT --> SC
     GS --> QT
+    ZS --> QT
+    ZS --> CLI
     SC --> DE
     DE --> LD
     DE --> RULES
@@ -66,8 +69,8 @@ flowchart TD
 Two rules hold this shape:
 
 **The core imports nothing but the standard library.** `scanner`, `diff_engine`,
-the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax` and
-`gitsource` are what ships in `compare_tool.pyz` — no install, the
+the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax`,
+`funcname`, `gitsource` and `zipsource` are what ships in `compare_tool.pyz` — no install, the
 documented fallback for machines where antivirus blocks the `.exe`. One
 third-party import in `scanner.py` and the zipapp stops running there. PySide6
 lives only under `compare_tool/qtviewer/` and is imported lazily, when the
@@ -96,6 +99,7 @@ compare_tool/
 ├── funcname.py      # enclosing scope name per line (C function / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
+├── zipsource.py     # read-only unpack of a .zip artifact into a temp folder, so a zip can be either side
 └── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
 ```
 
@@ -336,6 +340,14 @@ have no PySide6 import at all, so their tests run on a box with no Qt.
 commit down in a temp folder, and everything downstream sees two directories as
 usual. That matters because the folder being reviewed is normally the one the
 engineer is still editing.
+
+A dropped or picked `.zip` is the same idea one more time: `zipsource.py`
+unpacks it read-only into a temp folder — guarding against a path that escapes
+the destination, and descending into a lone wrapper directory so an Azure
+`drop.zip` does not read as one directory deep — and the compare runs on the
+folder, none the wiser. A source that materialises a temp folder labels its
+pane by the commit or the zip name, since the temp path names nothing:
+`diffpane.set_old_label` / `set_new_label`, one per side.
 
 ## Decisions worth knowing before you change something
 

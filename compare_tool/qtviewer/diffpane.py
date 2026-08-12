@@ -423,7 +423,8 @@ class DiffPane(QStackedWidget):
         # what show_file was last called with, so a theme switch can re-render
         # the same file from the same arguments instead of half-repainting it
         self._last = None
-        self._old_label = None     # (text, tooltip) when OLD is not a folder
+        self._old_label = None     # (text, tooltip) when OLD is not a plain folder
+        self._new_label = None     # ... and the same for CURRENT (a zip source)
         self._cur_idx = 0          # which change (index into _stops / _units)
         self._head_base = ''       # header without the "change k of N" suffix
         self._pos_text = ''        # "change k of N", folded into the header text
@@ -701,24 +702,33 @@ class DiffPane(QStackedWidget):
     def set_old_label(self, text=None, tip=None):
         """Name the BASELINE pane something other than its folder.
 
-        A commit is checked out to a temp folder whose name is the codegen
-        folder's own -- both banners would then read the same word. The banner
-        has to say *which* version is on the left, so it shows the commit
-        instead. None puts the folder name back.
+        A commit is checked out, or a zip unpacked, into a temp folder whose
+        name says nothing -- for a commit it is even the codegen folder's own,
+        so both banners would read the same word. The banner has to say *which*
+        version is on the left, so it shows the commit / zip instead. None puts
+        the folder name back.
         """
         self._old_label = (text, tip) if text else None
+
+    def set_new_label(self, text=None, tip=None):
+        """Name the CURRENT pane something other than its folder -- for a zip
+        dropped as the CURRENT side, whose temp path names nothing. None puts
+        the folder name back."""
+        self._new_label = (text, tip) if text else None
 
     def _set_pane_names(self, old_root, new_root):
         """Name each pane by its folder: a coloured BASELINE/CURRENT tag then
         the folder name, bright, with the full path as a tooltip. Called
-        wherever a file is shown, so the two roots are in hand."""
-        for lbl, root, tag, role in (
-                (self._old_name, old_root, 'BASELINE', 'pane-old-accent'),
-                (self._new_name, new_root, 'CURRENT', 'pane-new-accent')):
+        wherever a file is shown, so the two roots are in hand. A side backed by
+        a commit or a zip shows that label instead of the temp folder it was
+        materialised into."""
+        for lbl, root, tag, role, override in (
+                (self._old_name, old_root, 'BASELINE', 'pane-old-accent', self._old_label),
+                (self._new_name, new_root, 'CURRENT', 'pane-new-accent', self._new_label)):
             p = Path(root)
             name, tip = p.name or str(p), str(p)
-            if tag == 'BASELINE' and self._old_label:
-                name, tip = self._old_label[0], self._old_label[1] or str(p)
+            if override:
+                name, tip = override[0], override[1] or str(p)
             lbl.setText('<span style="color:{}">{}</span>'
                         '<span style="color:{}">&nbsp;&nbsp;·&nbsp;&nbsp;{}</span>'
                         .format(theme.c(role), tag, theme.c('fg-strong'), name))
@@ -835,9 +845,9 @@ class DiffPane(QStackedWidget):
         else:
             # the git way in gets a mention: a landing screen that only talks
             # about a pair of folders hides half the tool
-            self._msg.setText('Drop the BASELINE and CURRENT folders here.\n'
-                              'Or use "Open folders…" — or "Git compare…" for '
-                              'one folder and its own history.')
+            self._msg.setText('Drop the BASELINE and CURRENT folders (or .zip '
+                              'artifacts) here.\nOr use "Open folders…" — or '
+                              '"Git compare…" for one folder and its own history.')
         self._logo.setVisible(True)
         self._forget_units()
         self.setCurrentIndex(0)

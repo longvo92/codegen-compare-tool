@@ -101,6 +101,66 @@ class TestSideNameFlags(unittest.TestCase):
         self.assertFalse(viewer_requested(['old', 'new', '--baseline-name', 'x']))
 
 
+class TestZipArguments(unittest.TestCase):
+    """A ``.zip`` may stand in for either folder: it is unpacked, compared and
+    the temp copy removed, all transparently."""
+
+    def _zip(self, root, name, files):
+        import zipfile
+        path = root / name
+        with zipfile.ZipFile(path, 'w') as zf:
+            for arc, text in files.items():
+                zf.writestr(arc, text)
+        return path
+
+    def test_two_zips_compare_and_label_by_file_name(self):
+        import tempfile
+        from contextlib import redirect_stdout
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp())
+        old = self._zip(tmp, 'baseline.zip',
+                        {'gen/m.c': 'void f(void)\n{\n  x = 1;\n}\n'})
+        new = self._zip(tmp, 'current.zip',
+                        {'gen/m.c': 'void f(void)\n{\n  x = 2;\n}\n'})
+        report = tmp / 'out.html'
+        with redirect_stdout(io.StringIO()):
+            code = main([str(old), str(new), '--report', str(report)])
+        self.assertEqual(code, 1)  # a real change was found
+        page = report.read_text(encoding='utf-8')
+        # the header names the zips, not the temp folder they were unpacked to
+        self.assertIn('baseline.zip', page)
+        self.assertIn('current.zip', page)
+
+    def test_temp_extraction_is_cleaned_up(self):
+        import tempfile
+        from contextlib import redirect_stdout
+        from pathlib import Path
+        from unittest import mock
+        tmp = Path(tempfile.mkdtemp())
+        old = self._zip(tmp, 'a.zip', {'gen/m.c': 'int a;\n'})
+        new = self._zip(tmp, 'b.zip', {'gen/m.c': 'int a;\n'})
+        made = tmp / 'extract_here'
+        made.mkdir()
+        with mock.patch('compare_tool.main.tempfile.mkdtemp',
+                        return_value=str(made)):
+            with redirect_stdout(io.StringIO()):
+                main([str(old), str(new), '--report', str(tmp / 'o.html')])
+        self.assertFalse(made.exists(), 'zip extraction temp dir was left behind')
+
+    def test_an_unreadable_zip_is_a_fatal_usage_error(self):
+        # a valid but empty archive: recognised as a zip, but nothing to
+        # compare -- must exit loudly, never fall through to an empty folder
+        import tempfile
+        import zipfile
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp())
+        empty = tmp / 'empty.zip'
+        with zipfile.ZipFile(empty, 'w'):
+            pass
+        with self.assertRaises(SystemExit):
+            quiet(main, [str(empty), str(tmp), '--report', str(tmp / 'o.html')])
+
+
 class TestTkinterPanelIsGone(unittest.TestCase):
     def test_gui_flag_is_rejected(self):
         self.assertFalse(quiet(viewer_requested, ['--gui']))

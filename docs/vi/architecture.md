@@ -39,13 +39,17 @@ flowchart TD
         TH[theme.py<br/>palette sáng/tối theo role]
         RV[review.py<br/>note khoá theo nội dung]
         SY[syntax.py<br/>token span, không dính Qt]
+        FN[funcname.py<br/>scope bao quanh mỗi dòng, không dính Qt]
     end
     RP[report.py<br/>HTML self-contained]
     GS[gitsource.py<br/>commit → thư mục tạm]
+    ZS[zipsource.py<br/>zip → thư mục tạm]
 
     CLI --> SC
     QT --> SC
     GS --> QT
+    ZS --> QT
+    ZS --> CLI
     SC --> DE
     DE --> LD
     DE --> RULES
@@ -64,7 +68,8 @@ flowchart TD
 Hai luật giữ cho hình dạng này đứng vững:
 
 **Core không import gì ngoài standard library.** `scanner`, `diff_engine`, ba module
-rule, `report`, `review`, `view_model`, `theme`, `syntax` và `gitsource` là những gì ship
+rule, `report`, `review`, `view_model`, `theme`, `syntax`, `funcname`, `gitsource` và
+`zipsource` là những gì ship
 trong `compare_tool.pyz` — không cần cài, và là phương án dự phòng đã được
 ghi rõ cho các máy bị antivirus chặn `.exe`. Chỉ cần một import thư viện ngoài trong
 `scanner.py` là zipapp hết chạy ở đó. PySide6 chỉ nằm dưới `compare_tool/qtviewer/`
@@ -263,6 +268,11 @@ khớp nhau hoàn hảo cho tới lúc ai đó thêm một kind mới vào một
 - **`review.py`** — note và sign-off khoá theo hash nội dung của chính change đó,
   không theo số dòng, nên một sửa đổi không liên quan ở chỗ khác trong file không
   làm chúng rớt ra ở lần scan sau.
+- **`funcname.enclosing`** — tên scope của mỗi dòng (hàm C, SHORT-NAME AUTOSAR,
+  block A2L), một list mà cả report và viewer cùng đọc. Report chú thích mỗi nhóm
+  hunk và liệt kê danh sách `Affected` của file từ đó; viewer bám theo "hàm hiện
+  tại" khi pane cuộn. Nó không bao giờ quyết định verdict — tên sai chỉ tốn một
+  caption — nên heuristic thà trả `None` còn hơn đoán.
 
 ## Front end
 
@@ -298,6 +308,13 @@ PySide6, nên test của chúng chạy được trên máy không có Qt.
 — read-only, không đụng HEAD, index hay working tree — để trải một commit ra thư mục
 tạm, còn mọi thứ phía sau vẫn thấy hai thư mục như thường. Điều đó quan trọng vì thư
 mục đang được review thường là thư mục kỹ sư vẫn đang sửa.
+
+Một `.zip` kéo thả hay chọn vào cũng đúng ý tưởng đó một lần nữa: `zipsource.py`
+giải nén read-only vào thư mục tạm — có chặn đường dẫn thoát khỏi đích, và đi vào
+một thư mục bọc duy nhất để `drop.zip` của Azure không bị đọc lệch một cấp — rồi
+compare chạy trên thư mục, không hề hay biết. Nguồn nào dựng ra thư mục tạm thì gán
+nhãn pane theo tên commit hoặc tên zip, vì đường dẫn tạm chẳng nói lên gì:
+`diffpane.set_old_label` / `set_new_label`, mỗi phía một cái.
 
 ## Những quyết định nên biết trước khi sửa
 

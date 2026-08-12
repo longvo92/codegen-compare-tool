@@ -13,6 +13,11 @@ All notable changes to this project are documented here. Versions follow
   a regenerated file thousands of lines long you can see *where* a change is,
   not just how many there are. A modified file's header also lists the
   functions its real changes touch.
+- **Compare a `.zip` artifact directly.** Either side — on the command line, in
+  the folder picker, or dropped onto the viewer — can be a zip (an Azure
+  DevOps build drop, say). It is unpacked automatically, compared as a folder
+  and cleaned up afterwards, with the header naming the zip instead of a temp
+  path. No more unzipping by hand.
 
 ## [1.7.0] — 2026-08-10
 

@@ -23,6 +23,13 @@ viewer, luật noise chính xác, report hiện cái gì và tại sao, CI và �
 python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> [--report out.html]
 ```
 
+Mỗi vị trí có thể là một file `.zip` (ví dụ artifact build tải từ Azure DevOps).
+Nó được giải nén read-only vào thư mục tạm, so sánh như một thư mục, rồi xoá khi
+thoát; nếu archive chỉ có đúng một thư mục bọc ngoài thì tự đi vào trong, và
+header report ghi tên zip thay cho đường dẫn tạm (`--baseline-name` /
+`--current-name` vẫn thắng). Zip không đọc được thì dừng lớn tiếng — không bao
+giờ rơi xuống một thư mục rỗng.
+
 | Flag | Ý nghĩa |
 |---|---|
 | `--report out.html` | Đường dẫn report (mặc định `compare_report.html`). File cũ ở đó bị xoá trước khi scan bắt đầu |
@@ -64,6 +71,14 @@ Hai đường vào: `Open folders…` cho hai thư mục tự chọn, và `Git c
 **một** thư mục nằm trong git checkout — nó liệt kê các commit từng đụng tới thư
 mục đó, lấy commit bạn chọn ra một thư mục tạm (read-only — working copy không bị
 đụng tới), rồi so sánh như bình thường.
+
+Mỗi phía cũng có thể là một `.zip` thay cho thư mục: kéo thả vào cửa sổ, hoặc
+dùng nút `Zip…` trong `Open folders…`. Nó được giải nén vào thư mục tạm và pane
+được gán nhãn theo tên zip, không phải đường dẫn tạm.
+
+Khi một file đang mở, một **caption cạnh tên file** cho biết bạn đang ở hàm nào —
+hàm C, SHORT-NAME của AUTOSAR hay block A2L bao quanh — và bám theo lúc cuộn, nên
+luôn biết mình đang ở đâu trong một file sinh dài.
 
 ### Đọc một lần scan
 

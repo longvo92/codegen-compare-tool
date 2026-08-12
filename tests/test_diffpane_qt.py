@@ -215,6 +215,67 @@ class TestMinimapOnOneSidedFiles(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestZipAsSource(unittest.TestCase):
+    """A .zip artifact dropped or picked as a side is unpacked, compared as a
+    folder, and labelled by its file name -- not the temp path it landed in."""
+
+    def _zip(self, root, name, files):
+        import zipfile
+        path = root / name
+        with zipfile.ZipFile(path, 'w') as zf:
+            for arc, text in files.items():
+                zf.writestr(arc, text)
+        return path
+
+    def _window(self):
+        from compare_tool.qtviewer.app import MainWindow
+        self.app = _app()
+        win = MainWindow(None, None)
+        win.resize(1200, 700)
+        win.setAttribute(Qt.WA_DontShowOnScreen, True)
+        win.show()
+        self.addCleanup(win.close)
+        return win
+
+    def test_zip_sides_are_unpacked_compared_and_labelled(self):
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        oldz = self._zip(tmp, 'baseline.zip',
+                         {'gen/m.c': 'void f(void)\n{\n  x = 1;\n}\n'})
+        newz = self._zip(tmp, 'current.zip',
+                         {'gen/m.c': 'void f(void)\n{\n  x = 2;\n}\n'})
+        win = self._window()
+        self.assertTrue(win._use_source('old', str(oldz)))
+        self.assertTrue(win._use_source('new', str(newz)))
+        # each side descended into the lone 'gen' wrapper and points at real files
+        self.assertTrue(Path(win.old).is_dir())
+        self.assertIn('m.c', [p.name for p in Path(win.old).iterdir()])
+        # export label and pane banner both name the zip, not the temp folder
+        self.assertEqual(win._old_label, 'baseline.zip')
+        self.assertEqual(win._new_label, 'current.zip')
+        self.assertEqual(win.diff._old_label[0], 'baseline.zip')
+        self.assertEqual(win.diff._new_label[0], 'current.zip')
+        win._start_scan()
+        _settle(self.app, win)
+        self.assertTrue(win._raw_results)  # the compare actually ran
+
+    def test_a_folder_side_clears_a_prior_zip_label(self):
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        z = self._zip(tmp, 'drop.zip', {'gen/m.c': 'int a;\n'})
+        plain = tmp / 'plainfolder'
+        plain.mkdir()
+        (plain / 'm.c').write_text('int a;\n')
+        win = self._window()
+        win._use_source('old', str(z))
+        self.assertEqual(win._old_label, 'drop.zip')
+        # picking a plain folder for the same side must drop the zip label
+        win._use_source('old', str(plain))
+        self.assertIsNone(win._old_label)
+        self.assertIsNone(win.diff._old_label)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class TestQuickChangesJump(unittest.TestCase):
     """Activating a quick-changes row must land on that object's line.
 

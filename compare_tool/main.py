@@ -3,13 +3,19 @@
 Usage:
     python -m compare_tool <old_dir> <new_dir> [--report out.html] [--arxml-only]
     python -m compare_tool [--theme light]     # side-by-side viewer
+
+Either folder argument may be a ``.zip`` (an Azure DevOps build artifact, say):
+it is unpacked read-only into a temp directory and compared as if it had always
+been a folder, then the temp directory is removed on exit.
 """
 
 import argparse
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
-from . import review, theme
+from . import review, theme, zipsource
 from .diff_engine import RULES
 from .report import build_arxml_report, build_report
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
@@ -249,13 +255,53 @@ def viewer_requested(argv):
         return False  # bad usage: keep the console, argparse prints there
 
 
+def _resolve_source(ap, arg, zip_temp):
+    """A folder argument that may be a ``.zip``. Returns ``(root, label)``.
+
+    A zip is unpacked read-only into a shared temp directory (created lazily,
+    boxed in ``zip_temp`` so the caller can clean it up) and labelled by its
+    file name -- the temp path names nothing a reviewer would recognise. A zip
+    that cannot be read is loud and fatal, never a silent empty folder.
+    """
+    p = Path(arg)
+    if not zipsource.is_zip(p):
+        return p, None
+    if zip_temp[0] is None:
+        zip_temp[0] = tempfile.mkdtemp(prefix='codegen-compare-zip-')
+    try:
+        return zipsource.extract(p, zip_temp[0]), p.name
+    except zipsource.ZipError as e:
+        ap.error('cannot use {} as a compare source: {}'.format(arg, e))
+
+
+def _viewer_source(ap, arg, zip_temp):
+    """A viewer folder argument as a path string, a ``.zip`` unpacked first.
+    ``None`` (no folder given) is passed straight through."""
+    if not arg:
+        return arg
+    return str(_resolve_source(ap, arg, zip_temp)[0])
+
+
 def main(argv=None):
     ap = _parser()
     args = ap.parse_args(argv)
+    # boxed so _resolve_source can create the extraction dir lazily; removed in
+    # the finally whichever way this run exits
+    zip_temp = [None]
+    try:
+        return _run(ap, args, zip_temp)
+    finally:
+        if zip_temp[0]:
+            shutil.rmtree(zip_temp[0], ignore_errors=True)
+
+
+def _run(ap, args, zip_temp):
     if _wants_viewer(args):
         from .qtviewer import run_viewer  # deferred: PySide6 may be absent
+        old_dir = _viewer_source(ap, args.old_dir, zip_temp)
+        new_dir = _viewer_source(ap, args.new_dir, zip_temp)
         try:
-            return run_viewer(args.old_dir, args.new_dir, exclude=args.exclude,
+            return run_viewer(old_dir, new_dir, exclude=args.exclude,
                               arxml_only=args.arxml_only, theme_name=args.theme)
         except ImportError as e:
             # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
@@ -273,8 +319,8 @@ def main(argv=None):
     if args.report is None:
         args.report = default_report_name(args.arxml_only)
 
-    old_root = Path(args.old_dir)
-    new_root = Path(args.new_dir)
+    old_root, old_zip = _resolve_source(ap, args.old_dir, zip_temp)
+    new_root, new_zip = _resolve_source(ap, args.new_dir, zip_temp)
     for p, name in ((old_root, 'old_dir'), (new_root, 'new_dir')):
         if not p.is_dir():
             ap.error('{} is not a directory: {}'.format(name, p))
@@ -302,8 +348,8 @@ def main(argv=None):
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
                                       exclude=args.exclude, progress=progress,
                                       reviews=reviews, theme_name=args.theme,
-                                      old_label=args.baseline_name,
-                                      new_label=args.current_name)
+                                      old_label=args.baseline_name or old_zip,
+                                      new_label=args.current_name or new_zip)
     except ReportWriteError as e:
         # what WAS scanned still goes to the terminal -- the compare itself may
         # have been fine, it is only the record that is missing
