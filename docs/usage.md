@@ -79,6 +79,8 @@ pane is labelled by the zip name, not the temp path.
 Once a file is open, a **caption beside its name** shows the function you are
 looking at — the enclosing C function, AUTOSAR SHORT-NAME or A2L block — and
 follows the scroll, so you always know where in a long generated file you are.
+When that function's signature scrolls off the top, it is **pinned to the top
+of each pane** (like VS Code's sticky scroll) until you leave the function.
 
 ### Reading a scan
 

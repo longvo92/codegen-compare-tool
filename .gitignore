@@ -11,3 +11,6 @@ dist/
 # review files land beside the NEW folder; a run against tests/fixtures
 # drops one in the repo
 codegen-review.json
+
+# throwaway demo folders and scratch fixtures for manual verification
+scratch/

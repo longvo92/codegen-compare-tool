@@ -35,6 +35,7 @@ from ..scanner import looks_binary, read_text
 from ..syntax import language_for
 from ..view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows, char_span,
                           hunk_row_starts, mode_of, mute_rows, row_with)
+from . import highlight
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
 from .minimap import Minimap
@@ -359,6 +360,14 @@ class DiffPane(QStackedWidget):
         self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
+        # VS Code-style "sticky scroll": the enclosing function's signature
+        # line, pinned at the top of each pane and syntax-coloured to match the
+        # code, so a change deep in a 100-line runnable never loses its header.
+        # Child of the viewport, so it sits over the text (not the gutter) and
+        # holds still while the code scrolls under it; mouse-transparent so the
+        # wheel still reaches the editor.
+        self._sticky_old = self._make_sticky(self.old_edit)
+        self._sticky_new = self._make_sticky(self.new_edit)
         self._zoom_pt = self.old_edit.font().pointSize()
         # either pane can be the one under the mouse; both zoom together, or a
         # reviewer scrolling one side larger to read it would silently leave
@@ -439,6 +448,9 @@ class DiffPane(QStackedWidget):
         # not a second extraSelections layer.
         self._sel_match = [[], []]
         self._link_scrolls()
+        # the sticky spans a pane's text area, so it has to be re-fitted whenever
+        # that width changes: the window resizes or the divider is dragged
+        self._split.splitterMoved.connect(lambda *_: self._sticky_geometry())
         # Ctrl+F is where every editor puts find; the pane owns the shortcut so
         # it works wherever the focus sits inside the diff
         QShortcut(QKeySequence.Find, self).activated.connect(self.open_find)
@@ -466,6 +478,14 @@ class DiffPane(QStackedWidget):
                                    .format(theme.c('fg-strong')))
         self._fn.setStyleSheet('color:{}; font-family:Consolas, monospace; '
                                'font-size:11px;'.format(theme.c('fg-muted')))
+        # the pinned line reads as a header ON the code: its own faint band and
+        # a bottom rule mark where it ends and the live code begins
+        sticky_qss = ('background:{}; color:{}; border-bottom:1px solid {}; '
+                      'padding:2px 8px;'.format(theme.c('sticky-bg'),
+                                                theme.c('code-fg'),
+                                                theme.c('sticky-border')))
+        self._sticky_old.setStyleSheet(sticky_qss)
+        self._sticky_new.setStyleSheet(sticky_qss)
         self._sem.setStyleSheet('color:{}; padding:0 10px 6px; font-size:12px;'
                                 .format(theme.c('fg-dim')))
         self._find_count.setStyleSheet('color:{}; font-size:12px;'
@@ -751,11 +771,11 @@ class DiffPane(QStackedWidget):
         nv.valueChanged.connect(lambda v: self._mirror(ov, v))
         oh.valueChanged.connect(lambda v: self._mirror(nh, v))
         nh.valueChanged.connect(lambda v: self._mirror(oh, v))
-        # the caption tracks the scroll: whichever pane drives, its top visible
-        # line decides which function is named. Read-only, so it rides on the
-        # mirror rather than fighting it.
-        ov.valueChanged.connect(self._track_fn)
-        nv.valueChanged.connect(self._track_fn)
+        # the caption and the sticky header track the scroll: whichever pane
+        # drives, its top visible line decides which function is named/pinned.
+        # Read-only, so they ride on the mirror rather than fighting it.
+        ov.valueChanged.connect(self._on_vscroll)
+        nv.valueChanged.connect(self._on_vscroll)
 
     def _mirror(self, bar, value):
         if self._syncing:
@@ -763,6 +783,84 @@ class DiffPane(QStackedWidget):
         self._syncing = True
         bar.setValue(value)
         self._syncing = False
+
+    def _on_vscroll(self, _value=None):
+        self._track_fn()
+        self._track_sticky()
+
+    # --- sticky "current function" header (VS Code-style) ---
+
+    @staticmethod
+    def _make_sticky(editor):
+        lbl = QLabel(editor.viewport())
+        lbl.setTextFormat(Qt.RichText)
+        lbl.setTextInteractionFlags(Qt.NoTextInteraction)
+        lbl.setAttribute(Qt.WA_TransparentForMouseEvents)  # wheel reaches editor
+        lbl.setFont(editor.font())
+        lbl.setVisible(False)
+        return lbl
+
+    def _sticky_geometry(self):
+        """Width each sticky spans (the pane's text area) and its height (one
+        line plus padding). Called on scroll, resize and zoom -- the viewport
+        width changes when the splitter moves or a scrollbar appears."""
+        h = self.old_edit.fontMetrics().height() + 8
+        for lbl, edit in ((self._sticky_old, self.old_edit),
+                          (self._sticky_new, self.new_edit)):
+            lbl.setFont(edit.font())
+            lbl.setFixedHeight(h)
+            lbl.setFixedWidth(edit.viewport().width())
+            lbl.move(0, 0)
+
+    def _track_sticky(self, _value=None):
+        """Pin the enclosing function's signature line to the top of each pane,
+        but only once it has scrolled out of view -- while the real header line
+        is on screen there is nothing to pin, same as VS Code."""
+        rows = self.rows
+        if not self._row_fn or not rows:
+            self._hide_sticky()
+            return
+        top = self._drive.firstVisibleBlock().blockNumber()
+        label = self._row_fn[top] if 0 <= top < len(self._row_fn) else None
+        if not label:
+            self._hide_sticky()
+            return
+        start = top
+        while start > 0 and self._row_fn[start - 1] == label:
+            start -= 1
+        if start >= top or start >= len(rows):
+            self._hide_sticky()  # the signature line itself is the top row
+            return
+        self._sticky_geometry()
+        r = rows[start]
+        lang = language_for(self._rel) if self._rel else None
+        self._set_sticky(self._sticky_old, r.old_txt, lang)
+        self._set_sticky(self._sticky_new, r.new_txt, lang)
+
+    def _set_sticky(self, lbl, text, lang):
+        if text is None:
+            lbl.setVisible(False)
+            return
+        lbl.setText(highlight.inline_html(text, lang))
+        lbl.setVisible(True)
+        lbl.raise_()
+
+    def _hide_sticky(self):
+        self._sticky_old.setVisible(False)
+        self._sticky_new.setVisible(False)
+
+    def _apply_sb_policy(self):
+        """One vertical scrollbar, not two: only the driving pane shows one --
+        the other is a perfect mirror of it, so a second bar is pure clutter.
+        The minimap on the far right carries the overview either way."""
+        for edit in (self.old_edit, self.new_edit):
+            edit.setVerticalScrollBarPolicy(
+                Qt.ScrollBarAsNeeded if edit is self._drive
+                else Qt.ScrollBarAlwaysOff)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sticky_geometry()  # panes just changed width; re-fit the header
 
     def _track_fn(self, _value=None):
         """Name, in the caption, the first scope visible from the top of the
@@ -801,6 +899,7 @@ class DiffPane(QStackedWidget):
         # visible-row count are computed fresh on every paint, so a repaint is
         # all that is needed to bring the map back in step
         self.minimap.update()
+        self._track_sticky()  # the pinned line's font and height moved with it
 
     # --- public seam ---
 
@@ -832,6 +931,7 @@ class DiffPane(QStackedWidget):
         self._hit_idx = -1
         self._row_fn = []
         self._set_fn(None)
+        self._hide_sticky()
         self._clear_selections()
         self.setCurrentIndex(0)
 
@@ -911,6 +1011,7 @@ class DiffPane(QStackedWidget):
         self._stop_units = []
         self._row_fn = []
         self._set_fn(None)
+        self._hide_sticky()
         self._clear_selections()
         self.minimap.set_rows([])
         self._pos_text = ''
@@ -1006,6 +1107,7 @@ class DiffPane(QStackedWidget):
         # scrollbar mirror carries the new pane), whatever a previous
         # one-sided file left the map pointing at
         self._drive = self.old_edit
+        self._apply_sb_policy()
         self.minimap.set_editor(self.old_edit)
         self.minimap.set_rows(rows)
 
@@ -1059,7 +1161,7 @@ class DiffPane(QStackedWidget):
             self._pos_text = ''
             self._clear_selections()
             self.old_edit.verticalScrollBar().setValue(0)
-            self._track_fn()  # no change to reveal: name the scope at line 1
+            self._on_vscroll()  # no change to reveal: name the scope at line 1
 
     def _load_one_side(self, rel, label, lines, side):
         # rows are marked 'ctx': the pane is already one solid colour, so the
@@ -1100,10 +1202,11 @@ class DiffPane(QStackedWidget):
         # the map still shows the file's shape, so a whole added or deleted
         # file scrolls like any other -- driven by the pane that holds the text
         self._drive = edit
+        self._apply_sb_policy()
         self.minimap.set_editor(edit)
         self.minimap.set_rows(self.rows)
         self.setCurrentIndex(1)
-        self._track_fn()
+        self._on_vscroll()
 
     @staticmethod
     def _bg(mode, side):
@@ -1166,7 +1269,7 @@ class DiffPane(QStackedWidget):
         drive.verticalScrollBar().setValue(max(0, row - context))
         self._highlight_block(row)
         self._update_position(row)
-        self._track_fn()  # setValue may clamp to a no-op, so name the scope here
+        self._on_vscroll()  # setValue may clamp to a no-op; refresh caption/sticky
         self.unitChanged.emit()
 
     def _paint_selections(self):

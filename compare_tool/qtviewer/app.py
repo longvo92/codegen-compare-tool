@@ -1390,6 +1390,18 @@ QWidget#findbar {{ background:{chrome-bar-bg}; border-top:1px solid {border};
                   border-bottom:1px solid {border}; }}
 QWidget#findbar QToolButton {{ color:{st-ign}; padding:2px 6px; border-radius:4px; }}
 QWidget#findbar QToolButton:hover {{ background:{chrome-hover}; color:{fg-strong}; }}
+/* thin, rounded, arrow-less scrollbars -- the chunky Fusion default reads as a
+   second UI panel beside the code; this one recedes until hovered */
+QScrollBar:vertical {{ background:transparent; width:12px; margin:0; }}
+QScrollBar:horizontal {{ background:transparent; height:12px; margin:0; }}
+QScrollBar::handle:vertical {{ background:{scroll-thumb}; min-height:32px;
+            border-radius:5px; margin:2px; }}
+QScrollBar::handle:horizontal {{ background:{scroll-thumb}; min-width:32px;
+            border-radius:5px; margin:2px; }}
+QScrollBar::handle:hover {{ background:{scroll-thumb-hover}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width:0; height:0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background:transparent; }}
+QAbstractScrollArea::corner {{ background:transparent; }}
 """
 
 

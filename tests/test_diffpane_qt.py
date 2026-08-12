@@ -4,6 +4,7 @@ Skipped when PySide6 is absent, so the rest of the suite still runs headless
 (see the "viewer logic that can be Qt-free must be Qt-free" rule).
 """
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -212,6 +213,86 @@ class TestMinimapOnOneSidedFiles(unittest.TestCase):
         self._open('src/real_change.c')
         self.assertIs(self.pane.minimap._editor, self.pane.old_edit)
         self.assertTrue(self.pane.minimap._rows)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestStickyHeaderAndScrollbar(unittest.TestCase):
+    """The pinned "current function" header and the single vertical scrollbar."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.pane.resize(1000, 400)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+
+    def _open(self, rel):
+        self.pane.show_file(rel, self.results[rel],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+
+    def _long_c(self):
+        """A tall two-pane file: real_change.c is a handful of lines, so its
+        function signature never scrolls off and the sticky would never show.
+        Build one long enough that it does."""
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / 'old').mkdir()
+        (tmp / 'new').mkdir()
+        body = '\n'.join('  a[{}] = {};'.format(i, i) for i in range(80))
+        old = 'void LongFn(void)\n{\n' + body + '\n  a[0] = 1;\n}\n'
+        new = 'void LongFn(void)\n{\n' + body + '\n  a[0] = 2;\n}\n'
+        (tmp / 'old' / 'm.c').write_text(old)
+        (tmp / 'new' / 'm.c').write_text(new)
+        return tmp
+
+    def test_only_the_driving_pane_shows_a_vertical_scrollbar(self):
+        self._open('src/real_change.c')  # two-pane: old drives
+        self.assertEqual(self.pane.old_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAsNeeded)
+        self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAlwaysOff)
+
+    def test_one_sided_file_scrollbar_follows_the_content_pane(self):
+        self._open('src/added.c')  # content is on the NEW side, which drives
+        self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAsNeeded)
+        self.assertEqual(self.pane.old_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAlwaysOff)
+
+    def test_sticky_pins_the_function_once_it_scrolls_off(self):
+        tmp = self._long_c()
+        results = scan(tmp / 'old', tmp / 'new')
+        self.pane.show_file('m.c', results['m.c'], str(tmp / 'old'), str(tmp / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+        # at the top the signature line is on screen: nothing to pin
+        self.pane._drive.verticalScrollBar().setValue(0)
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertFalse(self.pane._sticky_old.isVisible())
+        # scrolled deep into the body: the signature is pinned at the top
+        self.pane._drive.verticalScrollBar().setValue(50)
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertTrue(self.pane._sticky_old.isVisible())
+        self.assertIn('LongFn', self.pane._sticky_old.text())
+
+    def test_sticky_clears_on_message_pages(self):
+        tmp = self._long_c()
+        results = scan(tmp / 'old', tmp / 'new')
+        self.pane.show_file('m.c', results['m.c'], str(tmp / 'old'), str(tmp / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+        self.pane._drive.verticalScrollBar().setValue(50)
+        for _ in range(4):
+            self.app.processEvents()
+        self.pane.clear()
+        self.assertFalse(self.pane._sticky_old.isVisible())
+        self.assertFalse(self.pane._sticky_new.isVisible())
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')

@@ -78,7 +78,9 @@ dùng nút `Zip…` trong `Open folders…`. Nó được giải nén vào thư 
 
 Khi một file đang mở, một **caption cạnh tên file** cho biết bạn đang ở hàm nào —
 hàm C, SHORT-NAME của AUTOSAR hay block A2L bao quanh — và bám theo lúc cuộn, nên
-luôn biết mình đang ở đâu trong một file sinh dài.
+luôn biết mình đang ở đâu trong một file sinh dài. Khi dòng signature của hàm cuộn
+khuất lên trên, nó được **ghim lên đỉnh mỗi pane** (như sticky scroll của VS Code)
+cho tới khi bạn rời khỏi hàm.
 
 ### Đọc một lần scan
 

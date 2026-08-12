@@ -142,6 +142,13 @@ _DARK = {
     'gutter-bg': '#1e1f22',
     'gutter-fg': '#6a6a6a',
     'filler-bg': '#26272b',
+    # the pinned "current function" line at the top of each pane, and the thin
+    # scrollbar thumb -- both need to sit ON the code area, so they come from
+    # the editor's own background family rather than the chrome's
+    'sticky-bg': '#26272b',
+    'sticky-border': '#3a3d44',
+    'scroll-thumb': '#4b4e57',
+    'scroll-thumb-hover': '#5f636e',
     'cur-marker': '#e8e8e8',
     'find-bg': '#5a4715',
     'find-cur-bg': '#8f7220',
@@ -277,6 +284,10 @@ _LIGHT = {
     'gutter-bg': '#f6f8fa',
     'gutter-fg': '#8c959f',
     'filler-bg': '#f1f2f4',
+    'sticky-bg': '#f2f4f7',
+    'sticky-border': '#d0d7de',
+    'scroll-thumb': '#c2c8d0',
+    'scroll-thumb-hover': '#a8b0ba',
     'cur-marker': '#0d1117',
     'find-bg': '#fff0b3',
     'find-cur-bg': '#ffd633',

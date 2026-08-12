@@ -15,6 +15,8 @@ row fills rather than competing with them. The actual values live in
 page does not need a second copy of this mapping.
 """
 
+import html as _html
+
 from PySide6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat
 
 from .. import syntax, theme
@@ -47,6 +49,36 @@ def _formats():
             fmt.setFontItalic(True)
         out[kind] = fmt
     return out
+
+
+def inline_html(text, language):
+    """One code line as inline-styled HTML for a QLabel -- the pinned "current
+    function" sticky header. Uses the SAME kind->colour map the panes paint
+    with (rule 3: one seam), so the pinned line matches the code below it.
+    Spaces are made hard, or QLabel's rich text would collapse a signature's
+    indentation."""
+    def esc(s):
+        return _html.escape(s).replace(' ', '&#160;').replace('\t', '&#160;' * 4)
+
+    spans = syntax.spans(text, language)[0] if language else []
+    if not spans:
+        return esc(text)
+    out, pos = [], 0
+    for start, end, kind in spans:
+        if start > pos:
+            out.append(esc(text[pos:start]))
+        role, italic = _PALETTE.get(kind, (None, False))
+        seg = esc(text[start:end])
+        if role:
+            style = 'color:{}'.format(theme.c(role))
+            if italic:
+                style += ';font-style:italic'
+            seg = '<span style="{}">{}</span>'.format(style, seg)
+        out.append(seg)
+        pos = end
+    if pos < len(text):
+        out.append(esc(text[pos:]))
+    return ''.join(out)
 
 
 def _muted_format():
