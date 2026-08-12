@@ -19,6 +19,11 @@ All notable changes to this project are documented here. Versions follow
   and cleaned up afterwards, with the header naming the zip instead of a temp
   path. No more unzipping by hand.
 
+### Fixed
+
+- **Improve light-mode legibility.** Dialog labels and the landing logo are no
+  longer washed-out grey on the light theme.
+
 ## [1.7.0] — 2026-08-10
 
 The report spends its space on what changed: a component with nothing to show

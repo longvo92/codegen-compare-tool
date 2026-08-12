@@ -19,13 +19,26 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog,
                                QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
-from .. import zipsource
+from .. import theme, zipsource
 from .icons import app_icon
 
 _COMMIT_ROLE = Qt.UserRole
 
-_ERR_QSS = ('color:#ffd6d6; background:#4a1d1d; padding:5px 8px; '
-            'border-radius:3px;')
+
+def _err_qss():
+    """The error strip, in theme roles -- resolved when the dialog is built, so
+    it reads on both the light and the dark chrome. A hard-coded near-white on
+    dark-red was invisible-adjacent on the light theme."""
+    return ('color:{}; background:{}; border:1px solid {}; padding:5px 8px; '
+            'border-radius:3px;'.format(theme.c('err-fg'), theme.c('err-bg'),
+                                        theme.c('err-border')))
+
+
+def _muted_qss(role='fg-dim', extra=''):
+    """A muted label colour from a theme role. The dialogs used a fixed light
+    grey (#9aa1ad / #8a8f98) that all but vanished on the light theme's white;
+    a role flips with the chrome and stays legible on both."""
+    return 'color:{};{}'.format(theme.c(role), extra)
 
 
 def _esc(text):
@@ -41,7 +54,7 @@ class _PathRow(QHBoxLayout):
         super().__init__()
         tag = QLabel(label)
         tag.setMinimumWidth(64)  # fits 'BASELINE', the longest row label
-        tag.setStyleSheet('color:#9aa1ad;')
+        tag.setStyleSheet(_muted_qss('fg-dim'))
         self.edit = QLineEdit(str(path) if path else '')
         self.edit.setPlaceholderText('Choose a folder or a .zip…')
         btn = QPushButton('Browse…')
@@ -87,12 +100,12 @@ class FolderPicker(QDialog):
 
         hint = QLabel('BASELINE is the previous generation, CURRENT is the one '
                       'being reviewed. Either can be a folder or a .zip.')
-        hint.setStyleSheet('color:#8a8f98; font-size:11px;')
+        hint.setStyleSheet(_muted_qss('fg-muted', ' font-size:11px;'))
 
         self.error = QLabel('')
         self.error.setWordWrap(True)
         self.error.setVisible(False)
-        self.error.setStyleSheet(_ERR_QSS)
+        self.error.setStyleSheet(_err_qss())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Ok).setText('Compare')
@@ -174,7 +187,8 @@ class CommitPicker(QDialog):
         self.where = QLabel('')
         # lines up under the path text, not the tag: the tag column is now
         # sized for 'BASELINE' in the other dialog, wider than 'Folder' here
-        self.where.setStyleSheet('color:#9aa1ad; font-size:11px; padding-left:68px;')
+        self.where.setStyleSheet(
+            _muted_qss('fg-dim', ' font-size:11px; padding-left:68px;'))
 
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText('Filter commits…')
@@ -201,7 +215,7 @@ class CommitPicker(QDialog):
         self.error = QLabel('')
         self.error.setWordWrap(True)
         self.error.setVisible(False)
-        self.error.setStyleSheet(_ERR_QSS)
+        self.error.setStyleSheet(_err_qss())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Ok).setText('Compare')

@@ -319,9 +319,7 @@ class DiffPane(QStackedWidget):
         # verdict about a file, not as a splash screen.
         self._logo = QLabel()
         self._logo.setAlignment(Qt.AlignCenter)
-        pm = logo_pixmap(340)
-        if pm is not None:
-            self._logo.setPixmap(pm)
+        self._load_logo()
         self._logo.setVisible(False)
         self._msg = QLabel(_HINT)
         self._msg.setAlignment(Qt.AlignCenter)
@@ -450,6 +448,15 @@ class DiffPane(QStackedWidget):
 
     # --- theme ---
 
+    def _load_logo(self):
+        """(Re)build the landing lockup for the current theme. The wordmark is
+        near-black on light and light-grey on dark, baked into the pixmap -- so
+        without rebuilding it on a theme switch the light-grey wordmark from a
+        dark start would sit all but invisible on the light landing page."""
+        pm = logo_pixmap(340)
+        if pm is not None:
+            self._logo.setPixmap(pm)
+
     def _style_widgets(self):
         """Every stylesheet this pane sets by hand, in one place, so a theme
         switch is one call rather than a hunt through the constructor."""
@@ -481,6 +488,7 @@ class DiffPane(QStackedWidget):
         a stylesheet swap alone would leave the previous theme's red and green
         sitting in the code."""
         self._style_widgets()
+        self._load_logo()  # the wordmark is baked per theme; rebuild it
         for editor, hl in ((self.old_edit, self._hl_old),
                            (self.new_edit, self._hl_new)):
             editor.apply_theme()
