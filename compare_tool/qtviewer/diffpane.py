@@ -815,9 +815,15 @@ class DiffPane(QStackedWidget):
     def _track_sticky(self, _value=None):
         """Pin the enclosing function's signature line to the top of each pane,
         but only once it has scrolled out of view -- while the real header line
-        is on screen there is nothing to pin, same as VS Code."""
+        is on screen there is nothing to pin, same as VS Code.
+
+        C only: a C function opens with a one-line signature that reads on its
+        own, so pinning it is useful. An ARXML/A2L scope is a nested
+        SHORT-NAME / block chain whose opening line (`<RUNNABLE-ENTITY>`, a
+        `/begin`) says nothing by itself -- the caption beside the file name
+        already carries that scope for every language."""
         rows = self.rows
-        if not self._row_fn or not rows:
+        if not rows or not self._rel or language_for(self._rel) != 'c':
             self._hide_sticky()
             return
         top = self._drive.firstVisibleBlock().blockNumber()
@@ -833,9 +839,8 @@ class DiffPane(QStackedWidget):
             return
         self._sticky_geometry()
         r = rows[start]
-        lang = language_for(self._rel) if self._rel else None
-        self._set_sticky(self._sticky_old, r.old_txt, lang)
-        self._set_sticky(self._sticky_new, r.new_txt, lang)
+        self._set_sticky(self._sticky_old, r.old_txt, 'c')
+        self._set_sticky(self._sticky_new, r.new_txt, 'c')
 
     def _set_sticky(self, lbl, text, lang):
         if text is None:

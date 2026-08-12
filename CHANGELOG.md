@@ -9,9 +9,9 @@ All notable changes to this project are documented here. Versions follow
 
 - **Every change now names the function it lives in.** Each hunk in the report
   carries the enclosing function, AUTOSAR SHORT-NAME or A2L block above it, and
-  the viewer keeps a "current function" caption that tracks the scroll — and
-  pins that function's signature line to the top of each pane once it scrolls
-  out of view, the way VS Code does. In a regenerated file thousands of lines
+  the viewer keeps a "current function" caption that tracks the scroll — and,
+  for C files, pins that function's signature line to the top of each pane once
+  it scrolls out of view, the way VS Code does. In a regenerated file thousands of lines
   long you can see *where* a change is, not just how many there are. A modified
   file's header also lists the functions its real changes touch.
 - **Compare a `.zip` artifact directly.** Either side — on the command line, in

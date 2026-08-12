@@ -281,6 +281,30 @@ class TestStickyHeaderAndScrollbar(unittest.TestCase):
         self.assertTrue(self.pane._sticky_old.isVisible())
         self.assertIn('LongFn', self.pane._sticky_old.text())
 
+    def test_sticky_is_c_only(self):
+        # an ARXML scope is a nested SHORT-NAME chain, not a one-line signature,
+        # so no sticky even when a deep hunk scrolls its element off the top
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / 'old').mkdir()
+        (tmp / 'new').mkdir()
+        rows = '\n'.join('    <ITEM UUID="{0}">v{0}</ITEM>'.format(i)
+                         for i in range(80))
+        head = ('<AUTOSAR><AR-PACKAGES><AR-PACKAGE>\n'
+                '  <SHORT-NAME>Pkg</SHORT-NAME>\n  <ELEMENTS>\n')
+        tail = '\n  </ELEMENTS>\n</AR-PACKAGE></AR-PACKAGES></AUTOSAR>\n'
+        (tmp / 'old' / 'm.arxml').write_text(head + rows + '\n    <V>1</V>' + tail)
+        (tmp / 'new' / 'm.arxml').write_text(head + rows + '\n    <V>2</V>' + tail)
+        results = scan(tmp / 'old', tmp / 'new')
+        self.pane.show_file('m.arxml', results['m.arxml'],
+                            str(tmp / 'old'), str(tmp / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+        self.pane._drive.verticalScrollBar().setValue(50)
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertFalse(self.pane._sticky_old.isVisible())
+        self.assertFalse(self.pane._sticky_new.isVisible())
+
     def test_sticky_clears_on_message_pages(self):
         tmp = self._long_c()
         results = scan(tmp / 'old', tmp / 'new')
