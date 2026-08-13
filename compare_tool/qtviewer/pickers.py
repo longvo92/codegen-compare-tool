@@ -122,18 +122,33 @@ class FolderPicker(QDialog):
         lay.addWidget(self.buttons)
         self._sync_ok()
 
+    def _start_dir(self, row):
+        """Where a browse dialog for ``row`` should open.
+
+        BASELINE and CURRENT are almost always siblings -- ``old/`` and ``new/``
+        under one parent. So a side that is still empty opens in the *other*
+        side's parent, where the folder to pick is sitting right next to it:
+        set BASELINE to ``…/funcdemo/old`` and browsing CURRENT lands in
+        ``…/funcdemo``. Once a side has its own path, re-browsing stays there.
+        """
+        other = self.new_row if row is self.old_row else self.old_row
+        mine = row.text()
+        if mine:
+            p = Path(mine)
+            return str(p if p.is_dir() else p.parent)
+        theirs = other.text()
+        return str(Path(theirs).parent) if theirs else ''
+
     def _browse(self, row, label):
-        start = row.text() or self.old_row.text() or self.new_row.text() or ''
         picked = QFileDialog.getExistingDirectory(
-            self, 'Select the {} folder'.format(label), start)
+            self, 'Select the {} folder'.format(label), self._start_dir(row))
         if picked:
             row.set_text(picked)
 
     def _browse_zip(self, row, label):
-        start = row.text() or self.old_row.text() or self.new_row.text() or ''
         picked, _ = QFileDialog.getOpenFileName(
-            self, 'Select the {} zip'.format(label),
-            str(Path(start).parent) if start else '', 'Zip artifact (*.zip)')
+            self, 'Select the {} zip'.format(label), self._start_dir(row),
+            'Zip artifact (*.zip)')
         if picked:
             row.set_text(picked)
 

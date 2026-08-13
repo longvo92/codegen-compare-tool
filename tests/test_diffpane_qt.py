@@ -959,5 +959,52 @@ class TestThemeSwitch(unittest.TestCase):
         self.assertEqual(self.theme.current(), self.theme.DARK)
 
 
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestFolderPickerStartDir(unittest.TestCase):
+    """Browsing one side opens beside the other -- old/ and new/ are siblings,
+    so the folder you are about to pick is right where the other side lives."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.pickers import FolderPicker
+        _app()
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.parent_dir = base / 'funcdemo'
+        self.old = self.parent_dir / 'old'
+        self.new = self.parent_dir / 'new'
+        self.old.mkdir(parents=True)
+        self.new.mkdir()
+        self.FolderPicker = FolderPicker
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_empty_side_starts_in_the_other_sides_parent(self):
+        # BASELINE set, CURRENT empty -> browsing CURRENT opens in the parent
+        # that holds both old/ and new/
+        dlg = self.FolderPicker(None, old=str(self.old), new=None)
+        self.assertEqual(dlg._start_dir(dlg.new_row), str(self.parent_dir))
+
+    def test_it_is_symmetric(self):
+        # CURRENT set, BASELINE empty -> same, from the other direction
+        dlg = self.FolderPicker(None, old=None, new=str(self.new))
+        self.assertEqual(dlg._start_dir(dlg.old_row), str(self.parent_dir))
+
+    def test_a_side_with_its_own_path_stays_there(self):
+        dlg = self.FolderPicker(None, old=str(self.old), new=str(self.new))
+        self.assertEqual(dlg._start_dir(dlg.old_row), str(self.old))
+
+    def test_a_zip_side_starts_in_the_zips_folder(self):
+        # a side may hold a .zip; browsing the other opens where the zip lives
+        zip_path = self.parent_dir / 'artifact.zip'
+        zip_path.write_bytes(b'')
+        dlg = self.FolderPicker(None, old=str(zip_path), new=None)
+        self.assertEqual(dlg._start_dir(dlg.new_row), str(self.parent_dir))
+
+    def test_both_empty_is_blank(self):
+        dlg = self.FolderPicker(None, old=None, new=None)
+        self.assertEqual(dlg._start_dir(dlg.old_row), '')
+
+
 if __name__ == '__main__':
     unittest.main()
