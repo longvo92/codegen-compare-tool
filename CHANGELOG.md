@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-08-13
+
+You can see *where* each change lives, a build drop compares straight from its
+zip, and the viewer reads cleanly in either theme.
+
 ### Added
 
 - **Every change now names the function it lives in.** Each hunk in the report
@@ -20,12 +25,18 @@ All notable changes to this project are documented here. Versions follow
   and cleaned up afterwards, with the header naming the zip instead of a temp
   path. No more unzipping by hand.
 
+### Changed
+
+- **Tidy the diff-pane scrollbars.** One slim scrollbar instead of two, so the
+  two code columns are no longer split by a redundant bar.
+- **Open the second folder beside the first.** Choosing BASELINE and then
+  browsing for CURRENT opens in the folder that holds both, not inside the
+  first pick.
+
 ### Fixed
 
 - **Improve light-mode legibility.** Dialog labels and the landing logo are no
   longer washed-out grey on the light theme.
-- **Tidy the diff-pane scrollbars.** One slim scrollbar instead of two, so the
-  two code columns are no longer split by a redundant bar.
 
 ## [1.7.0] — 2026-08-10
 
