@@ -90,6 +90,103 @@ class TestC(unittest.TestCase):
         self.assertEqual(enc(src, 'c')[3], 'f')
 
 
+class TestCpp(unittest.TestCase):
+    def test_namespace_class_method_nest(self):
+        src = ('namespace drv {\n'
+               'class Motor {\n'
+               'public:\n'
+               '  void step(int n) {\n'
+               '    x = n;\n'
+               '  }\n'
+               '};\n'
+               '}\n')
+        labels = enc(src, 'cpp')
+        self.assertEqual(labels[0], 'drv')            # namespace scope
+        self.assertEqual(labels[1], 'drv / Motor')    # class inside namespace
+        self.assertEqual(labels[4], 'Motor / step')   # method body, innermost
+
+    def test_a_namespace_does_not_swallow_the_function(self):
+        # the single-open-scope walk C uses would label this 'ns'; the brace
+        # stack keeps the function name
+        src = 'namespace ns {\nint compute() {\n  return 1;\n}\n}\n'
+        self.assertEqual(enc(src, 'cpp')[2], 'ns / compute')
+
+    def test_out_of_line_method_keeps_its_qualifier(self):
+        src = 'void Motor::stop() {\n  y = 0;\n}\n'
+        self.assertEqual(enc(src, 'cpp')[1], 'Motor::stop')
+
+    def test_destructor(self):
+        src = 'Motor::~Motor() {\n  cleanup();\n}\n'
+        self.assertEqual(enc(src, 'cpp')[1], 'Motor::~Motor')
+
+    def test_enum_class_names_the_enum_not_class(self):
+        src = 'enum class Color {\n  Red,\n  Green\n};\n'
+        self.assertEqual(enc(src, 'cpp')[1], 'Color')
+
+    def test_control_block_opens_no_scope(self):
+        src = 'int f() {\n  if (x) {\n    g();\n  }\n}\n'
+        self.assertEqual(enc(src, 'cpp')[2], 'f')  # inside the if, still f
+
+    def test_call_with_brace_argument_is_not_a_scope(self):
+        # f({...}) is a call, not a definition -- the '{' sits inside parens
+        src = 'int g() {\n  f({1, 2});\n  return 0;\n}\n'
+        self.assertEqual(enc(src, 'cpp')[1], 'g')
+
+    def test_brace_inside_string_is_not_structure(self):
+        src = 'void f() {\n  log("}");\n  q();\n}\n'
+        self.assertEqual(enc(src, 'cpp')[2], 'f')
+
+
+class TestPython(unittest.TestCase):
+    SRC = ('import os\n'
+           '\n'
+           'class Limiter:\n'
+           '    def __init__(self, c):\n'
+           '        self.c = c\n'
+           '\n'
+           '    def step(self, r):\n'
+           '        return min(r, self.c)\n'
+           '\n'
+           'def helper(x):\n'
+           '    return x + 1\n')
+
+    def test_method_inside_class(self):
+        labels = enc(self.SRC, 'python')
+        self.assertEqual(labels[3], 'Limiter / __init__')
+        self.assertEqual(labels[4], 'Limiter / __init__')  # body by indent
+        self.assertEqual(labels[6], 'Limiter / step')
+
+    def test_top_level_function(self):
+        labels = enc(self.SRC, 'python')
+        self.assertEqual(labels[9], 'helper')
+        self.assertEqual(labels[10], 'helper')
+
+    def test_module_level_lines_are_unlabelled(self):
+        labels = enc(self.SRC, 'python')
+        self.assertIsNone(labels[0])  # import, at module level
+        self.assertIsNone(labels[1])  # blank line before the class
+        # the class line names itself, like a C function's signature line does
+        self.assertEqual(labels[2], 'Limiter')
+
+    def test_def_inside_a_docstring_is_not_a_definition(self):
+        src = ('def real(x):\n'
+               '    """example:\n'
+               '        def fake():\n'
+               '            pass\n'
+               '    """\n'
+               '    return x\n')
+        labels = enc(src, 'python')
+        self.assertEqual(labels[5], 'real')      # the real body
+        # the fake 'def' inside the docstring never opened a scope
+        self.assertEqual(labels[3], 'real')
+
+    def test_dedent_closes_the_function(self):
+        src = 'def a():\n    return 1\nb = 2\n'
+        labels = enc(src, 'python')
+        self.assertEqual(labels[1], 'a')
+        self.assertIsNone(labels[2])  # dedented back to module level
+
+
 class TestArxml(unittest.TestCase):
     SRC = ('<AR-PACKAGE>\n'
            '  <SHORT-NAME>Ctrl</SHORT-NAME>\n'

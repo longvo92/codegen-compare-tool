@@ -5,6 +5,19 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Compare C++, Python, YAML and JSON files too.** They are syntax-coloured in
+  both the report and the viewer, and comment churn in C++, Python and YAML is
+  filtered out of the diff the same way C and ARXML noise already is. Each
+  change also names the scope it lives in — a C++ namespace/class/function or a
+  Python class/method — the way C and AUTOSAR files already do.
+
+### Fixed
+
+- **Remove a stray scrollbar on an added file.** A whole new file no longer
+  shows a scrollbar overlapping the minimap; the minimap scrolls it.
+
 ## [1.8.0] — 2026-08-13
 
 You can see *where* each change lives, a build drop compares straight from its

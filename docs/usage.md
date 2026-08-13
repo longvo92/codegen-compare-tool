@@ -77,8 +77,9 @@ the `Zip…` button in `Open folders…`. It is unpacked to a temp folder and th
 pane is labelled by the zip name, not the temp path.
 
 Once a file is open, a **caption beside its name** shows the function you are
-looking at — the enclosing C function, AUTOSAR SHORT-NAME or A2L block — and
-follows the scroll, so you always know where in a long generated file you are.
+looking at — the enclosing C/C++ function, Python class/method, AUTOSAR
+SHORT-NAME or A2L block — and follows the scroll, so you always know where in a
+long generated file you are.
 For **C files**, when the function's signature scrolls off the top it is also
 **pinned to the top of each pane** (like VS Code's sticky scroll) until you
 leave the function.
@@ -91,7 +92,7 @@ leave the function.
 - `Hide identical` leaves only the files with a difference in the tree. It is a view: verdicts, counts and the exported report are untouched.
 - Unticking `Comment` / `Unimportant` **greys those lines out** rather than removing them: they stay where they are, keep their line numbers, lose their red/green, and drop off the minimap and out of `F7`/`F8`. The code around a change is what makes it readable, and a regenerated file is mostly banner churn — folding it away took most of the file with it. Left ticked (the default) they keep their colour and `F7`/`F8` stops on them like any other change.
 - The change you are on is marked by a **small arrow in the line-number gutter**, on both panes — so `F7`/`F8` visibly move even in a file short enough that there is nothing to scroll.
-- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme; `--theme` picks the one it starts in. C, ARXML and A2L are syntax-coloured in both.
+- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme; `--theme` picks the one it starts in. C, C++, ARXML/XML, A2L, Python, JSON and YAML are syntax-coloured in both.
 
 | Mark | Verdict | Meaning |
 |---|---|---|
@@ -157,7 +158,7 @@ appears in the file with its real verdict.
 
 | Kind | Rule | Files |
 |---|---|---|
-| `comment` | C comments (`//`, `/* */`), XML comments (`<!-- -->`) | .c .h .arxml .a2l |
+| `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML). Python docstrings and JSON are **not** folded — a triple-quoted string is code, and JSON has no comments | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated names). Anything the mapping can't fully explain stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |

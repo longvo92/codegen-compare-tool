@@ -30,6 +30,19 @@ class TestLanguageChoice(unittest.TestCase):
     def test_a2l(self):
         self.assertEqual(syntax.language_for('project.a2l'), 'a2l')
 
+    def test_python_json_yaml(self):
+        self.assertEqual(syntax.language_for('build.py'), 'python')
+        self.assertEqual(syntax.language_for('conf/app.yaml'), 'yaml')
+        self.assertEqual(syntax.language_for('conf/app.yml'), 'yaml')
+        self.assertEqual(syntax.language_for('data.json'), 'json')
+
+    def test_cpp(self):
+        for name in ('motor.cpp', 'motor.cc', 'motor.cxx', 'motor.hpp',
+                     'motor.hh', 'motor.hxx'):
+            self.assertEqual(syntax.language_for(name), 'cpp', name)
+        # a bare .h stays C -- ambiguous, and C is the safer default
+        self.assertEqual(syntax.language_for('rte.h'), 'c')
+
     def test_unknown_extension_stays_plain(self):
         self.assertIsNone(syntax.language_for('notes.txt'))
         self.assertIsNone(syntax.language_for('Makefile'))
@@ -195,6 +208,98 @@ class TestA2L(unittest.TestCase):
                           if k == syntax.PREPROC], [])
 
 
+class TestCpp(unittest.TestCase):
+    def test_keywords_types_calls(self):
+        got = kinds('  virtual void Motor::step(int n) { return; }', 'cpp')
+        self.assertIn(('virtual', syntax.KEYWORD), got)
+        self.assertIn(('void', syntax.TYPE), got)
+        self.assertIn(('int', syntax.TYPE), got)
+        self.assertIn(('step', syntax.CALL), got)
+        self.assertIn(('return', syntax.KEYWORD), got)
+
+    def test_cpp_only_keywords(self):
+        got = kinds('template <class T> class Foo : public Bar {};', 'cpp')
+        for word in ('template', 'class', 'public'):
+            self.assertIn((word, syntax.KEYWORD), got)
+
+    def test_bool_is_a_type(self):
+        self.assertIn(('bool', syntax.TYPE), kinds('bool ok = true;', 'cpp'))
+
+    def test_preprocessor_and_block_comment(self):
+        self.assertIn(('#include', syntax.PREPROC), kinds('#include <vector>', 'cpp'))
+        _s, state = syntax.spans('/* banner', 'cpp')
+        self.assertEqual(state, IN_BLOCK_COMMENT)
+
+    def test_a_name_stays_plain(self):
+        # an object name must not be swallowed by a keyword rule
+        got = dict(kinds('Motor drive_unit;', 'cpp'))
+        self.assertNotIn('drive_unit', got)
+
+
+class TestPython(unittest.TestCase):
+    def test_keywords_calls_numbers(self):
+        got = kinds('def step(n): return compute(n) + 3.0', 'python')
+        self.assertIn(('def', syntax.KEYWORD), got)
+        self.assertIn(('return', syntax.KEYWORD), got)
+        self.assertIn(('compute', syntax.CALL), got)
+        self.assertIn(('3.0', syntax.NUMBER), got)
+
+    def test_hash_comment_runs_to_end(self):
+        self.assertEqual(kinds('x = 1  # set the gain', 'python')[-1],
+                         ('# set the gain', syntax.COMMENT))
+
+    def test_hash_inside_a_string_is_not_a_comment(self):
+        line = 's = "count #1"  # tail'
+        got = kinds(line, 'python')
+        self.assertIn(('"count #1"', syntax.STRING), got)
+        self.assertEqual([t for t, k in got if k == syntax.COMMENT], ['# tail'])
+        self.assertEqual(syntax.spans(line, 'python')[1], PLAIN)
+
+    def test_triple_quoted_string_carries_across_lines(self):
+        _s, state = syntax.spans('doc = """first line', 'python')
+        self.assertEqual(state, syntax.IN_TRIPLE_DQ)
+        mid, state = syntax.spans('    still the docstring # not a comment',
+                                  'python', state)
+        self.assertEqual(mid, [(0, 39, syntax.STRING)])
+        self.assertEqual(state, syntax.IN_TRIPLE_DQ)
+        _end, state = syntax.spans('last line""" + tail', 'python', state)
+        self.assertEqual(state, PLAIN)
+
+    def test_single_line_triple_quote_closes_on_its_line(self):
+        _s, state = syntax.spans('d = """one liner"""', 'python')
+        self.assertEqual(state, PLAIN)
+
+    def test_a_quote_inside_a_hash_comment_does_not_open_a_string(self):
+        got, state = syntax.spans("x = 1  # it's fine", 'python')
+        self.assertEqual(state, PLAIN)
+        self.assertEqual([k for _a, _b, k in got if k == syntax.STRING], [])
+
+
+class TestJsonYaml(unittest.TestCase):
+    def test_json_literals_and_numbers(self):
+        got = kinds('{"ok": true, "n": 42, "x": null}', 'json')
+        self.assertIn(('true', syntax.KEYWORD), got)
+        self.assertIn(('null', syntax.KEYWORD), got)
+        self.assertIn(('42', syntax.NUMBER), got)
+        self.assertIn(('"ok"', syntax.STRING), got)
+
+    def test_json_has_no_comments(self):
+        # a '#' or '//' is just data in JSON, never a comment
+        got = kinds('{"u": "a#b//c"}', 'json')
+        self.assertEqual([k for _t, k in got if k == syntax.COMMENT], [])
+
+    def test_yaml_key_and_comment(self):
+        got = kinds('port: 8080  # default', 'yaml')
+        self.assertIn(('port', syntax.ATTR), got)
+        self.assertIn(('8080', syntax.NUMBER), got)
+        self.assertEqual(got[-1], ('# default', syntax.COMMENT))
+
+    def test_yaml_hash_glued_to_value_stays_plain(self):
+        got, state = syntax.spans('url: http://h/a#frag', 'yaml')
+        self.assertEqual(state, PLAIN)
+        self.assertEqual([k for _a, _b, k in got if k == syntax.COMMENT], [])
+
+
 class TestSpanShape(unittest.TestCase):
     """Whatever the line, the Qt layer must be able to paint the spans in
     order without them fighting each other."""
@@ -209,6 +314,12 @@ class TestSpanShape(unittest.TestCase):
         ('a2l', '  /begin CHARACTERISTIC K_Gain "gain" VALUE 0x8000 RL 0 CM 1 2'),
         ('a2l', '    ECU_ADDRESS 0x40001000 /* linker map */'),
         ('a2l', '  /begin MOD_PAR "C:\\\\build\\\\out" // path with a backslash'),
+        ('python', 'def step(n): return compute(n) + 3.0  # tune "later"'),
+        ('python', 'doc = """a docstring with a # and a \' inside"""'),
+        ('json', '{"name": "svc", "port": 8080, "ok": true, "u": "a#b"}'),
+        ('yaml', 'port: 8080  # was 9090, url http://h/a#frag'),
+        ('cpp', '  template <class T> T Motor::clamp(T v) const { /* c */ }'),
+        ('cpp', '#include <vector>  // std'),
     ]
 
     def test_spans_are_sorted_and_never_overlap(self):

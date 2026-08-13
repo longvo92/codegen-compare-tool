@@ -95,8 +95,9 @@ compare_tool/
 ├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
 ├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
 ├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
-├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
-├── funcname.py      # enclosing scope name per line (C function / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
+├── langspec.py      # the comment/string grammar per language, shared by syntax.py (colouring) and the diff shadow (folding) so they agree; generic comment stripper for Python/YAML/JSON
+├── syntax.py        # line-at-a-time C / C++ / XML / A2L / Python / JSON / YAML token spans, Qt-free so it ships in the .pyz
+├── funcname.py      # enclosing scope name per line (C/C++ function / Python class·method / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
 ├── zipsource.py     # read-only unpack of a .zip artifact into a temp folder, so a zip can be either side
@@ -297,8 +298,9 @@ until someone adds a new kind to one of them.
 - **`review.py`** — notes and sign-offs keyed by a hash of the change's own
   text, not by line number, so an unrelated edit elsewhere in the file does not
   detach them on the next scan.
-- **`funcname.enclosing`** — the scope name for each line (C function, AUTOSAR
-  SHORT-NAME, A2L block), one list the report and the viewer both read. The
+- **`funcname.enclosing`** — the scope name for each line (C/C++ function,
+  Python class/method, AUTOSAR SHORT-NAME, A2L block), one list the report and
+  the viewer both read. The
   report captions each hunk group and lists a file's `Affected` functions from
   it; the viewer tracks a "current function" as the pane scrolls. It never
   decides a verdict — a wrong name costs a caption, so the heuristics say
@@ -386,7 +388,8 @@ un-hidden on a crash.
 | Change | Touch |
 |---|---|
 | New noise rule | the rule module's strip function → that ruleset's shadow → one labelled variant in `_build_variants` → two tests (alone it is noise; beside a real change it stays real) |
-| New file type | `RULES` in `diff_engine.py`, a `*_rules.py` module, shadow + variants |
+| New file type (AUTOSAR-grade, with its own strips) | `RULES` in `diff_engine.py`, a `*_rules.py` module, shadow + variants |
+| New file type (comment-only, e.g. Python/YAML) | one `LangSpec` in `langspec.py` (the comment/string grammar), add the ext to `RULES` and the ruleset to `_GENERIC_COMMENT_RULES`, one `_Lang` in `syntax.py` for its colours — the shadow, the variant and the colouring all read the one spec |
 | New semantic extraction | `*_rules.py` extractor, wire into `scanner.compare_file` and `_single_info`, then a `summarize_*` rollup |
 | Anything both renderers show | `view_model.py` — never inline in one of them |
 | A colour, anywhere | `theme.py`, as a role in **both** palettes; the report uses `var(--role)`, Qt uses `theme.c(role)` |

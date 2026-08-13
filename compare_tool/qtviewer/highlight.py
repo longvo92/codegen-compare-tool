@@ -140,7 +140,10 @@ class CodeHighlighter(QSyntaxHighlighter):
         if self._language is None or n >= MAX_LINES:
             return
         prev = self.previousBlockState()
-        state = prev if prev in (syntax.PLAIN, syntax.IN_BLOCK_COMMENT) else syntax.PLAIN
+        # -1 is Qt's "no state yet"; anything outside the syntax vocabulary
+        # (STATES grows when a language adds a multi-line construct) restarts
+        # clean rather than carrying a stale block open
+        state = prev if prev in syntax.STATES else syntax.PLAIN
         spans, state = syntax.spans(text, self._language, state)
         if not muted:
             for start, end, kind in spans:
