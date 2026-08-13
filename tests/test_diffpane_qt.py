@@ -4,6 +4,7 @@ Skipped when PySide6 is absent, so the rest of the suite still runs headless
 (see the "viewer logic that can be Qt-free must be Qt-free" rule).
 """
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -128,6 +129,51 @@ class TestCaretDoesNotPaint(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestCurrentFunctionCaption(unittest.TestCase):
+    """The "current function" caption -- where in the file the reviewer is."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.pane.resize(1000, 600)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+
+    def _open(self, rel):
+        self.pane.show_file(rel, self.results[rel],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(5):
+            self.app.processEvents()
+
+    def test_opens_on_the_changed_functions_scope(self):
+        # the real change in real_change.c is inside Calc_step, so the file
+        # opens with that named in the caption -- not the banner line above it
+        self._open('src/real_change.c')
+        self.assertIn('Calc_step', self.pane._fn.text())
+        self.assertTrue(self.pane._fn.isVisible())
+
+    def test_row_labels_align_with_rows(self):
+        self._open('src/real_change.c')
+        self.assertEqual(len(self.pane._row_fn), len(self.pane.rows))
+        self.assertIn('Calc_step', self.pane._row_fn)
+
+    def test_one_sided_file_is_captioned_too(self):
+        # a whole added file still has a scope: New_step
+        self._open('src/added.c')
+        self.assertIn('New_step', self.pane._row_fn)
+
+    def test_caption_clears_between_files(self):
+        # deleted.h holds only a declaration -- no function body -- so its
+        # caption must not keep the previous file's function name
+        self._open('src/real_change.c')
+        self._open('src/deleted.h')
+        self.assertNotIn('Calc_step', self.pane._fn.text())
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class TestMinimapOnOneSidedFiles(unittest.TestCase):
     """A whole added or deleted file still gets a map to scroll by."""
 
@@ -167,6 +213,171 @@ class TestMinimapOnOneSidedFiles(unittest.TestCase):
         self._open('src/real_change.c')
         self.assertIs(self.pane.minimap._editor, self.pane.old_edit)
         self.assertTrue(self.pane.minimap._rows)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestStickyHeaderAndScrollbar(unittest.TestCase):
+    """The pinned "current function" header and the single vertical scrollbar."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.diffpane import DiffPane
+        self.app = _app()
+        self.results = scan(FIX / 'old', FIX / 'new')
+        self.pane = DiffPane()
+        self.pane.resize(1000, 400)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+
+    def _open(self, rel):
+        self.pane.show_file(rel, self.results[rel],
+                            str(FIX / 'old'), str(FIX / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+
+    def _long_c(self):
+        """A tall two-pane file: real_change.c is a handful of lines, so its
+        function signature never scrolls off and the sticky would never show.
+        Build one long enough that it does."""
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / 'old').mkdir()
+        (tmp / 'new').mkdir()
+        body = '\n'.join('  a[{}] = {};'.format(i, i) for i in range(80))
+        old = 'void LongFn(void)\n{\n' + body + '\n  a[0] = 1;\n}\n'
+        new = 'void LongFn(void)\n{\n' + body + '\n  a[0] = 2;\n}\n'
+        (tmp / 'old' / 'm.c').write_text(old)
+        (tmp / 'new' / 'm.c').write_text(new)
+        return tmp
+
+    def test_only_the_driving_pane_shows_a_vertical_scrollbar(self):
+        self._open('src/real_change.c')  # two-pane: old drives
+        self.assertEqual(self.pane.old_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAsNeeded)
+        self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAlwaysOff)
+
+    def test_one_sided_file_scrollbar_follows_the_content_pane(self):
+        self._open('src/added.c')  # content is on the NEW side, which drives
+        self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAsNeeded)
+        self.assertEqual(self.pane.old_edit.verticalScrollBarPolicy(),
+                         Qt.ScrollBarAlwaysOff)
+
+    def test_sticky_pins_the_function_once_it_scrolls_off(self):
+        tmp = self._long_c()
+        results = scan(tmp / 'old', tmp / 'new')
+        self.pane.show_file('m.c', results['m.c'], str(tmp / 'old'), str(tmp / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+        # at the top the signature line is on screen: nothing to pin
+        self.pane._drive.verticalScrollBar().setValue(0)
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertFalse(self.pane._sticky_old.isVisible())
+        # scrolled deep into the body: the signature is pinned at the top
+        self.pane._drive.verticalScrollBar().setValue(50)
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertTrue(self.pane._sticky_old.isVisible())
+        self.assertIn('LongFn', self.pane._sticky_old.text())
+
+    def test_sticky_is_c_only(self):
+        # an ARXML scope is a nested SHORT-NAME chain, not a one-line signature,
+        # so no sticky even when a deep hunk scrolls its element off the top
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / 'old').mkdir()
+        (tmp / 'new').mkdir()
+        rows = '\n'.join('    <ITEM UUID="{0}">v{0}</ITEM>'.format(i)
+                         for i in range(80))
+        head = ('<AUTOSAR><AR-PACKAGES><AR-PACKAGE>\n'
+                '  <SHORT-NAME>Pkg</SHORT-NAME>\n  <ELEMENTS>\n')
+        tail = '\n  </ELEMENTS>\n</AR-PACKAGE></AR-PACKAGES></AUTOSAR>\n'
+        (tmp / 'old' / 'm.arxml').write_text(head + rows + '\n    <V>1</V>' + tail)
+        (tmp / 'new' / 'm.arxml').write_text(head + rows + '\n    <V>2</V>' + tail)
+        results = scan(tmp / 'old', tmp / 'new')
+        self.pane.show_file('m.arxml', results['m.arxml'],
+                            str(tmp / 'old'), str(tmp / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+        self.pane._drive.verticalScrollBar().setValue(50)
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertFalse(self.pane._sticky_old.isVisible())
+        self.assertFalse(self.pane._sticky_new.isVisible())
+
+    def test_sticky_clears_on_message_pages(self):
+        tmp = self._long_c()
+        results = scan(tmp / 'old', tmp / 'new')
+        self.pane.show_file('m.c', results['m.c'], str(tmp / 'old'), str(tmp / 'new'))
+        for _ in range(6):
+            self.app.processEvents()
+        self.pane._drive.verticalScrollBar().setValue(50)
+        for _ in range(4):
+            self.app.processEvents()
+        self.pane.clear()
+        self.assertFalse(self.pane._sticky_old.isVisible())
+        self.assertFalse(self.pane._sticky_new.isVisible())
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestZipAsSource(unittest.TestCase):
+    """A .zip artifact dropped or picked as a side is unpacked, compared as a
+    folder, and labelled by its file name -- not the temp path it landed in."""
+
+    def _zip(self, root, name, files):
+        import zipfile
+        path = root / name
+        with zipfile.ZipFile(path, 'w') as zf:
+            for arc, text in files.items():
+                zf.writestr(arc, text)
+        return path
+
+    def _window(self):
+        from compare_tool.qtviewer.app import MainWindow
+        self.app = _app()
+        win = MainWindow(None, None)
+        win.resize(1200, 700)
+        win.setAttribute(Qt.WA_DontShowOnScreen, True)
+        win.show()
+        self.addCleanup(win.close)
+        return win
+
+    def test_zip_sides_are_unpacked_compared_and_labelled(self):
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        oldz = self._zip(tmp, 'baseline.zip',
+                         {'gen/m.c': 'void f(void)\n{\n  x = 1;\n}\n'})
+        newz = self._zip(tmp, 'current.zip',
+                         {'gen/m.c': 'void f(void)\n{\n  x = 2;\n}\n'})
+        win = self._window()
+        self.assertTrue(win._use_source('old', str(oldz)))
+        self.assertTrue(win._use_source('new', str(newz)))
+        # each side descended into the lone 'gen' wrapper and points at real files
+        self.assertTrue(Path(win.old).is_dir())
+        self.assertIn('m.c', [p.name for p in Path(win.old).iterdir()])
+        # export label and pane banner both name the zip, not the temp folder
+        self.assertEqual(win._old_label, 'baseline.zip')
+        self.assertEqual(win._new_label, 'current.zip')
+        self.assertEqual(win.diff._old_label[0], 'baseline.zip')
+        self.assertEqual(win.diff._new_label[0], 'current.zip')
+        win._start_scan()
+        _settle(self.app, win)
+        self.assertTrue(win._raw_results)  # the compare actually ran
+
+    def test_a_folder_side_clears_a_prior_zip_label(self):
+        import tempfile
+        tmp = Path(tempfile.mkdtemp())
+        z = self._zip(tmp, 'drop.zip', {'gen/m.c': 'int a;\n'})
+        plain = tmp / 'plainfolder'
+        plain.mkdir()
+        (plain / 'm.c').write_text('int a;\n')
+        win = self._window()
+        win._use_source('old', str(z))
+        self.assertEqual(win._old_label, 'drop.zip')
+        # picking a plain folder for the same side must drop the zip label
+        win._use_source('old', str(plain))
+        self.assertIsNone(win._old_label)
+        self.assertIsNone(win.diff._old_label)
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
@@ -746,6 +957,53 @@ class TestThemeSwitch(unittest.TestCase):
         self.assertEqual(self.theme.current(), self.theme.LIGHT)
         self.win._toggle_theme()
         self.assertEqual(self.theme.current(), self.theme.DARK)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestFolderPickerStartDir(unittest.TestCase):
+    """Browsing one side opens beside the other -- old/ and new/ are siblings,
+    so the folder you are about to pick is right where the other side lives."""
+
+    def setUp(self):
+        from compare_tool.qtviewer.pickers import FolderPicker
+        _app()
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.parent_dir = base / 'funcdemo'
+        self.old = self.parent_dir / 'old'
+        self.new = self.parent_dir / 'new'
+        self.old.mkdir(parents=True)
+        self.new.mkdir()
+        self.FolderPicker = FolderPicker
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_empty_side_starts_in_the_other_sides_parent(self):
+        # BASELINE set, CURRENT empty -> browsing CURRENT opens in the parent
+        # that holds both old/ and new/
+        dlg = self.FolderPicker(None, old=str(self.old), new=None)
+        self.assertEqual(dlg._start_dir(dlg.new_row), str(self.parent_dir))
+
+    def test_it_is_symmetric(self):
+        # CURRENT set, BASELINE empty -> same, from the other direction
+        dlg = self.FolderPicker(None, old=None, new=str(self.new))
+        self.assertEqual(dlg._start_dir(dlg.old_row), str(self.parent_dir))
+
+    def test_a_side_with_its_own_path_stays_there(self):
+        dlg = self.FolderPicker(None, old=str(self.old), new=str(self.new))
+        self.assertEqual(dlg._start_dir(dlg.old_row), str(self.old))
+
+    def test_a_zip_side_starts_in_the_zips_folder(self):
+        # a side may hold a .zip; browsing the other opens where the zip lives
+        zip_path = self.parent_dir / 'artifact.zip'
+        zip_path.write_bytes(b'')
+        dlg = self.FolderPicker(None, old=str(zip_path), new=None)
+        self.assertEqual(dlg._start_dir(dlg.new_row), str(self.parent_dir))
+
+    def test_both_empty_is_blank(self):
+        dlg = self.FolderPicker(None, old=None, new=None)
+        self.assertEqual(dlg._start_dir(dlg.old_row), '')
 
 
 if __name__ == '__main__':

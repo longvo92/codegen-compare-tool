@@ -19,12 +19,26 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog,
                                QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
+from .. import theme, zipsource
 from .icons import app_icon
 
 _COMMIT_ROLE = Qt.UserRole
 
-_ERR_QSS = ('color:#ffd6d6; background:#4a1d1d; padding:5px 8px; '
-            'border-radius:3px;')
+
+def _err_qss():
+    """The error strip, in theme roles -- resolved when the dialog is built, so
+    it reads on both the light and the dark chrome. A hard-coded near-white on
+    dark-red was invisible-adjacent on the light theme."""
+    return ('color:{}; background:{}; border:1px solid {}; padding:5px 8px; '
+            'border-radius:3px;'.format(theme.c('err-fg'), theme.c('err-bg'),
+                                        theme.c('err-border')))
+
+
+def _muted_qss(role='fg-dim', extra=''):
+    """A muted label colour from a theme role. The dialogs used a fixed light
+    grey (#9aa1ad / #8a8f98) that all but vanished on the light theme's white;
+    a role flips with the chrome and stays legible on both."""
+    return 'color:{};{}'.format(theme.c(role), extra)
 
 
 def _esc(text):
@@ -33,20 +47,25 @@ def _esc(text):
 
 
 class _PathRow(QHBoxLayout):
-    """Label, the path itself, and a Browse button that replaces it."""
+    """Label, the path itself, a Browse button, and (optionally) a Zip button
+    -- so a side can be a folder or a ``.zip`` artifact."""
 
-    def __init__(self, label, path, on_browse):
+    def __init__(self, label, path, on_browse, on_zip=None):
         super().__init__()
         tag = QLabel(label)
         tag.setMinimumWidth(64)  # fits 'BASELINE', the longest row label
-        tag.setStyleSheet('color:#9aa1ad;')
+        tag.setStyleSheet(_muted_qss('fg-dim'))
         self.edit = QLineEdit(str(path) if path else '')
-        self.edit.setPlaceholderText('Choose a folder…')
+        self.edit.setPlaceholderText('Choose a folder or a .zip…')
         btn = QPushButton('Browse…')
         btn.clicked.connect(on_browse)
         self.addWidget(tag)
         self.addWidget(self.edit, 1)
         self.addWidget(btn)
+        if on_zip is not None:
+            zbtn = QPushButton('Zip…')
+            zbtn.clicked.connect(on_zip)
+            self.addWidget(zbtn)
 
     def text(self):
         return self.edit.text().strip()
@@ -71,20 +90,22 @@ class FolderPicker(QDialog):
         self.resize(680, 200)
 
         self.old_row = _PathRow('BASELINE', old,
-                                lambda: self._browse(self.old_row, 'BASELINE'))
+                                lambda: self._browse(self.old_row, 'BASELINE'),
+                                lambda: self._browse_zip(self.old_row, 'BASELINE'))
         self.new_row = _PathRow('CURRENT', new,
-                                lambda: self._browse(self.new_row, 'CURRENT'))
+                                lambda: self._browse(self.new_row, 'CURRENT'),
+                                lambda: self._browse_zip(self.new_row, 'CURRENT'))
         for row in (self.old_row, self.new_row):
             row.edit.textChanged.connect(self._sync_ok)
 
         hint = QLabel('BASELINE is the previous generation, CURRENT is the one '
-                      'being reviewed.')
-        hint.setStyleSheet('color:#8a8f98; font-size:11px;')
+                      'being reviewed. Either can be a folder or a .zip.')
+        hint.setStyleSheet(_muted_qss('fg-muted', ' font-size:11px;'))
 
         self.error = QLabel('')
         self.error.setWordWrap(True)
         self.error.setVisible(False)
-        self.error.setStyleSheet(_ERR_QSS)
+        self.error.setStyleSheet(_err_qss())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Ok).setText('Compare')
@@ -101,10 +122,33 @@ class FolderPicker(QDialog):
         lay.addWidget(self.buttons)
         self._sync_ok()
 
+    def _start_dir(self, row):
+        """Where a browse dialog for ``row`` should open.
+
+        BASELINE and CURRENT are almost always siblings -- ``old/`` and ``new/``
+        under one parent. So a side that is still empty opens in the *other*
+        side's parent, where the folder to pick is sitting right next to it:
+        set BASELINE to ``…/funcdemo/old`` and browsing CURRENT lands in
+        ``…/funcdemo``. Once a side has its own path, re-browsing stays there.
+        """
+        other = self.new_row if row is self.old_row else self.old_row
+        mine = row.text()
+        if mine:
+            p = Path(mine)
+            return str(p if p.is_dir() else p.parent)
+        theirs = other.text()
+        return str(Path(theirs).parent) if theirs else ''
+
     def _browse(self, row, label):
-        start = row.text() or self.old_row.text() or self.new_row.text() or ''
         picked = QFileDialog.getExistingDirectory(
-            self, 'Select the {} folder'.format(label), start)
+            self, 'Select the {} folder'.format(label), self._start_dir(row))
+        if picked:
+            row.set_text(picked)
+
+    def _browse_zip(self, row, label):
+        picked, _ = QFileDialog.getOpenFileName(
+            self, 'Select the {} zip'.format(label), self._start_dir(row),
+            'Zip artifact (*.zip)')
         if picked:
             row.set_text(picked)
 
@@ -116,11 +160,12 @@ class FolderPicker(QDialog):
     def _accept(self):
         old, new = self.old_row.text(), self.new_row.text()
         for path, label in ((old, 'BASELINE'), (new, 'CURRENT')):
-            if not Path(path).is_dir():
-                # said here rather than as a popup on top of this dialog, and
-                # said before the scan so a typo is not reported as a compare
-                # error later
-                self.error.setText('{} is not a folder: {}'.format(label, path))
+            # a side is valid as a folder OR a .zip; anything else is caught
+            # here, before the scan, so a typo is not reported as a compare
+            # error later
+            if not (Path(path).is_dir() or zipsource.is_zip(path)):
+                self.error.setText(
+                    '{} is not a folder or a .zip: {}'.format(label, path))
                 self.error.setVisible(True)
                 return
         self.chosen = (old, new)
@@ -157,7 +202,8 @@ class CommitPicker(QDialog):
         self.where = QLabel('')
         # lines up under the path text, not the tag: the tag column is now
         # sized for 'BASELINE' in the other dialog, wider than 'Folder' here
-        self.where.setStyleSheet('color:#9aa1ad; font-size:11px; padding-left:68px;')
+        self.where.setStyleSheet(
+            _muted_qss('fg-dim', ' font-size:11px; padding-left:68px;'))
 
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText('Filter commits…')
@@ -184,7 +230,7 @@ class CommitPicker(QDialog):
         self.error = QLabel('')
         self.error.setWordWrap(True)
         self.error.setVisible(False)
-        self.error.setStyleSheet(_ERR_QSS)
+        self.error.setStyleSheet(_err_qss())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Ok).setText('Compare')

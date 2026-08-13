@@ -54,7 +54,15 @@ python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> --report out.
 Ghi ra một HTML report self-contained, mở được bằng browser bất kỳ và gửi mail
 như một file đơn.
 
-Bỏ hai thư mục ra thì viewer mở lên — kéo thả hai thư mục vào đó:
+Mỗi phía có thể là một `.zip` — ví dụ artifact build tải từ Azure DevOps. Nó
+được giải nén read-only vào thư mục tạm, so sánh như một thư mục rồi dọn sạch
+sau đó; header report ghi tên zip thay cho đường dẫn tạm:
+
+```bash
+python -m compare_tool baseline.zip current.zip --report out.html
+```
+
+Bỏ hai thư mục ra thì viewer mở lên — kéo thả hai thư mục (hoặc hai `.zip`) vào đó:
 
 ```bash
 python -m compare_tool
@@ -115,9 +123,10 @@ python -m compare_tool
 ![Viewer side-by-side](../../resources/pic/main_page.png)
 
 Cây thư mục, diff hai pane có minimap và tô cú pháp, `F7`/`F8` đi hết mọi change
-của cả lần compare, `Ctrl+F` xuyên file, note review theo từng change, và một
-commit picker để so **một** thư mục trong git checkout với chính lịch sử của nó.
-`Help` → `User guide` (`F1`) nằm sẵn trong app, chạy offline.
+của cả lần compare, `Ctrl+F` xuyên file, note review theo từng change, một
+**caption tên hàm** hiện hàm C / SHORT-NAME AUTOSAR / block A2L bao quanh và bám
+theo lúc cuộn, và một commit picker để so **một** thư mục trong git checkout với
+chính lịch sử của nó. `Help` → `User guide` (`F1`) nằm sẵn trong app, chạy offline.
 
 → [đọc một lần scan, review mode, mọi phím tắt](usage.md#viewer-side-by-side)
 
@@ -127,8 +136,10 @@ commit picker để so **một** thư mục trong git checkout với chính lị
 
 Mỗi lần compare một file self-contained: badge bật/tắt, cây thư mục, ô lọc, diff
 xếp gọn được. Nó hiện **ba dòng trên và dưới mỗi change thật**, không phải cả file
-— noise ở chỗ khác không chiếm chỗ nào cho tới khi bạn bấm hiện. Cả hai palette
-sáng/tối đều nhúng sẵn, nên nút đổi màu không tải gì trên máy không có internet.
+— noise ở chỗ khác không chiếm chỗ nào cho tới khi bạn bấm hiện. Mỗi change được
+chú thích bằng hàm chứa nó, và một file Modified liệt kê những hàm mà change của
+nó đụng tới. Cả hai palette sáng/tối đều nhúng sẵn, nên nút đổi màu không tải gì
+trên máy không có internet.
 
 → [bố cục, badge, cái gì bị gộp và tại sao](usage.md#html-report)
 

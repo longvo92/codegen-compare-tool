@@ -11,7 +11,7 @@ import html
 import re
 from pathlib import Path
 
-from . import filepair, review, syntax, theme
+from . import filepair, funcname, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -161,6 +161,12 @@ tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2)
    until the Unimportant badge reveals its rows -- so it must take up no
    height at all until then, not a table's worth of margin */
 .grp.lean table.diff { margin: 0; }
+/* the enclosing function / SHORT-NAME / A2L block of a group's first hunk,
+   the way git writes it after every @@ header -- in a 4000-line generated
+   file "Change 3 of 7" says how many, this says where. Muted so it reads as a
+   caption on the diff, not as a diff row. */
+.fnhdr { font-family: Consolas, monospace; font-size: 11px; color: var(--fg-muted);
+         padding: 3px 8px 1px; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
 /* Unimportant rows hide per ROW, not per group: a group used to be wrapped
@@ -592,7 +598,8 @@ def _group_notes(group, notes):
     return html, done
 
 
-def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
+def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
+                 labels=None):
     """All hunk groups of one file. Comment and Unimportant rows hide behind
     their own badge individually (``tr.comment`` / ``tr.minor`` in the CSS) --
     a group used to be wrapped whole and hidden together when every hunk in it
@@ -616,6 +623,12 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
     cannot itself know whether a block comment opened above it is still open."""
     old_states = _line_states(old_lines, language)
     new_states = _line_states(new_lines, language)
+    # scope labels feed the per-group caption; computed once here unless the
+    # caller already built them for the file header's Affected list (rule 3:
+    # one seam, so header and caption name a hunk the same way). The syntax
+    # language name and funcname's are the same vocabulary (c / arxml / a2l).
+    old_labels, new_labels = labels or (funcname.enclosing(old_lines, language),
+                                        funcname.enclosing(new_lines, language))
     out = []
     for i, j, lean in _focus_runs(hunks):
         g = hunks[i:j]
@@ -628,6 +641,11 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None):
         notes_html, done = _group_notes(g, notes)
         cls = ' grp-rev' if done else ''
         out.append('<div class="grp{}{}">'.format(' lean' if lean else '', cls))
+        # a lean group is a collapsed noise placeholder with no code window, so
+        # a caption over it would point at rows that are not shown
+        label = None if lean else funcname.hunk_label(old_labels, new_labels, g[0])
+        if label:
+            out.append('<div class="fnhdr">ƒ {}</div>'.format(_esc(label)))
         out.append(notes_html)
         out.append(_group_table(old_lines, new_lines, g, language, old_states,
                                 new_states, lean, limits))
@@ -1195,6 +1213,20 @@ def _notes(r):
     return _iface_note(r) + _swc_note(r) + _rte_note(r) + _a2l_note(r)
 
 
+def _affected_extra(names, limit=3):
+    """The functions/blocks a file's real changes land in, for its header --
+    the seed of an Impact Analysis "Affected Module" column. Capped so a
+    heavily churned file does not spill its whole symbol table into the
+    summary line; the diff below still names every one."""
+    if not names:
+        return ''
+    shown = [_esc(n) for n in names[:limit]]
+    text = 'Affected: ' + ', '.join(shown)
+    if len(names) > limit:
+        text += ' (+{})'.format(len(names) - limit)
+    return text
+
+
 def _file_open(anchor, rel, status, extra='', expanded=False, reviewed=False):
     label, tag = _LABEL[status]
     sec = _TREE[status][2]
@@ -1252,7 +1284,14 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
             notes = rv.annotate(rel, r, old_lines, new_lines)
-        parts.append(_file_open(anchors[rel], rel, 'real-change',
+        lang = syntax.language_for(rel)
+        labels = None
+        extra = ''
+        if not r['binary']:
+            labels = (funcname.enclosing(old_lines, lang),
+                      funcname.enclosing(new_lines, lang))
+            extra = _affected_extra(funcname.affected(labels[0], labels[1], hunks))
+        parts.append(_file_open(anchors[rel], rel, 'real-change', extra,
                                 expanded=True, reviewed=rel in rv.files))
         parts.append(_notes(r))
         if r['binary']:
@@ -1262,7 +1301,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append('<div class="filenote">Binary file differs.</div>')
         else:
             parts.append(_groups_html(old_lines, new_lines, hunks, notes,
-                                      syntax.language_for(rel)))
+                                      lang, labels))
     elif status in ('comment-only', 'ignorable-only'):
         parts.append(_file_open(anchors[rel], rel, status, _esc(_kinds_of(r))))
         if not r['hunks']:

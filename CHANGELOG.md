@@ -5,6 +5,28 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Every change now names the function it lives in.** Each hunk in the report
+  carries the enclosing function, AUTOSAR SHORT-NAME or A2L block above it, and
+  the viewer keeps a "current function" caption that tracks the scroll — and,
+  for C files, pins that function's signature line to the top of each pane once
+  it scrolls out of view, the way VS Code does. In a regenerated file thousands of lines
+  long you can see *where* a change is, not just how many there are. A modified
+  file's header also lists the functions its real changes touch.
+- **Compare a `.zip` artifact directly.** Either side — on the command line, in
+  the folder picker, or dropped onto the viewer — can be a zip (an Azure
+  DevOps build drop, say). It is unpacked automatically, compared as a folder
+  and cleaned up afterwards, with the header naming the zip instead of a temp
+  path. No more unzipping by hand.
+
+### Fixed
+
+- **Improve light-mode legibility.** Dialog labels and the landing logo are no
+  longer washed-out grey on the light theme.
+- **Tidy the diff-pane scrollbars.** One slim scrollbar instead of two, so the
+  two code columns are no longer split by a redundant bar.
+
 ## [1.7.0] — 2026-08-10
 
 The report spends its space on what changed: a component with nothing to show

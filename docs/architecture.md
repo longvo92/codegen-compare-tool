@@ -40,13 +40,17 @@ flowchart TD
         TH[theme.py<br/>dark/light palettes by role]
         RV[review.py<br/>notes keyed by content]
         SY[syntax.py<br/>token spans, Qt-free]
+        FN[funcname.py<br/>enclosing scope per line, Qt-free]
     end
     RP[report.py<br/>self-contained HTML]
     GS[gitsource.py<br/>commit → temp folder]
+    ZS[zipsource.py<br/>zip → temp folder]
 
     CLI --> SC
     QT --> SC
     GS --> QT
+    ZS --> QT
+    ZS --> CLI
     SC --> DE
     DE --> LD
     DE --> RULES
@@ -65,8 +69,8 @@ flowchart TD
 Two rules hold this shape:
 
 **The core imports nothing but the standard library.** `scanner`, `diff_engine`,
-the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax` and
-`gitsource` are what ships in `compare_tool.pyz` — no install, the
+the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax`,
+`funcname`, `gitsource` and `zipsource` are what ships in `compare_tool.pyz` — no install, the
 documented fallback for machines where antivirus blocks the `.exe`. One
 third-party import in `scanner.py` and the zipapp stops running there. PySide6
 lives only under `compare_tool/qtviewer/` and is imported lazily, when the
@@ -92,8 +96,10 @@ compare_tool/
 ├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
 ├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
 ├── syntax.py        # line-at-a-time C / XML / A2L token spans, Qt-free so it ships in the .pyz
+├── funcname.py      # enclosing scope name per line (C function / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
+├── zipsource.py     # read-only unpack of a .zip artifact into a temp folder, so a zip can be either side
 └── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
 ```
 
@@ -291,6 +297,12 @@ until someone adds a new kind to one of them.
 - **`review.py`** — notes and sign-offs keyed by a hash of the change's own
   text, not by line number, so an unrelated edit elsewhere in the file does not
   detach them on the next scan.
+- **`funcname.enclosing`** — the scope name for each line (C function, AUTOSAR
+  SHORT-NAME, A2L block), one list the report and the viewer both read. The
+  report captions each hunk group and lists a file's `Affected` functions from
+  it; the viewer tracks a "current function" as the pane scrolls. It never
+  decides a verdict — a wrong name costs a caption, so the heuristics say
+  `None` rather than guess.
 
 ## Front ends
 
@@ -328,6 +340,14 @@ have no PySide6 import at all, so their tests run on a box with no Qt.
 commit down in a temp folder, and everything downstream sees two directories as
 usual. That matters because the folder being reviewed is normally the one the
 engineer is still editing.
+
+A dropped or picked `.zip` is the same idea one more time: `zipsource.py`
+unpacks it read-only into a temp folder — guarding against a path that escapes
+the destination, and descending into a lone wrapper directory so an Azure
+`drop.zip` does not read as one directory deep — and the compare runs on the
+folder, none the wiser. A source that materialises a temp folder labels its
+pane by the commit or the zip name, since the temp path names nothing:
+`diffpane.set_old_label` / `set_new_label`, one per side.
 
 ## Decisions worth knowing before you change something
 

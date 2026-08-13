@@ -49,7 +49,13 @@ python -m compare_tool <old_gen_folder> <new_gen_folder> --report out.html
 
 Writes a self-contained HTML report that opens in any browser and can be mailed as one file.
 
-Leave the folders out and the viewer opens instead — drop the two folders onto it:
+Either folder can be a `.zip` — a build artifact downloaded from Azure DevOps, say. It is unpacked read-only to a temp directory, compared as if it were a folder, and cleaned up afterwards; the report header names the zip rather than the temp path:
+
+```bash
+python -m compare_tool baseline.zip current.zip --report out.html
+```
+
+Leave the folders out and the viewer opens instead — drop the two folders (or two `.zip` artifacts) onto it:
 
 ```bash
 python -m compare_tool
@@ -100,7 +106,7 @@ python -m compare_tool
 
 ![Side-by-side viewer](resources/pic/main_page.png)
 
-Folder tree, two-pane diff with minimap and syntax colouring, `F7`/`F8` through every change in the whole compare, `Ctrl+F` across files, per-change review notes, and a commit picker so **one** folder in a git checkout can be compared against its own history. The built-in `Help` → `User guide` (`F1`) works offline.
+Folder tree, two-pane diff with minimap and syntax colouring, `F7`/`F8` through every change in the whole compare, `Ctrl+F` across files, per-change review notes, a **current-function caption** that names the enclosing C function / AUTOSAR SHORT-NAME / A2L block as you scroll, and a commit picker so **one** folder in a git checkout can be compared against its own history. The built-in `Help` → `User guide` (`F1`) works offline.
 
 → [reading a scan, review mode, every shortcut](docs/usage.md#side-by-side-viewer)
 
@@ -108,7 +114,7 @@ Folder tree, two-pane diff with minimap and syntax colouring, `F7`/`F8` through 
 
 ![Report viewer](resources/pic/report_page.png)
 
-One self-contained file per compare: badge toggles, folder tree, filter box, collapsible diffs. It shows **three lines either side of each real change**, not the whole file — the noise elsewhere takes up no space until you ask for it. Dark and light are both embedded, so the switch fetches nothing on a machine with no internet.
+One self-contained file per compare: badge toggles, folder tree, filter box, collapsible diffs. It shows **three lines either side of each real change**, not the whole file — the noise elsewhere takes up no space until you ask for it. Each change is captioned with the function it lives in, and a modified file lists the functions its changes touch. Dark and light are both embedded, so the switch fetches nothing on a machine with no internet.
 
 → [the layout, the badges, what collapses and why](docs/usage.md#html-report)
 
