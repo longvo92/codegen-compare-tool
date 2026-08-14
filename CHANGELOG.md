@@ -5,6 +5,10 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-08-14
+
+Diff and review C++, Python, YAML and JSON files alongside the AUTOSAR output.
+
 ### Added
 
 - **Compare C++, Python, YAML and JSON files too.** They are syntax-coloured in
@@ -15,8 +19,9 @@ All notable changes to this project are documented here. Versions follow
 
 ### Fixed
 
-- **Remove a stray scrollbar on an added file.** A whole new file no longer
-  shows a scrollbar overlapping the minimap; the minimap scrolls it.
+- **Tidy the viewer's line numbers and scrollbars.** A whole new file no longer
+  shows a scrollbar overlapping the minimap, and the line numbers now scale with
+  the code as you zoom.
 
 ## [1.8.0] — 2026-08-13
 
