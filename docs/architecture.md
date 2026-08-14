@@ -305,6 +305,17 @@ until someone adds a new kind to one of them.
   it; the viewer tracks a "current function" as the pane scrolls. It never
   decides a verdict — a wrong name costs a caption, so the heuristics say
   `None` rather than guess.
+- **`langspec.SPECS`** — one table of each language's comment/string grammar
+  (what opens a comment, how a string escapes). Two very different surfaces read
+  it: `syntax.py` colours a comment, and the diff shadow (`langspec.shadow` for
+  the generic Python/YAML/C++ rulesets, and the `_build_variants` comment label)
+  blanks it. If the two disagreed, a line could be painted a comment yet still
+  counted as a change. The single-line and triple-quote scanners
+  (`langspec.string_end`, `langspec.triple_close`) live here too, so the
+  line-at-a-time colourer and the whole-file stripper find the end of a string
+  the same way. The C/A2L/ARXML strippers predate the table and keep their own
+  walkers; what `langspec` unifies is the shared *definition* and the generic
+  walker the newer languages run on.
 
 ## Front ends
 
@@ -358,6 +369,16 @@ from `_raw_results`, not from what is on screen. A category the reviewer
 collapsed must still appear in the exported file with its real verdict —
 otherwise an export could show a file as Identical when it is not. Same for the
 quick-changes rollup.
+
+**A report window is measured from real changes only.** The HTML report shows
+three lines either side of each real change, not the whole file. Noise *inside*
+a window renders greyed; noise *outside* every window shows nothing until
+`Unimportant` is clicked. The tight window is the point: a regenerated file
+carries a UUID or a banner line every few lines, so if each noise hunk pulled
+its own three lines of context, the windows would chain and one real change
+would drag the whole file back onto the page. A file with **no** real change has
+nothing louder competing for the space, so it keeps full context and a
+`⋯ N lines hidden` placeholder instead.
 
 **The HTML report is self-contained.** CSS and JS inline, no CDN, nothing
 fetched when the file is opened. It gets mailed around and opened on machines
