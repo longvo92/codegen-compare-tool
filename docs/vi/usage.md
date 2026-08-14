@@ -77,7 +77,8 @@ dùng nút `Zip…` trong `Open folders…`. Nó được giải nén vào thư 
 được gán nhãn theo tên zip, không phải đường dẫn tạm.
 
 Khi một file đang mở, một **caption cạnh tên file** cho biết bạn đang ở hàm nào —
-hàm C, SHORT-NAME của AUTOSAR hay block A2L bao quanh — và bám theo lúc cuộn, nên
+hàm C/C++, class/method Python, SHORT-NAME của AUTOSAR hay block A2L bao quanh —
+và bám theo lúc cuộn, nên
 luôn biết mình đang ở đâu trong một file sinh dài. Với **file C**, khi dòng
 signature của hàm cuộn khuất lên trên, nó còn được **ghim lên đỉnh mỗi pane**
 (như sticky scroll của VS Code) cho tới khi bạn rời khỏi hàm.
@@ -85,12 +86,12 @@ signature của hàm cuộn khuất lên trên, nó còn được **ghim lên đ
 ### Đọc một lần scan
 
 - Scan **mở sẵn ở change đầu tiên** — pane không bao giờ trống trong khi cây bên cạnh đầy kết quả.
-- `F8` / `F7` nhảy qua các change trong file đang mở rồi **đi tiếp sang file kế (trước) có gì để xem**, hết thì vòng lại. `Ctrl+Home` / `Ctrl+End` giữ nguyên trong file. File mà khác biệt chỉ là comment hoặc noise vẫn nằm trong lộ trình đó chừng nào rule của nó còn tick — nó đang hiện trên màn hình nên phải tới được — nhưng dừng ở đó thì không có gì để ký duyệt: chỉ change thật và block moved mới vào bản ghi review.
+- `F8` / `F7` nhảy qua các change trong file đang mở rồi **đi tiếp sang file có change kế (trước)**, hết thì vòng lại. `Ctrl+Home` / `Ctrl+End` giữ nguyên trong file. File comment / noise vẫn nằm trong lộ trình chừng nào rule của nó còn tick, nhưng dừng ở đó thì không ký duyệt được gì — chỉ change thật và block moved mới vào bản ghi review.
 - `Ctrl+F` **tìm text trong file đang mở** (cả hai bên, `F3` / `Shift+F3` để nhảy, `Esc` để đóng). Query còn nguyên khi chuyển sang file khác, nên truy một identifier xuyên suốt lần compare được.
 - `Hide identical` chỉ để lại các file có khác biệt trên cây. Đây là view: verdict, số đếm và report export ra đều không đổi.
-- Bỏ tick `Comment` / `Unimportant` sẽ **làm mờ các dòng đó** chứ không xoá đi: chúng ở nguyên chỗ cũ, giữ số dòng, mất màu đỏ/xanh, và biến khỏi minimap lẫn `F7`/`F8`. Phần code xung quanh mới là thứ giúp đọc được một change, mà file regenerate thì phần lớn là banner churn — gộp chúng lại là gộp mất gần cả file. Để nguyên tick (mặc định) thì chúng giữ màu và `F7`/`F8` cũng dừng ở đó như mọi change khác.
+- Bỏ tick `Comment` / `Unimportant` sẽ **làm mờ các dòng đó** chứ không xoá đi: chúng ở nguyên chỗ cũ, giữ số dòng, mất màu đỏ/xanh, và biến khỏi minimap lẫn `F7`/`F8`. Để nguyên tick (mặc định) thì chúng giữ màu và là điểm dừng `F7`/`F8` như mọi change khác.
 - Change đang đứng được đánh dấu bằng **mũi tên nhỏ trong cột số dòng**, ở cả hai pane — nên `F7`/`F8` vẫn thấy rõ là có nhảy kể cả khi file ngắn, không có gì để cuộn.
-- `☀ Light` / `☾ Dark` trên toolbar đổi bảng màu; `--theme` chọn màu lúc mở. C, ARXML và A2L đều được tô cú pháp ở cả hai theme.
+- `☀ Light` / `☾ Dark` trên toolbar đổi bảng màu; `--theme` chọn màu lúc mở. C, C++, ARXML/XML, A2L, Python, JSON và YAML đều được tô cú pháp ở cả hai theme.
 
 | Marker | Verdict | Nghĩa |
 |---|---|---|
@@ -154,7 +155,7 @@ thật của nó.
 
 | Kind | Rule | File |
 |---|---|---|
-| `comment` | Comment C (`//`, `/* */`), comment XML (`<!-- -->`) | .c .h .arxml .a2l |
+| `comment` | Comment C/C++/A2L (`//`, `/* */`), comment XML (`<!-- -->`), comment dòng `#` (Python, YAML). Docstring Python và JSON **không** được gộp — chuỗi triple-quote là code, còn JSON không có comment | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Đổi tên biến 1-1 nhất quán (tên MATLAB auto-generated). Cái gì mapping không giải thích trọn vẹn thì vẫn là thay đổi thật | .c .h |
 | `uuid` | Attribute `UUID="..."` | .arxml .xml |
 | `timestamp` | Block `<ADMIN-DATA>`, `<DATE>` | .arxml .xml |
@@ -246,17 +247,16 @@ cái đáng xem. Code được **tô cú pháp** đúng như cách viewer tô, v
 
 ### Hiện cái gì, gộp cái gì
 
-File hiện ra **ba dòng trên và dưới mỗi change thật**, không phải cả file. Với
-file có change thật, cửa sổ đó đo từ chính các change thật, và noise nằm ở đâu
-quyết định nó được xử lý thế nào:
+Mỗi change thật hiện ra **ba dòng ngữ cảnh trên và dưới** — không phải cả file:
 
-- Hunk comment hoặc Unimportant **nằm trong cửa sổ đó** thì hiện đầy đủ, tô xám. Nó vốn đã nằm trong khối code đang đọc — giấu đi là lấy mất ngữ cảnh để đọc change thật, mà bắt bấm mới hiện thì chẳng ai có lý do để bấm.
-- Hunk **nằm ngoài mọi cửa sổ** thì không hiện gì cả — không code, không placeholder — cho tới khi bấm `Unimportant`, lúc đó các dòng đó hiện ra tô xám phẳng đúng vị trí của nó. Dù bấm hay không thì chúng vẫn nằm trong file; chỉ có màn hình là yên tĩnh. Để mỗi hunk noise kéo theo ba dòng code chính là thứ làm một file regen in ra từ đầu đến cuối: cứ vài dòng lại có một UUID hay một dòng banner, các cửa sổ dính vào nhau, và một change thật kéo theo cả file.
-- File **không có** change thật nào thì giữ nguyên ngữ cảnh ở mọi chỗ, và hunk bị gộp vẫn giữ placeholder `⋯ N lines hidden`: không có gì to tiếng hơn để nhường chỗ, file Unimportant là do người ta chủ động mở ra xem, và bỏ placeholder đi thì nó mở ra một cái hộp rỗng.
+- Hunk comment / Unimportant **nằm trong cửa sổ đó** thì hiện đầy đủ, tô xám.
+- Hunk **nằm ngoài mọi cửa sổ** thì không hiện gì cho tới khi bấm `Unimportant`, lúc đó chúng hiện ra tô xám phẳng đúng vị trí của nó.
+- File **không có** change thật nào thì giữ nguyên ngữ cảnh, và hunk bị gộp giữ placeholder `⋯ N lines hidden`.
 
-Một file mà toàn bộ khác biệt chỉ là comment thì vẫn không có mục chi tiết riêng
-(không còn gì ngoài comment để mà xem) — nhưng vẫn giữ marker `≉` và đếm vào
-`Comment` trên cây thư mục.
+Các dòng luôn nằm trong file; chỉ có màn hình là yên tĩnh. File mà khác biệt *chỉ*
+là comment thì không có mục chi tiết riêng — vẫn giữ marker `≉` và đếm vào
+`Comment` trên cây. (Vì sao cửa sổ hẹp vậy →
+[architecture](architecture.md#những-quyết-định-nên-biết-trước-khi-sửa).)
 
 `Focus on changes` cạnh cây thư mục thu gọn cây lại còn đúng các file thật sự có
 thay đổi — dòng identical, comment-only và Unimportant biến mất, thư mục nào chỉ

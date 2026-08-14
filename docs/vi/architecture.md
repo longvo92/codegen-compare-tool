@@ -268,11 +268,23 @@ khớp nhau hoàn hảo cho tới lúc ai đó thêm một kind mới vào một
 - **`review.py`** — note và sign-off khoá theo hash nội dung của chính change đó,
   không theo số dòng, nên một sửa đổi không liên quan ở chỗ khác trong file không
   làm chúng rớt ra ở lần scan sau.
-- **`funcname.enclosing`** — tên scope của mỗi dòng (hàm C, SHORT-NAME AUTOSAR,
-  block A2L), một list mà cả report và viewer cùng đọc. Report chú thích mỗi nhóm
+- **`funcname.enclosing`** — tên scope của mỗi dòng (hàm C/C++, class/method
+  Python, SHORT-NAME AUTOSAR, block A2L), một list mà cả report và viewer cùng
+  đọc. Report chú thích mỗi nhóm
   hunk và liệt kê danh sách `Affected` của file từ đó; viewer bám theo "hàm hiện
   tại" khi pane cuộn. Nó không bao giờ quyết định verdict — tên sai chỉ tốn một
   caption — nên heuristic thà trả `None` còn hơn đoán.
+- **`langspec.SPECS`** — một bảng duy nhất mô tả ngữ pháp comment/string của mỗi
+  ngôn ngữ (cái gì mở một comment, string escape ra sao). Hai surface rất khác
+  nhau cùng đọc nó: `syntax.py` tô màu comment, còn shadow của diff
+  (`langspec.shadow` cho các ruleset generic Python/YAML/C++, và nhãn comment
+  trong `_build_variants`) thì blank nó đi. Nếu hai bên bất đồng, một dòng có thể
+  bị tô là comment mà vẫn bị tính là thay đổi. Cả bộ scan string một dòng và
+  triple-quote (`langspec.string_end`, `langspec.triple_close`) cũng nằm ở đây,
+  để bộ tô màu từng-dòng và bộ strip cả-file tìm điểm kết thúc chuỗi giống hệt
+  nhau. Bộ strip C/A2L/ARXML có trước bảng này nên vẫn giữ walker riêng; cái
+  `langspec` thống nhất là *định nghĩa* dùng chung và walker generic cho các ngôn
+  ngữ mới.
 
 ## Front end
 
@@ -324,6 +336,15 @@ vẫn phải nằm trong file export với verdict thật của nó — không t
 thể báo một file là Identical trong khi nó không phải. Rollup quick-changes cũng
 theo đúng luật đó.
 
+**Cửa sổ report đo từ change thật, không từ gì khác.** HTML report hiện ba dòng
+hai bên mỗi change thật, không phải cả file. Noise *nằm trong* cửa sổ thì tô
+xám; noise *nằm ngoài* mọi cửa sổ thì không hiện gì cho tới khi bấm
+`Unimportant`. Cửa sổ hẹp là cố ý: file regen cứ vài dòng lại có một UUID hay
+một dòng banner, nên nếu mỗi hunk noise cũng kéo theo ba dòng ngữ cảnh của nó,
+các cửa sổ sẽ dính vào nhau và một change thật kéo cả file trở lại lên trang.
+File **không có** change thật nào thì không có gì to tiếng hơn để giành chỗ, nên
+nó giữ nguyên ngữ cảnh và một placeholder `⋯ N lines hidden`.
+
 **HTML report là self-contained.** CSS và JS nội tuyến, không CDN, mở file không tải
 gì về. Nó bị gửi email lòng vòng và mở trên máy không có internet; một report render
 ra trắng bóc ở đó còn tệ hơn là không có report. Cũng vì thế mà trang nhúng *cả hai*
@@ -350,7 +371,8 @@ chờ tiến trình nữa và vứt mất exit code, tức là gãy CI gate. Nê
 | Thay đổi | Đụng vào |
 |---|---|
 | Noise rule mới | hàm strip trong module rule → shadow của ruleset đó → một variant có nhãn trong `_build_variants` → hai test (đứng một mình là noise; nằm cạnh thay đổi thật thì vẫn real) |
-| Loại file mới | `RULES` trong `diff_engine.py`, một module `*_rules.py`, shadow + variant |
+| Loại file mới (cỡ AUTOSAR, có strip riêng) | `RULES` trong `diff_engine.py`, một module `*_rules.py`, shadow + variant |
+| Loại file mới (chỉ ignore comment, vd Python/YAML) | một `LangSpec` trong `langspec.py` (ngữ pháp comment/string), thêm đuôi file vào `RULES` và ruleset vào `_GENERIC_COMMENT_RULES`, một `_Lang` trong `syntax.py` cho màu — shadow, variant và tô màu đều đọc chung một spec |
 | Trích ngữ nghĩa mới | extractor trong `*_rules.py`, nối vào `scanner.compare_file` và `_single_info`, rồi một rollup `summarize_*` |
 | Thứ cả hai renderer cùng hiện | `view_model.py` — đừng bao giờ viết thẳng vào một trong hai |
 | Một màu bất kỳ | `theme.py`, thành role có trong **cả hai** palette; report dùng `var(--role)`, Qt dùng `theme.c(role)` |
