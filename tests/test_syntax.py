@@ -269,6 +269,17 @@ class TestPython(unittest.TestCase):
         _s, state = syntax.spans('d = """one liner"""', 'python')
         self.assertEqual(state, PLAIN)
 
+    def test_bare_triple_quote_at_line_end_opens_a_docstring(self):
+        # the delimiter alone at end of line (the most common docstring style)
+        # opens the string -- it must NOT be read as a closed empty one
+        _s, state = syntax.spans('    """', 'python')
+        self.assertEqual(state, syntax.IN_TRIPLE_DQ)
+        body, state = syntax.spans('    the docstring body', 'python', state)
+        self.assertEqual(body, [(0, 22, syntax.STRING)])
+        self.assertEqual(state, syntax.IN_TRIPLE_DQ)
+        _end, state = syntax.spans('    """', 'python', state)
+        self.assertEqual(state, PLAIN)
+
     def test_a_quote_inside_a_hash_comment_does_not_open_a_string(self):
         got, state = syntax.spans("x = 1  # it's fine", 'python')
         self.assertEqual(state, PLAIN)

@@ -271,44 +271,6 @@ def _plain_spans(text, rules, start, end):
     return out
 
 
-def _string_end(text, start, quote, escape, doubled=False):
-    """Index just past the closing quote, or len(text) when it never closes.
-
-    An unterminated string ends at the newline rather than leaking into the
-    next line: C has no multi-line string literals worth the state, and a diff
-    row is shown one line at a time anyway.
-
-    ``doubled`` is A2L's escape rule -- a quote inside a string is written
-    twice -- so `""` continues the literal instead of ending it.
-    """
-    i = start + 1
-    while i < len(text):
-        if escape and text[i] == '\\':
-            i += 2
-            continue
-        if text[i] == quote:
-            if doubled and text[i + 1:i + 2] == quote:
-                i += 2
-                continue
-            return i + 1
-        i += 1
-    return len(text)
-
-
-def _triple_close(text, start, delim):
-    """Index just past a closing triple-quote delimiter, or len(text) when the
-    string runs off the end of the line into the next one."""
-    i = start
-    while i < len(text):
-        if text[i] == '\\':
-            i += 2
-            continue
-        if text.startswith(delim, i):
-            return i + len(delim)
-        i += 1
-    return len(text)
-
-
 def spans(text, language, state=PLAIN):
     """``(spans, next_state)`` for one line.
 
@@ -332,10 +294,11 @@ def spans(text, language, state=PLAIN):
         out.append((0, pos, COMMENT))
     elif state in (IN_TRIPLE_SQ, IN_TRIPLE_DQ):
         delim = _STATE_TRIPLE[state]
-        pos = _triple_close(text, 0, delim)
-        out.append((0, pos, STRING))
-        if pos >= len(text) and not text.endswith(delim):
-            return out, state  # still open at end of line
+        end = langspec.triple_close(text, 0, delim)
+        if end < 0:  # no closing delimiter on this line: still open
+            return [(0, len(text), STRING)], state
+        out.append((0, end, STRING))
+        pos = end
     elif lang.preproc:
         # anchored, so it has to be handled before the scan rather than as one
         # more alternative inside it
@@ -352,11 +315,12 @@ def spans(text, language, state=PLAIN):
             out.extend(_plain_spans(text, lang.plain, pos, m.start()))
         tok = m.group()
         if tok in _TRIPLE_STATE and tok in lang.triples:
-            end = _triple_close(text, m.end(), tok)
-            out.append((m.start(), end, STRING))
-            if end >= len(text) and not text.endswith(tok):
+            end = langspec.triple_close(text, m.end(), tok)
+            if end < 0:  # opens here, runs on to the next line
+                out.append((m.start(), len(text), STRING))
                 out.sort()
                 return out, _TRIPLE_STATE[tok]
+            out.append((m.start(), end, STRING))
             pos = end
         elif lang.line_comment and tok == lang.line_comment:
             # YAML's '#' opens a comment only after whitespace; glued to a value
@@ -377,8 +341,8 @@ def spans(text, language, state=PLAIN):
             pos = close + len(lang.block_close)
             out.append((m.start(), pos, COMMENT))
         else:
-            end = _string_end(text, m.start(), tok, lang.escape,
-                              lang.doubled_quote)
+            end = langspec.string_end(text, m.start(), tok, lang.escape,
+                                      lang.doubled_quote)
             out.append((m.start(), end, STRING))
             pos = end
     if pos < len(text):

@@ -95,10 +95,13 @@ def _blank_keep_newlines(segment):
     return ''.join('\n' if c == '\n' else ' ' for c in segment)
 
 
-def _string_end(text, start, quote, escape, doubled):
+def string_end(text, start, quote, escape, doubled=False):
     """Index just past the closing quote of a single-line string, or the end of
     the line when it never closes (unterminated-string safety -- one stray
-    quote must not blank the rest of the file)."""
+    quote must not blank the rest of the file).
+
+    Shared with :mod:`compare_tool.syntax`: the colourer and the shadow stripper
+    must agree on where a string ends, so the scan lives here once (rule 3)."""
     i = start + 1
     n = len(text)
     while i < n:
@@ -117,9 +120,14 @@ def _string_end(text, start, quote, escape, doubled):
     return n
 
 
-def _triple_end(text, start, delim):
-    """Index just past a closing triple-quote delimiter, or len(text) when it
-    never closes on the remaining text (a docstring runs to EOF)."""
+def triple_close(text, start, delim):
+    """Index just past a closing triple-quote delimiter, or ``-1`` when the
+    delimiter does not appear in ``text[start:]``.
+
+    The ``-1`` sentinel is what lets a line-at-a-time colourer tell "the string
+    closes here" from "the string runs on into the next line" -- a bare ``\"\"\"``
+    at end of line is an OPEN docstring, not a closed empty one. Shared with
+    :mod:`compare_tool.syntax` so both surfaces scan a triple the same way."""
     i = start
     n = len(text)
     while i < n:
@@ -129,7 +137,7 @@ def _triple_end(text, start, delim):
         if text.startswith(delim, i):
             return i + len(delim)
         i += 1
-    return n
+    return -1
 
 
 def _hash_ok(text, i, spec):
@@ -166,13 +174,15 @@ def strip_comments(text, spec, blank_strings=False):
         # starts with, or the literal would end after one character
         triple = next((t for t in spec.triples if text.startswith(t, i)), None)
         if triple:
-            j = _triple_end(text, i + len(triple), triple)
+            j = triple_close(text, i + len(triple), triple)
+            if j < 0:
+                j = n  # runs to EOF: a docstring keeps going, keep it verbatim
             emit_string(text[i:j])
             i = j
             continue
         c = text[i]
         if spec.quotes and c in spec.quotes:
-            j = _string_end(text, i, c, spec.escape, spec.doubled_quote)
+            j = string_end(text, i, c, spec.escape, spec.doubled_quote)
             emit_string(text[i:j])
             i = j
             continue
