@@ -273,6 +273,11 @@ class DiffEditor(QPlainTextEdit):
 
     def paint_gutter(self, event):
         painter = QPainter(self._gutter)
+        # draw the numbers in the EDITOR's font, not the gutter widget's
+        # default: the width and row height are already measured off
+        # self.fontMetrics(), so without this the glyphs stay a fixed system
+        # size and shrink away from the code as it zooms
+        painter.setFont(self.font())
         painter.fillRect(event.rect(), _qc('gutter-bg'))
         # the arrow strip sits PAST the number, so the number keeps the exact
         # right edge it always had -- widening the gutter never moves it
