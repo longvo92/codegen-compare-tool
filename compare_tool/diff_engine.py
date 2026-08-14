@@ -17,20 +17,44 @@ a moved-only file still counts as real-change (statement reordering can be a
 semantic change).
 """
 
-from . import a2l_rules, arxml_rules, c_rules, linediff
+from . import a2l_rules, arxml_rules, c_rules, langspec, linediff
 
 # a block must have at least this many non-blank shadow lines to qualify as
 # moved; single lines (`break;`, `}`) reappear by coincidence far too often
 MIN_MOVED_LINES = 2
 
-# extension -> ruleset name
+# extension -> ruleset name. '.xml' maps to 'arxml' on purpose: AUTOSAR
+# exporters routinely name ARXML files '.xml', and the arxml ruleset only ever
+# STRIPS more (UUIDs, dates), so a plain XML file loses nothing by it.
 RULES = {
     '.c': 'c',
     '.h': 'c',
     '.arxml': 'arxml',
     '.xml': 'arxml',
     '.a2l': 'a2l',
+    '.py': 'python',
+    '.pyw': 'python',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.json': 'json',
+    # C++ (its own ruleset, not 'c': the C ruleset's rename/autogen passes are
+    # MATLAB-specific). '.h' stays 'c' -- a bare .h is ambiguous and the C path
+    # is the safer default; C++ headers are usually .hpp/.hh/.hxx.
+    '.cpp': 'cpp',
+    '.cc': 'cpp',
+    '.cxx': 'cpp',
+    '.c++': 'cpp',
+    '.hpp': 'cpp',
+    '.hh': 'cpp',
+    '.hxx': 'cpp',
+    '.h++': 'cpp',
 }
+
+# rulesets whose shadow is just "blank comments, collapse whitespace" over the
+# shared langspec grammar -- no format-specific stripping (no UUIDs, no rename
+# map). 'json' is absent on purpose: JSON has no comments, so its shadow is
+# plain whitespace collapse, which the else-branch already gives.
+_GENERIC_COMMENT_RULES = ('python', 'yaml', 'cpp')
 
 
 def ruleset_for(path):
@@ -234,6 +258,14 @@ def _build_variants(old_text, new_text, ruleset, rename_map):
         variants.append(('comment',
                          _lines(a2l_rules.a2l_shadow(old_text)),
                          _lines(a2l_rules.a2l_shadow(new_text))))
+    elif ruleset in _GENERIC_COMMENT_RULES:
+        # one rule for these languages -- '#' comments -- so 'comment' is the
+        # only label. strip_comments here == the strip inside langspec.shadow
+        # the pass-2 diff runs on, so variant and shadow stay in sync.
+        spec = langspec.SPECS[ruleset]
+        variants.append(('comment',
+                         _lines(cw(langspec.strip_comments(old_text, spec))),
+                         _lines(cw(langspec.strip_comments(new_text, spec)))))
     return variants
 
 
@@ -267,6 +299,10 @@ def compare_pair(old_text, new_text, path):
     elif ruleset == 'a2l':
         old_shadow = a2l_rules.a2l_shadow(old_text)
         new_shadow = a2l_rules.a2l_shadow(new_text)
+    elif ruleset in _GENERIC_COMMENT_RULES:
+        spec = langspec.SPECS[ruleset]
+        old_shadow = langspec.shadow(old_text, spec)
+        new_shadow = langspec.shadow(new_text, spec)
     else:
         old_shadow = c_rules.collapse_ws(old_text)
         new_shadow = c_rules.collapse_ws(new_text)

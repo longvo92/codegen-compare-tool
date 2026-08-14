@@ -84,7 +84,7 @@ giống một lần chạy sạch.
 
 | Kind | Rule | File |
 |---|---|---|
-| `comment` | Comment C (`//`, `/* */`), comment XML (`<!-- -->`) | .c .h .arxml .a2l |
+| `comment` | Comment C/C++/A2L (`//`, `/* */`), comment XML (`<!-- -->`), comment dòng `#` (Python, YAML) | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Đổi tên 1-1 nhất quán các tên do generator sở hữu. Cái gì mapping không giải thích trọn vẹn thì vẫn là thay đổi thật | .c .h |
 | `uuid` | Attribute `UUID="..."` | .arxml .xml |
 | `timestamp` | Block `<ADMIN-DATA>`, `<DATE>` | .arxml .xml |
@@ -124,7 +124,8 @@ python -m compare_tool
 
 Cây thư mục, diff hai pane có minimap và tô cú pháp, `F7`/`F8` đi hết mọi change
 của cả lần compare, `Ctrl+F` xuyên file, note review theo từng change, một
-**caption tên hàm** hiện hàm C / SHORT-NAME AUTOSAR / block A2L bao quanh và bám
+**caption tên hàm** hiện hàm C/C++, class/method Python, SHORT-NAME AUTOSAR hay
+block A2L bao quanh và bám
 theo lúc cuộn, và một commit picker để so **một** thư mục trong git checkout với
 chính lịch sử của nó. `Help` → `User guide` (`F1`) nằm sẵn trong app, chạy offline.
 

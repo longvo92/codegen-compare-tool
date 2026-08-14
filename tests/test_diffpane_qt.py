@@ -256,10 +256,14 @@ class TestStickyHeaderAndScrollbar(unittest.TestCase):
         self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
                          Qt.ScrollBarAlwaysOff)
 
-    def test_one_sided_file_scrollbar_follows_the_content_pane(self):
-        self._open('src/added.c')  # content is on the NEW side, which drives
+    def test_added_file_shows_no_scrollbar_over_the_minimap(self):
+        # a whole added file's text is on the NEW (right) pane, which drives --
+        # but the minimap sits immediately to its right, so a bar there would
+        # collide with it. It stays off; the minimap, wheel and keyboard scroll.
+        self._open('src/added.c')
+        self.assertIs(self.pane._drive, self.pane.new_edit)
         self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
-                         Qt.ScrollBarAsNeeded)
+                         Qt.ScrollBarAlwaysOff)
         self.assertEqual(self.pane.old_edit.verticalScrollBarPolicy(),
                          Qt.ScrollBarAlwaysOff)
 

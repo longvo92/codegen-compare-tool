@@ -77,8 +77,9 @@ the `Zip…` button in `Open folders…`. It is unpacked to a temp folder and th
 pane is labelled by the zip name, not the temp path.
 
 Once a file is open, a **caption beside its name** shows the function you are
-looking at — the enclosing C function, AUTOSAR SHORT-NAME or A2L block — and
-follows the scroll, so you always know where in a long generated file you are.
+looking at — the enclosing C/C++ function, Python class/method, AUTOSAR
+SHORT-NAME or A2L block — and follows the scroll, so you always know where in a
+long generated file you are.
 For **C files**, when the function's signature scrolls off the top it is also
 **pinned to the top of each pane** (like VS Code's sticky scroll) until you
 leave the function.
@@ -86,12 +87,12 @@ leave the function.
 ### Reading a scan
 
 - The scan **opens on the first change** — the pane is never empty next to a tree full of results.
-- `F8` / `F7` step through the changes in the open file and then **carry on into the next (previous) file** with something to look at, wrapping at the end. `Ctrl+Home` / `Ctrl+End` stay inside the file. A file whose only differences are comments or noise is part of that walk while its category is ticked — it is on screen, so it is reachable — but stopping on one offers nothing to sign off: only real and moved changes enter the review record.
+- `F8` / `F7` step through changes in the open file, then **carry on into the next (previous) changed file**, wrapping at the end. `Ctrl+Home` / `Ctrl+End` stay inside the file. Comment / noise files join the walk while their category is ticked, but stopping on one signs off nothing — only real and moved changes enter the review record.
 - `Ctrl+F` **finds text in the open file** (either side, `F3` / `Shift+F3` to step, `Esc` to close). The query survives moving to another file, so an identifier can be chased across the compare.
 - `Hide identical` leaves only the files with a difference in the tree. It is a view: verdicts, counts and the exported report are untouched.
-- Unticking `Comment` / `Unimportant` **greys those lines out** rather than removing them: they stay where they are, keep their line numbers, lose their red/green, and drop off the minimap and out of `F7`/`F8`. The code around a change is what makes it readable, and a regenerated file is mostly banner churn — folding it away took most of the file with it. Left ticked (the default) they keep their colour and `F7`/`F8` stops on them like any other change.
+- Unticking `Comment` / `Unimportant` **greys those lines out** rather than removing them: they keep their place and line numbers, lose their red/green, and drop off the minimap and `F7`/`F8`. Left ticked (the default) they keep their colour and are `F7`/`F8` stops like any other change.
 - The change you are on is marked by a **small arrow in the line-number gutter**, on both panes — so `F7`/`F8` visibly move even in a file short enough that there is nothing to scroll.
-- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme; `--theme` picks the one it starts in. C, ARXML and A2L are syntax-coloured in both.
+- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme; `--theme` picks the one it starts in. C, C++, ARXML/XML, A2L, Python, JSON and YAML are syntax-coloured in both.
 
 | Mark | Verdict | Meaning |
 |---|---|---|
@@ -157,7 +158,7 @@ appears in the file with its real verdict.
 
 | Kind | Rule | Files |
 |---|---|---|
-| `comment` | C comments (`//`, `/* */`), XML comments (`<!-- -->`) | .c .h .arxml .a2l |
+| `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML). Python docstrings and JSON are **not** folded — a triple-quoted string is code, and JSON has no comments | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated names). Anything the mapping can't fully explain stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
@@ -252,17 +253,16 @@ name rather than one changed digit.
 
 ### What is shown, and what collapses
 
-A file is shown as **three lines of code either side of each real change** — not
-the whole file. In a file that has a real change, the window is measured from
-the real changes alone, and the noise decides where it falls:
+Each real change shows **three lines of context either side** — not the whole file:
 
-- A comment or Unimportant hunk **inside that window** renders in full, greyed. It is already inside the block being read — hiding it would take away the context the real change is read in, and revealing it would cost a click nobody has a reason to make.
-- A hunk **outside every window** shows nothing at all — no code, no placeholder — until you click `Unimportant`, which reveals those lines flat grey wherever they sit. They are still in the file either way; only the screen is quiet. Letting each of them pull three lines along is what printed a regenerated file end to end: it carries a UUID or a banner line every few lines, so the windows chained and one real change brought the whole file back with it.
-- A file with **no** real change keeps its context everywhere, and its collapsed hunks keep their `⋯ N lines hidden` placeholder: there is nothing louder competing for the space, an Unimportant file is opened deliberately, and without the placeholder it would open to an empty box.
+- Comment / Unimportant hunks **inside that window** render in full, greyed.
+- Hunks **outside every window** show nothing until you click `Unimportant`, which reveals them flat grey where they sit.
+- A file with **no** real change keeps full context, and its collapsed hunks keep a `⋯ N lines hidden` placeholder.
 
-A whole file with nothing but comment differences still gets no detail section
-of its own (there is nothing beyond the comment lines to show); it keeps its own
-`≉` mark and `Comment` count in the folder tree either way.
+The lines are always in the file; only the screen is quiet. A file whose
+differences are *only* comments gets no detail section — it keeps its `≉` mark
+and `Comment` count in the tree. (Why the window is this tight →
+[architecture](architecture.md#decisions-worth-knowing-before-you-change-something).)
 
 `Focus on changes`, beside the folder tree, narrows the tree to files that
 actually changed — identical, comment-only and Unimportant rows drop out, and a

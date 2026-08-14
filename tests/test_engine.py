@@ -181,6 +181,87 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r['status'], 'comment-only')
         self.assertEqual(set(kinds(r)), {'comment'})
 
+    def test_python_comment_only(self):
+        old = "# gen Mon\nx = compute(1)  # step\n"
+        new = "# gen Tue\nx = compute(1)  # phase\n"
+        r = compare_pair(old, new, 'm.py')
+        self.assertEqual(r['status'], 'comment-only')
+        self.assertEqual(set(kinds(r)), {'comment'})
+
+    def test_python_comment_beside_real_change_stays_real(self):
+        # fail-safe: an edited '#' comment must not launder the literal change
+        # on the line below it
+        old = "x = 5  # gain\ny = 0\n"
+        new = "x = 6  # tune\ny = 0\n"
+        r = compare_pair(old, new, 'm.py')
+        self.assertEqual(r['status'], 'real-change')
+        self.assertIn('real', kinds(r))
+
+    def test_python_hash_inside_string_is_not_a_comment(self):
+        # '#' inside a string is code: changing it is a real change, never
+        # swallowed as a comment
+        old = 's = "count #1"\n'
+        new = 's = "count #2"\n'
+        r = compare_pair(old, new, 'm.py')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_python_docstring_change_is_real(self):
+        # a triple-quoted string is code, not a comment banner -- a reworded
+        # docstring must stay a real change
+        old = 'def f():\n    """old doc"""\n    return 1\n'
+        new = 'def f():\n    """new doc"""\n    return 1\n'
+        r = compare_pair(old, new, 'm.py')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_yaml_comment_only(self):
+        old = "port: 8080  # default\nname: svc\n"
+        new = "port: 8080  # was 9090\nname: svc\n"
+        r = compare_pair(old, new, 'c.yaml')
+        self.assertEqual(r['status'], 'comment-only')
+        self.assertEqual(set(kinds(r)), {'comment'})
+
+    def test_yaml_comment_beside_real_change_stays_real(self):
+        old = "port: 8080  # default\nname: svc\n"
+        new = "port: 9090  # bumped\nname: svc\n"
+        r = compare_pair(old, new, 'c.yaml')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_yaml_hash_glued_to_value_is_not_a_comment(self):
+        # YAML: '#' opens a comment only after whitespace; glued to a value it
+        # is part of the value, so a change there is real
+        old = "url: http://h/a#one\n"
+        new = "url: http://h/a#two\n"
+        r = compare_pair(old, new, 'c.yaml')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_json_has_no_comment_rule(self):
+        # JSON has no comments; re-indentation is ignorable whitespace, a value
+        # change is real (nothing is ever folded as a comment)
+        r = compare_pair('{\n"a": 1\n}\n', '{\n    "a": 1\n}\n', 'd.json')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'whitespace'})
+        r2 = compare_pair('{\n"a": 1\n}\n', '{\n"a": 2\n}\n', 'd.json')
+        self.assertEqual(r2['status'], 'real-change')
+
+    def test_cpp_comment_only(self):
+        old = "// gen Mon\nint step() { return 1; }  // tick\n"
+        new = "// gen Tue\nint step() { return 1; }  // step\n"
+        r = compare_pair(old, new, 'm.cpp')
+        self.assertEqual(r['status'], 'comment-only')
+        self.assertEqual(set(kinds(r)), {'comment'})
+
+    def test_cpp_comment_beside_real_change_stays_real(self):
+        old = "int step() { return 1; }  // gen Mon\nint keep = 0;\n"
+        new = "int step() { return 2; }  // gen Tue\nint keep = 0;\n"
+        r = compare_pair(old, new, 'm.cpp')
+        self.assertEqual(r['status'], 'real-change')
+        self.assertIn('real', kinds(r))
+
+    def test_cpp_real(self):
+        r = compare_pair("int f() { return 1; }\n", "int f() { return 2; }\n",
+                         'm.hpp')
+        self.assertEqual(r['status'], 'real-change')
+
     def test_identical(self):
         r = compare_pair("int x;\n", "int x;\n", 'f.c')
         self.assertEqual(r['status'], 'identical')

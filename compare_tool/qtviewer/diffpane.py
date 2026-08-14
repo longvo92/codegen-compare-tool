@@ -273,6 +273,11 @@ class DiffEditor(QPlainTextEdit):
 
     def paint_gutter(self, event):
         painter = QPainter(self._gutter)
+        # draw the numbers in the EDITOR's font, not the gutter widget's
+        # default: the width and row height are already measured off
+        # self.fontMetrics(), so without this the glyphs stay a fixed system
+        # size and shrink away from the code as it zooms
+        painter.setFont(self.font())
         painter.fillRect(event.rect(), _qc('gutter-bg'))
         # the arrow strip sits PAST the number, so the number keeps the exact
         # right edge it always had -- widening the gutter never moves it
@@ -857,11 +862,16 @@ class DiffPane(QStackedWidget):
     def _apply_sb_policy(self):
         """One vertical scrollbar, not two: only the driving pane shows one --
         the other is a perfect mirror of it, so a second bar is pure clutter.
-        The minimap on the far right carries the overview either way."""
+        The minimap on the far right carries the overview either way.
+
+        Never on the NEW (right) pane, though: the minimap sits immediately to
+        its right, so a bar there collides with it -- the case a whole ADDED
+        file hits, where the new pane is the one holding the text and driving.
+        Its minimap, the wheel and the keyboard still scroll it."""
         for edit in (self.old_edit, self.new_edit):
+            show = edit is self._drive and edit is not self.new_edit
             edit.setVerticalScrollBarPolicy(
-                Qt.ScrollBarAsNeeded if edit is self._drive
-                else Qt.ScrollBarAlwaysOff)
+                Qt.ScrollBarAsNeeded if show else Qt.ScrollBarAlwaysOff)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

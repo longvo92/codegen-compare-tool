@@ -1,5 +1,6 @@
-"""The name of the scope a line sits in: the C function, the AUTOSAR
-SHORT-NAME element, or the A2L ``/begin`` block that encloses it.
+"""The name of the scope a line sits in: the C/C++ function (namespace and
+class carried too), the Python class or method, the AUTOSAR SHORT-NAME element,
+or the A2L ``/begin`` block that encloses it.
 
 A regenerated ``.c`` runs to thousands of lines, so "Change 3 of 7" tells the
 reviewer how many changes there are but not *where* -- and in Embedded Coder
@@ -27,12 +28,12 @@ zipapp and its tests run headless, same rules as the other core modules.
 
 import re
 
-from . import a2l_rules, c_rules
+from . import a2l_rules, c_rules, langspec
 from .diff_engine import ruleset_for
 
 # reuse the compare's own extension map so a file can never be labelled as one
 # language and diffed as another (same guarantee syntax.language_for gives)
-_LANGS = ('c', 'arxml', 'a2l')
+_LANGS = ('c', 'cpp', 'arxml', 'a2l', 'python')
 
 
 def language_for(rel):
@@ -264,6 +265,145 @@ def _a2l_enclosing(lines):
     return _fill(n, spans)
 
 
+# --- C++ ----------------------------------------------------------------
+
+# a namespace / class / struct / union / enum and the name it introduces. The
+# `enum class Color` / `enum struct` spellings keep the name in the same group
+_CPP_TAG_RE = re.compile(
+    r'\b(?:namespace|class|struct|union|enum(?:\s+(?:class|struct))?)'
+    r'\s+([A-Za-z_]\w*)')
+# a qualified (or destructor) name immediately before its parameter list:
+# `Motor::step(`, `~Motor(`, `Rte_Runnable(`. '::' and '~' are carried so the
+# out-of-line definition reads `Motor::step`, not just `step`
+_CPP_NAME_PAREN_RE = re.compile(r'(~?[A-Za-z_][\w:~]*)\s*\(')
+
+
+def _cpp_scope_name(header):
+    """Name of the scope a depth-0 (or nested) brace opens: a namespace/class/
+    struct/union/enum, or a function. None when the brace opens no named scope
+    (a control block, an aggregate initializer, a lambda, an anonymous
+    namespace) -- an unlabelled line is left for the enclosing scope to fill."""
+    header = header.strip()
+    if not header or '#' in header:
+        return None
+    t = _CPP_TAG_RE.search(header)
+    if t:
+        return t.group(1)
+    m = _CPP_NAME_PAREN_RE.search(header)
+    if m:
+        name = m.group(1)
+        simple = name.split('::')[-1].lstrip('~')
+        # 'if (', 'for (', 'while (' wear the name-then-paren shape but open a
+        # plain block; an '=' before the list is an initializer, not a function
+        if simple not in _C_CTRL and '=' not in header.split('(', 1)[0]:
+            return name
+    return None
+
+
+def _cpp_enclosing(lines):
+    """C++ scope per line via a brace stack -- namespaces nest classes nest
+    functions, so the single-open-scope walk C uses would let a file-wide
+    namespace swallow every function name. Comments and string bodies are
+    blanked first so a brace inside either cannot move the depth."""
+    src_lines = langspec.strip_comments('\n'.join(lines), langspec.SPECS['cpp'],
+                                        blank_strings=True).split('\n')
+    _blank_preproc(src_lines)
+    src = '\n'.join(src_lines)
+    n = len(lines)
+    spans = []
+    frames = []                # [name-or-None, start_line] per open brace
+    depth = paren = line = 0
+    stmt, stmt_start = [], 0
+    i, N = 0, len(src)
+
+    def push(ch):
+        nonlocal stmt_start
+        if not stmt:
+            stmt_start = line
+        stmt.append(ch)
+
+    while i < N:
+        c = src[i]
+        if c == '\n':
+            line += 1
+            if stmt and stmt[-1] != ' ':
+                stmt.append(' ')  # keep tokens split across the line break
+        elif c == '(':
+            paren += 1
+            push(c)
+        elif c == ')':
+            if paren > 0:
+                paren -= 1
+            push(c)
+        elif c == '{':
+            # only a top-level brace opens a named scope; a '{' inside a
+            # parameter/argument list (a call `f({...})`, a lambda) does not
+            name = _cpp_scope_name(''.join(stmt)) if paren == 0 else None
+            frames.append([name, stmt_start])
+            depth += 1
+            stmt = []
+        elif c == '}':
+            if depth > 0:
+                depth -= 1
+            if frames:
+                nm, start = frames.pop()
+                if nm:
+                    spans.append((start, line + 1, _chain(frames, nm)))
+            stmt = []
+        elif c == ';':
+            if paren == 0:
+                stmt = []  # a declaration with no body ends the statement
+        elif not c.isspace():
+            push(c)
+        elif stmt and stmt[-1] != ' ':
+            stmt.append(' ')
+        i += 1
+    return _fill(n, spans)
+
+
+# --- Python -------------------------------------------------------------
+
+# a def/class line: the indent it sits at decides what it encloses. 'async def'
+# is one shape; the name is what the scope is called
+_PY_DEF_RE = re.compile(r'^(\s*)(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)')
+
+
+def _py_indent(line):
+    return len(line) - len(line.lstrip(' \t'))
+
+
+def _py_label(stack):
+    """Innermost scope preceded by its parent (`Class / method`), or None."""
+    names = [nm for _ind, nm in stack]
+    return ' / '.join(names[-2:]) if names else None
+
+
+def _python_enclosing(lines):
+    """Python scope per line by indentation: a def/class owns every line
+    indented past it, until a line dedents back to its level. Comments and
+    string bodies are blanked first so a `def` written inside a docstring or a
+    string literal is not read as a real definition."""
+    code = langspec.strip_comments('\n'.join(lines), langspec.SPECS['python'],
+                                   blank_strings=True).split('\n')
+    n = len(lines)
+    labels = [None] * n
+    stack = []  # [(indent, name)], outermost first
+    for idx, cline in enumerate(code):
+        if not cline.strip():
+            # blank / comment / docstring line: it belongs to the scope around
+            # it, but changes no nesting (Python blocks ignore blank lines)
+            labels[idx] = _py_label(stack)
+            continue
+        ind = _py_indent(cline)
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        m = _PY_DEF_RE.match(cline)
+        if m:
+            stack.append((ind, m.group(2)))
+        labels[idx] = _py_label(stack)
+    return labels
+
+
 # --- shared -------------------------------------------------------------
 
 def _fill(n, spans):
@@ -277,7 +417,8 @@ def _fill(n, spans):
     return labels
 
 
-_LANG_FN = {'c': _c_enclosing, 'arxml': _xml_enclosing, 'a2l': _a2l_enclosing}
+_LANG_FN = {'c': _c_enclosing, 'cpp': _cpp_enclosing, 'arxml': _xml_enclosing,
+            'a2l': _a2l_enclosing, 'python': _python_enclosing}
 
 
 def enclosing(lines, language):

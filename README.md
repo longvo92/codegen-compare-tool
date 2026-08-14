@@ -75,7 +75,7 @@ Exit `2` always shows: `!!` in the terminal, a red banner in the report. `--exit
 
 | Kind | Rule | Files |
 |---|---|---|
-| `comment` | C comments (`//`, `/* */`), XML comments (`<!-- -->`) | .c .h .arxml .a2l |
+| `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML) | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Consistent 1-to-1 renaming of generator-owned names. Anything the mapping cannot fully explain stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
@@ -106,7 +106,7 @@ python -m compare_tool
 
 ![Side-by-side viewer](resources/pic/main_page.png)
 
-Folder tree, two-pane diff with minimap and syntax colouring, `F7`/`F8` through every change in the whole compare, `Ctrl+F` across files, per-change review notes, a **current-function caption** that names the enclosing C function / AUTOSAR SHORT-NAME / A2L block as you scroll, and a commit picker so **one** folder in a git checkout can be compared against its own history. The built-in `Help` → `User guide` (`F1`) works offline.
+Folder tree, two-pane diff with minimap and syntax colouring, `F7`/`F8` through every change in the whole compare, `Ctrl+F` across files, per-change review notes, a **current-function caption** that names the enclosing C/C++ function, Python class/method, AUTOSAR SHORT-NAME or A2L block as you scroll, and a commit picker so **one** folder in a git checkout can be compared against its own history. The built-in `Help` → `User guide` (`F1`) works offline.
 
 → [reading a scan, review mode, every shortcut](docs/usage.md#side-by-side-viewer)
 
