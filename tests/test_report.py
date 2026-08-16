@@ -5,9 +5,10 @@ import unittest
 from pathlib import Path
 
 from compare_tool.diff_engine import compare_pair
-from compare_tool.report import (_char_diff, _counts_html, _CSS, _group_hunks,
-                                 _group_table, _groups_html, _model_groups,
-                                 _THEME_JS, build_arxml_report, build_report)
+from compare_tool.report import (_autosar_chips, _char_diff, _counts_html,
+                                 _CSS, _group_hunks, _group_table, _groups_html,
+                                 _model_groups, _THEME_JS, build_arxml_report,
+                                 build_report)
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
@@ -1086,6 +1087,19 @@ class TestMovedRendering(unittest.TestCase):
         # moved is a real change shown in blue; grp-min would hide it
         self.assertNotIn('grp-min', self.out)
         self.assertNotIn('<tr class="minor">', self.out)
+
+
+class TestAutosarChips(unittest.TestCase):
+    def test_a2l_chips_spell_the_object_kind(self):
+        # a generic '+N A2L' hides which kind moved -- split it out
+        results = {'m.a2l': {'a2l': {'added': [('K_Gain', 'CHARACTERISTIC'),
+                                               ('EngSpd', 'MEASUREMENT')],
+                                     'removed': []}}}
+        chips = _autosar_chips(['m.a2l'], results)
+        self.assertIn('Characteristic', chips)
+        self.assertIn('Measurement', chips)
+        self.assertNotIn('>A2L', chips)
+        self.assertNotIn(' A2L', chips)
 
 
 if __name__ == '__main__':

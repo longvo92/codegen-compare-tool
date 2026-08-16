@@ -25,6 +25,7 @@ found the fact.
 import re
 from collections import namedtuple
 
+from .a2l_rules import A2L_OBJECT_KINDS
 from .arxml_rules import SWC_CATEGORIES
 
 _WORD_RE = re.compile(r'\w')
@@ -65,6 +66,18 @@ _SWC_LABELS = {'ports': ('Ports', 'Port'),
                'runnables': ('Runnables', 'Runnable'),
                'events': ('Events', 'Event')}
 SWC_DISPLAY = tuple(SwcCategory(key, *_SWC_LABELS[key]) for key in SWC_CATEGORIES)
+
+
+# A2L object kinds, in the order a chip lists them. A generic '+N A2L' count
+# hides which kind moved, so both the report chips and the viewer header break
+# it apart through this one seam and cannot spell it two ways.
+A2L_KINDS = A2L_OBJECT_KINDS
+
+
+def a2l_kind_label(kind):
+    """'CHARACTERISTIC' -> 'Characteristic' for a chip label, so it sits beside
+    'Port' and 'Interface' rather than shouting in all-caps."""
+    return kind.capitalize()
 
 
 def iface_kind(tag):

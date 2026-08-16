@@ -18,6 +18,9 @@ All notable changes to this project are documented here. Versions follow
   point it out, the usual sign of a stale regenerate. A code-only change is not
   flagged. It is a heads-up only: it never changes a file's verdict or the exit
   code.
+- **Name calibration changes by kind.** The AUTOSAR change chips now say
+  “+1 Characteristic” / “+1 Measurement” instead of a generic “+1 A2L”, in both
+  the report and the viewer, and the viewer shows them on the file header line.
 - **Write the result as JSON or SARIF for a pipeline.** `--json` emits the full
   scan — every file's verdict, the summary and the exit code — for a build to
   read directly instead of screen-scraping. `--sarif` emits a SARIF 2.1.0 log

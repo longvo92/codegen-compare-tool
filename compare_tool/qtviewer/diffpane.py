@@ -20,6 +20,7 @@ Foreground is the other channel: :mod:`compare_tool.syntax` colours the code
 itself, and the two never touch -- the diff owns background, syntax owns text.
 """
 
+from collections import Counter
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, Qt, Signal
@@ -33,8 +34,9 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
 from .. import funcname, review, theme
 from ..scanner import looks_binary, read_text
 from ..syntax import language_for
-from ..view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows, char_span,
-                          hunk_row_starts, mode_of, mute_rows, row_with)
+from ..view_model import (A2L_KINDS, MUTED, SWC_DISPLAY, Row, a2l_kind_label,
+                          aligned_rows, char_span, hunk_row_starts, mode_of,
+                          mute_rows, row_with)
 from . import highlight
 from .highlight import CodeHighlighter
 from .icons import logo_pixmap
@@ -73,9 +75,14 @@ def _pm(label, added, removed, changed=0):
 
 
 def _semantic_summary(result):
-    """Compact AUTOSAR / A2L change rollup for the file header, reusing the
+    """Compact AUTOSAR / A2L change chips for the file header, reusing the
     semantic diffs the scanner already attached (interfaces, SWC ports /
-    runnables / events, RTE access points, A2L objects). '' when none."""
+    runnables / events, RTE access points, A2L objects). '' when none.
+
+    Each chip names the concrete object kind -- '+1 Characteristic', not a
+    generic '+1 A2L' -- through the same view-model seam the report chips use,
+    so a change reads the same in both surfaces. No 'AUTOSAR / A2L:' prefix:
+    the chips ride on the header line beside 'Change k of N'."""
     chips = []
     s = result.get('swc')
     if s:
@@ -91,9 +98,11 @@ def _semantic_summary(result):
         chips.append(_pm('RTE', len(t['added']), len(t['removed'])))
     a = result.get('a2l')
     if a:
-        chips.append(_pm('A2L', len(a['added']), len(a['removed'])))
-    chips = [c for c in chips if c]
-    return 'AUTOSAR / A2L:   ' + '   ·   '.join(chips) if chips else ''
+        add = Counter(k for _n, k in a['added'])
+        rem = Counter(k for _n, k in a['removed'])
+        for kind in A2L_KINDS:
+            chips.append(_pm(a2l_kind_label(kind), add.get(kind, 0), rem.get(kind, 0)))
+    return '   ·   '.join(c for c in chips if c)
 
 # per-side row background by mode, as theme roles; None = context (editor base
 # colour). Looked up at paint time, so a theme switch is a repaint and never a
@@ -360,9 +369,6 @@ class DiffPane(QStackedWidget):
         head_row.addWidget(self._header, 1)
         head_row.addWidget(self._fn)
         head_row.addLayout(self.nav_actions)
-        self._sem = QLabel('')
-        self._sem.setWordWrap(True)
-        self._sem.setVisible(False)
         self.old_edit = DiffEditor()
         self.new_edit = DiffEditor()
         # VS Code-style "sticky scroll": the enclosing function's signature
@@ -405,12 +411,12 @@ class DiffPane(QStackedWidget):
         dl = QVBoxLayout(diff_page)
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(0)
-        # header + semantic line stay at their natural (small) height; the
-        # editor body takes ALL remaining vertical space (stretch=1), so the
-        # two-pane diff fills the pane from just under the header instead of
-        # being pushed to the bottom by an oversized header gap
+        # the header row stays at its natural (small) height; the editor body
+        # takes ALL remaining vertical space (stretch=1), so the two-pane diff
+        # fills the pane from just under the header instead of being pushed to
+        # the bottom by an oversized header gap. The AUTOSAR/A2L chips ride on
+        # the header line itself (see _load_rows), not a second line below.
         dl.addLayout(head_row)
-        dl.addWidget(self._sem)
         dl.addWidget(self._find_bar)
         dl.addWidget(body, 1)
 
@@ -491,8 +497,6 @@ class DiffPane(QStackedWidget):
                                                 theme.c('sticky-border')))
         self._sticky_old.setStyleSheet(sticky_qss)
         self._sticky_new.setStyleSheet(sticky_qss)
-        self._sem.setStyleSheet('color:{}; padding:0 10px 6px; font-size:12px;'
-                                .format(theme.c('fg-dim')))
         self._find_count.setStyleSheet('color:{}; font-size:12px;'
                                        .format(theme.c('st-ign')))
         # neutral strip, coloured only in the OLD/NEW tag text and a thin
@@ -1061,7 +1065,7 @@ class DiffPane(QStackedWidget):
                 return
             lines = read_text(path).split('\n')
             self._load_one_side(rel, label, lines,
-                                'new' if status == 'added' else 'old')
+                                'new' if status == 'added' else 'old', result)
             return
         # real-change / ignorable-only / identical all show the two-pane code;
         # identical has no hunks so it renders as plain context (no highlights)
@@ -1092,11 +1096,13 @@ class DiffPane(QStackedWidget):
         if n_moved:
             head += '   ·   {} Moved line{}'.format(n_moved,
                                                     '' if n_moved == 1 else 's')
+        # the AUTOSAR/A2L chips ride on the header line, after the file name and
+        # before "Change k of N", instead of a second line under it
+        sem = _semantic_summary(result or {})
+        if sem:
+            head += '   ·   ' + sem
         self._head_base = head
         self._header.setText(head)
-        sem = _semantic_summary(result or {})
-        self._sem.setText(sem)
-        self._sem.setVisible(bool(sem))
         # configure before the text lands: setPlainText runs a full highlight
         # pass of its own, so this way the file is coloured once, not twice
         modes = [r.mode for r in rows]
@@ -1178,7 +1184,7 @@ class DiffPane(QStackedWidget):
             self.old_edit.verticalScrollBar().setValue(0)
             self._on_vscroll()  # no change to reveal: name the scope at line 1
 
-    def _load_one_side(self, rel, label, lines, side):
+    def _load_one_side(self, rel, label, lines, side, result=None):
         # rows are marked 'ctx': the pane is already one solid colour, so the
         # map has nothing to add by repeating it -- but they ARE the file, and
         # the find box searches rows, so a whole added file has to have them
@@ -1192,11 +1198,15 @@ class DiffPane(QStackedWidget):
         self._stop_units = []
         self._pos_text = ''
         self._clear_selections()  # nothing of the previous file may survive
-        self._sem.setVisible(False)
         # keep _head_base in step with the shown header (an added/deleted file
         # has no change stops, but leaving a stale base from the previous file
-        # is exactly the kind of drift that bites later)
-        self._head_base = '{}   ·   {}'.format(rel, label)
+        # is exactly the kind of drift that bites later). A whole added/deleted
+        # ARXML/A2L still carries its chips (+N Characteristic, +N Port) inline
+        head = '{}   ·   {}'.format(rel, label)
+        sem = _semantic_summary(result or {})
+        if sem:
+            head += '   ·   ' + sem
+        self._head_base = head
         self._header.setText(self._head_base)
         edit = self.old_edit if side == 'old' else self.new_edit
         other = self.new_edit if side == 'old' else self.old_edit
