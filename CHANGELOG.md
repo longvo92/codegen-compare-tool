@@ -17,6 +17,11 @@ All notable changes to this project are documented here. Versions follow
   ARXML did not, or the reverse — the usual sign of a partial or stale
   regenerate. It is a heads-up only: it never changes a file's verdict or the
   exit code.
+- **Write the result as JSON or SARIF for a pipeline.** `--json` emits the full
+  scan — every file's verdict, the summary and the exit code — for a build to
+  read directly instead of screen-scraping. `--sarif` emits a SARIF 2.1.0 log
+  of the files that need action, so GitHub or Azure DevOps code scanning can
+  annotate them inline on a pull request.
 
 ## [1.9.0] — 2026-08-14
 

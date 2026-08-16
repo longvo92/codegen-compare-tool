@@ -332,6 +332,33 @@ python -m compare_tool "$OLD_DIR" "$NEW_DIR" \
 See [azure-pipelines.yml](../azure-pipelines.yml) for a working example (OLD
 checked out via `git worktree`, NEW is the working tree).
 
+### Machine-readable output
+
+The HTML report is for a human and the exit code is for a gate. For a build that
+wants to read *what* changed — annotate a pull request, feed a dashboard, drive
+its own policy — write the result as data:
+
+```bash
+python -m compare_tool old_dir new_dir --json result.json --sarif result.sarif
+```
+
+Both are additive: the HTML report is still written. Either can be given alone.
+
+- `--json` writes the whole scan under a versioned `schema`: every file's
+  verdict, its hunks, renames and AUTOSAR extras, the run summary, the
+  consistency advisories, and the same `exit_code` the process returns (so the
+  file and `$?` cannot disagree). Pin `schema` and an internal refactor will not
+  move the shape under you.
+- `--sarif` writes a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) log of
+  only the files that need action — modified, added, deleted, error — each with
+  a level (`error` for a path that could not be compared, `warning` otherwise).
+  Upload it to GitHub code scanning or Azure DevOps to see the changes annotated
+  inline on the pull request. Identical and noise-only files are not findings
+  and are left out.
+
+A write that fails is loud: like a missing HTML report, it exits `2` — a
+pipeline that asked for the file must not proceed as if it got one.
+
 ## Single-file build
 
 ```powershell
