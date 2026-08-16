@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-08-16
+
 ### Added
 
 - **Filter out reordered statements in generated C.** When a regenerated model
