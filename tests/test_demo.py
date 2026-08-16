@@ -1,9 +1,17 @@
-"""The demo tree under fixtures/demo, and the three features it shows.
+"""The demo tree under fixtures/demo: one folder pair covering every noise rule
+and the three newest features in a single compare.
 
-`fixtures/demo/old` vs `fixtures/demo/new` is the folder pair a human runs to
-see the new features (see fixtures/demo/README.md). These tests lock what it
-claims, so the demo can never quietly stop demonstrating what it says it does.
-"""
+`fixtures/demo/old` vs `fixtures/demo/new` is the pair a human runs (see
+fixtures/demo/README.md). Four top-level models make the newest features'
+point; `rules/` and `models/` are copies of the tool's own noise-rule and
+model-grouping fixtures, folded in so the same one compare also shows every
+ignorable kind (comment, uuid, timestamp, rename), an added and a deleted file,
+side by side with what is real. Copies, not moves -- `tests/fixtures/old`,
+`new`, `model_old` and `model_new` stay put, since other tests pin exact
+counts and paths against them.
+
+These tests lock what the merged demo claims, so it can never quietly stop
+demonstrating what it says it does."""
 
 import json
 import unittest
@@ -78,11 +86,34 @@ class TestDemoTree(unittest.TestCase):
         log = serialize.build_sarif(self.res)
         uris = {r['locations'][0]['physicalLocation']['artifactLocation']['uri']
                 for r in log['runs'][0]['results']}
-        # the reordered file and the stale (identical) C are NOT findings
-        self.assertNotIn('SpeedCtrl.c', uris)
-        self.assertNotIn('StaleGen.c', uris)
-        self.assertEqual(uris, {'TorqueLimiter.c', 'PedalMap.c', 'PedalMap.arxml',
-                                'PedalMap.a2l', 'StaleGen.arxml', 'StaleGen.a2l'})
+        # the reordered file, the stale (identical) C, and any Unimportant /
+        # Comment file are NOT findings
+        for rel in ('SpeedCtrl.c', 'StaleGen.c', 'rules/arxml/uuid_only.arxml',
+                   'rules/src/comment_only.c', 'rules/src/rename_only.c'):
+            self.assertNotIn(rel, uris)
+        for rel in ('TorqueLimiter.c', 'PedalMap.c', 'PedalMap.arxml',
+                   'PedalMap.a2l', 'StaleGen.arxml', 'StaleGen.a2l',
+                   'rules/src/added.c', 'rules/src/deleted.h',
+                   'rules/src/real_change.c'):
+            self.assertIn(rel, uris)
+
+    # --- one compare, every noise kind ---
+
+    def test_every_ignorable_kind_is_represented(self):
+        seen = {h['kind'] for r in self.res.values() for h in r.get('hunks', [])}
+        for kind in ('comment', 'reorder', 'rename', 'uuid', 'timestamp'):
+            self.assertIn(kind, seen)
+
+    def test_added_and_deleted_are_represented(self):
+        statuses = {r['status'] for r in self.res.values()}
+        self.assertIn('added', statuses)
+        self.assertIn('deleted', statuses)
+
+    def test_model_grouping_still_separates_the_four_demo_models(self):
+        from compare_tool.report import _model_groups
+        groups = _model_groups(self.res)
+        for model in ('SpeedCtrl', 'StaleGen', 'TorqueLimiter', 'PedalMap'):
+            self.assertIn(model, groups)
 
     def test_json_round_trips_and_carries_the_reorder(self):
         counts = {k: 0 for k in ('identical', 'comment-only', 'ignorable-only',
