@@ -11,7 +11,8 @@ from compare_tool.main import summary_lines
 from compare_tool.qtviewer.summary_model import summary_sections
 from compare_tool.report import _char_diff, _swc_note
 from compare_tool.scanner import summarize
-from compare_tool.view_model import (MUTED, SWC_DISPLAY, Row, aligned_rows,
+from compare_tool.view_model import (A2L_KINDS, MUTED, SWC_DISPLAY, Row,
+                                     a2l_kind_label, aligned_rows,
                                      char_span, hunk_row_starts, mute_rows,
                                      row_with)
 
@@ -322,3 +323,12 @@ class TestSwcDisplayVocabulary(unittest.TestCase):
         text = '\n'.join(summary_lines(results, summarize(results)))
         for cat in SWC_DISPLAY:
             self.assertIn(cat.noun, text)
+
+
+class TestA2lKindLabel(unittest.TestCase):
+    def test_capitalised_for_a_chip(self):
+        self.assertEqual(a2l_kind_label('CHARACTERISTIC'), 'Characteristic')
+        self.assertEqual(a2l_kind_label('MEASUREMENT'), 'Measurement')
+
+    def test_kinds_are_the_a2l_object_kinds(self):
+        self.assertEqual(tuple(A2L_KINDS), ('CHARACTERISTIC', 'MEASUREMENT'))

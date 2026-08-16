@@ -160,6 +160,7 @@ appears in the file with its real verdict.
 |---|---|---|
 | `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML). Python docstrings and JSON are **not** folded — a triple-quoted string is code, and JSON has no comments | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated names). Anything the mapping can't fully explain stays a real change | .c .h |
+| `reorder` | Independent statements emitted in a different order (Embedded Coder rescheduling). Only folded when the block is straight-line scalar assignments **and** the new order preserves every data dependence — otherwise it stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
 | `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
@@ -189,6 +190,26 @@ Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` →
 so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and
 `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block
 name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
+
+### Reorder
+
+Regenerating a model routinely emits the same independent assignments in a
+different order — output ports, temporaries — which the text reads as a change
+even though the block computes identical values. A `reorder` fold recognises
+this, but only where it can be **proven**, never guessed:
+
+- every line on both sides is a side-effect-free scalar assignment
+  (`ident = expr;` — no call, no store through an array/pointer/field, no
+  control flow, no declaration with a type);
+- the two sides hold the same statements, just permuted;
+- the new order preserves **every data dependence** — whenever two statements
+  share a variable and one writes it, their relative order is unchanged.
+
+Two straight-line schedules that agree on the order of every dependent pair
+compute the same result, so the reorder is behaviour-preserving. Anything that
+does not meet all three — a call between the lines, a changed right-hand side, a
+flipped dependent pair — leaves the whole block a real change. It errs toward
+calling a block real, never toward hiding one.
 
 ### Comment is its own category
 
@@ -240,6 +261,26 @@ appears in the diff.
 Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming
 convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, the modular ARXML
 set, …). Files that match no model land in a final **Shared / other** group.
+
+## Consistency check
+
+A model's ARXML is its contract and its A2L is its calibration surface; both are
+realised by the generated C. So the dependency runs **one way**: if the
+interface or the calibration really changed, the code must have changed too — a
+new port needs a new RTE access, a new characteristic needs a new symbol. When
+an ARXML or A2L change lands with the generated C left identical, the report
+(below the AUTOSAR changes) and the terminal flag the model — the usual sign of
+a stale or partial regenerate, and the one thing a file-by-file view cannot
+show, because each file is individually fine and the mismatch lives *between*
+them.
+
+The reverse is **not** flagged. Code that changed while the ARXML and A2L did
+not is the ordinary case — an internal logic or gain edit touches no interface
+and no calibration variable, so there is nothing for them to follow.
+
+It is a **heads-up, not a verdict**: it never folds a file, moves a count, or
+changes the exit code. Only a *real* surface change counts — an ARXML that
+merely churned UUIDs did not really change, so a stale C is not a desync.
 
 ## HTML report
 
@@ -295,6 +336,33 @@ python -m compare_tool "$OLD_DIR" "$NEW_DIR" \
 
 See [azure-pipelines.yml](../azure-pipelines.yml) for a working example (OLD
 checked out via `git worktree`, NEW is the working tree).
+
+### Machine-readable output
+
+The HTML report is for a human and the exit code is for a gate. For a build that
+wants to read *what* changed — annotate a pull request, feed a dashboard, drive
+its own policy — write the result as data:
+
+```bash
+python -m compare_tool old_dir new_dir --json result.json --sarif result.sarif
+```
+
+Both are additive: the HTML report is still written. Either can be given alone.
+
+- `--json` writes the whole scan under a versioned `schema`: every file's
+  verdict, its hunks, renames and AUTOSAR extras, the run summary, the
+  consistency advisories, and the same `exit_code` the process returns (so the
+  file and `$?` cannot disagree). Pin `schema` and an internal refactor will not
+  move the shape under you.
+- `--sarif` writes a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) log of
+  only the files that need action — modified, added, deleted, error — each with
+  a level (`error` for a path that could not be compared, `warning` otherwise).
+  Upload it to GitHub code scanning or Azure DevOps to see the changes annotated
+  inline on the pull request. Identical and noise-only files are not findings
+  and are left out.
+
+A write that fails is loud: like a missing HTML report, it exits `2` — a
+pipeline that asked for the file must not proceed as if it got one.
 
 ## Single-file build
 

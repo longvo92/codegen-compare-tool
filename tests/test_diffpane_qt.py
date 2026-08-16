@@ -1010,5 +1010,23 @@ class TestFolderPickerStartDir(unittest.TestCase):
         self.assertEqual(dlg._start_dir(dlg.old_row), '')
 
 
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestSemanticSummary(unittest.TestCase):
+    """The AUTOSAR/A2L chips that ride on the file header line."""
+
+    def test_a2l_is_spelled_by_kind_with_no_prefix(self):
+        from compare_tool.qtviewer.diffpane import _semantic_summary
+        s = _semantic_summary({'a2l': {'added': [('K_Gain', 'CHARACTERISTIC')],
+                                       'removed': [('EngSpd', 'MEASUREMENT')]}})
+        self.assertIn('+1 Characteristic', s)
+        self.assertIn('−1 Measurement', s)
+        self.assertNotIn('A2L', s)
+        self.assertNotIn('AUTOSAR', s)
+
+    def test_nothing_semantic_is_blank(self):
+        from compare_tool.qtviewer.diffpane import _semantic_summary
+        self.assertEqual(_semantic_summary({}), '')
+
+
 if __name__ == '__main__':
     unittest.main()

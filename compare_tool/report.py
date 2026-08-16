@@ -11,12 +11,12 @@ import html
 import re
 from pathlib import Path
 
-from . import filepair, funcname, review, syntax, theme
+from . import consistency, filepair, funcname, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
-from .view_model import (SWC_DISPLAY, char_span, iface_kind, mode_of,
-                         swc_item)
+from .view_model import (A2L_KINDS, SWC_DISPLAY, a2l_kind_label, char_span,
+                         iface_kind, mode_of, swc_item)
 
 CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
@@ -929,9 +929,15 @@ def _counts_html(rels, results):
 
 def _autosar_chips(rels, results):
     """Compact AUTOSAR change rollup for one model group, e.g.
-    '+1 Interface · +2/−1 Port · ~1 Event · +3 RTE'."""
-    ia = ir = sa = sr = ra = rr = aa = ar = 0
+    '+1 Interface · +2/−1 Port · ~1 Event · +3 RTE · +1 Characteristic'.
+
+    A2L is split by object kind (Characteristic / Measurement) rather than a
+    generic '+N A2L', through the same seam the viewer header uses, so the two
+    surfaces name a calibration change the same way."""
+    ia = ir = sa = sr = ra = rr = 0
     cats = {cat.key: [0, 0, 0] for cat in SWC_DISPLAY}
+    a2l_add = {k: 0 for k in A2L_KINDS}
+    a2l_rem = {k: 0 for k in A2L_KINDS}
     for rel in rels:
         r = results[rel]
         d = r.get('ifaces')
@@ -952,8 +958,10 @@ def _autosar_chips(rels, results):
             rr += len(t['removed'])
         a = r.get('a2l')
         if a:
-            aa += len(a['added'])
-            ar += len(a['removed'])
+            for _n, kind in a['added']:
+                a2l_add[kind] = a2l_add.get(kind, 0) + 1
+            for _n, kind in a['removed']:
+                a2l_rem[kind] = a2l_rem.get(kind, 0) + 1
 
     def chip(a, r, c, label):
         bits = []
@@ -967,7 +975,9 @@ def _autosar_chips(rels, results):
 
     chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'Interface')]
     chips += [chip(*(cats[cat.key] + [cat.noun])) for cat in SWC_DISPLAY]
-    chips += [chip(ra, rr, 0, 'RTE'), chip(aa, ar, 0, 'A2L')]
+    chips.append(chip(ra, rr, 0, 'RTE'))
+    chips += [chip(a2l_add.get(k, 0), a2l_rem.get(k, 0), 0, a2l_kind_label(k))
+              for k in A2L_KINDS]
     return ' &middot; '.join(c for c in chips if c)
 
 
@@ -985,6 +995,30 @@ def _overview_table(groups, results, model_anchors):
     return ('<h2>Overview</h2><table class="ov">'
             '<tr><th>Model / SWC</th><th>Files</th><th>AUTOSAR changes</th></tr>'
             '{}</table>'.format(''.join(rows)))
+
+
+def consistency_advisories(results):
+    """Cross-artifact advisories for a scan (see :mod:`compare_tool.consistency`).
+
+    Public so the CLI summary and the report render the SAME list from the SAME
+    model grouping -- the seam is here because the grouping is. ``[]`` when the
+    layout has no models (the flat fallback), which is also when there is no
+    model whose artifacts could be out of step."""
+    groups = _model_groups(results)
+    if not groups:
+        return []
+    return consistency.model_advisories(groups, results, SHARED_GROUP)
+
+
+def _consistency_html(advisories):
+    """The cross-artifact advisory block, or '' when there is nothing to say.
+    A caution, not a verdict: it never counts toward the summary or exit code."""
+    if not advisories:
+        return ''
+    rows = ['<div><span class="if-chg">&#9888; {}</span> &mdash; {}</div>'
+            .format(_esc(model), _esc(msg)) for model, msg in advisories]
+    return '<h2>Consistency check</h2><div class="iflist">{}</div>'.format(
+        ''.join(rows))
 
 
 def _agg_status(node, results):
@@ -1600,6 +1634,11 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
     parts.append(_autosar_section(results, anchors))
+    if groups:
+        # below the AUTOSAR changes: it reads them (a surface that moved) against
+        # the code, so it belongs after the reader has seen what moved
+        parts.append(_consistency_html(
+            consistency.model_advisories(groups, results, SHARED_GROUP)))
 
     if results:
         parts.append('<div class="treehdr"><h2>Folder tree</h2>'

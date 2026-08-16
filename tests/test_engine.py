@@ -99,6 +99,39 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r['status'], 'real-change')
         self.assertEqual(r['renames'], {})
 
+    def test_independent_reorder_is_noise(self):
+        # Embedded Coder emits the same independent assignments in a different
+        # order; the values are identical, so it is proven noise, not a change
+        old = "a = u + 1;\nb = v + 2;\nc = w + 3;\n"
+        new = "c = w + 3;\nb = v + 2;\na = u + 1;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(set(kinds(r)), {'reorder'})
+
+    def test_dependent_reorder_stays_real(self):
+        # moving 'y = t + 2' above the line that computes t changes the result,
+        # so the reorder is NOT safe and must stay real
+        old = "t = u + 1;\ny = t + 2;\n"
+        new = "y = t + 2;\nt = u + 1;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_reorder_beside_real_change_stays_real(self):
+        # fail-safe: a genuine RHS change (v+2 -> v+99) mixed into a reorder
+        # breaks the permutation, so the whole block stays real
+        old = "a = u + 1;\nb = v + 2;\nc = w + 3;\n"
+        new = "c = w + 3;\nb = v + 99;\na = u + 1;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
+    def test_reorder_across_a_call_stays_real(self):
+        # a call between the reordered lines may have side effects; the block is
+        # no longer straight-line scalar, so it is not folded
+        old = "a = u + 1;\nb = step(a);\nc = w + 3;\n"
+        new = "c = w + 3;\nb = step(a);\na = u + 1;\n"
+        r = compare_pair(old, new, 'f.c')
+        self.assertEqual(r['status'], 'real-change')
+
     def test_arxml_uuid_only(self):
         old = '<A UUID="1">\n<B UUID="2">x</B>\n</A>\n'
         new = '<A UUID="9">\n<B UUID="8">x</B>\n</A>\n'
@@ -492,8 +525,12 @@ class TestMovedBlocks(unittest.TestCase):
         self.assertEqual(froms[0], 6)
 
     def test_single_line_move_stays_real(self):
-        old = "a = 1;\nb = 2;\nc = 3;\n"
-        new = "b = 2;\nc = 3;\na = 1;\n"
+        # a single moved line is not confidently a move (MIN_MOVED_LINES): a
+        # lone statement reappears by coincidence too often. Calls, so the
+        # reorder proof (scalar assignments only) does not apply and cannot
+        # fold this either -- a moved side-effecting call IS a real change.
+        old = "f();\ng();\nh();\n"
+        new = "g();\nh();\nf();\n"
         r = compare_pair(old, new, 'f.c')
         self.assertEqual(r['status'], 'real-change')
         self.assertNotIn('moved', kinds(r))

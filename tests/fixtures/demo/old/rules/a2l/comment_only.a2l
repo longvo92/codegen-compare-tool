@@ -1,0 +1,8 @@
+/* generated Mon */
+ASAP2_VERSION 1 71
+/begin PROJECT Demo ""
+  /begin MODULE Ctrl ""
+    /begin MEASUREMENT EngSpd "engine speed" UWORD CM_EngSpd 1 100 0 8000
+    /end MEASUREMENT
+  /end MODULE
+/end PROJECT

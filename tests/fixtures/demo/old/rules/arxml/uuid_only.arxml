@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+  <AR-PACKAGES>
+    <AR-PACKAGE UUID="a1b2c3d4-0001-4a5b-8c7d-000000000001">
+      <SHORT-NAME>ComponentTypes</SHORT-NAME>
+      <ELEMENTS>
+        <APPLICATION-SW-COMPONENT-TYPE UUID="a1b2c3d4-0002-4a5b-8c7d-000000000002">
+          <SHORT-NAME>Controller</SHORT-NAME>
+          <PORTS>
+            <P-PORT-PROTOTYPE UUID="a1b2c3d4-0003-4a5b-8c7d-000000000003">
+              <SHORT-NAME>Out1</SHORT-NAME>
+            </P-PORT-PROTOTYPE>
+          </PORTS>
+        </APPLICATION-SW-COMPONENT-TYPE>
+      </ELEMENTS>
+    </AR-PACKAGE>
+  </AR-PACKAGES>
+</AUTOSAR>

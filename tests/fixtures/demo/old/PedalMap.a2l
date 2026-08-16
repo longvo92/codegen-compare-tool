@@ -1,0 +1,8 @@
+ASAP2_VERSION 1 71
+/begin PROJECT PedalMap ""
+  /begin MODULE CAL ""
+    /begin CHARACTERISTIC K_PedalGain "pedal scaling factor"
+      VALUE 0x8000 __UBYTE_Z 0 IDENTICAL 0 100
+    /end CHARACTERISTIC
+  /end MODULE
+/end PROJECT

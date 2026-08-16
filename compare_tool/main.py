@@ -15,9 +15,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import review, theme, zipsource
+from . import review, serialize, theme, zipsource
 from .diff_engine import RULES
-from .report import build_arxml_report, build_report
+from .report import build_arxml_report, build_report, consistency_advisories
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
@@ -168,6 +168,14 @@ def summary_lines(results, counts):
             lines.append('  + {} ({}) in {}'.format(n, kind, rel))
         for rel, n, kind in a2l_removed:
             lines.append('  - {} ({}) in {}'.format(n, kind, rel))
+
+    # cross-artifact heads-up: a model whose ARXML and C did not change
+    # together. Advisory only -- it never moves a count or the exit code
+    advisories = consistency_advisories(results)
+    if advisories:
+        lines.append('Consistency check:')
+        for model, msg in advisories:
+            lines.append('  !! {}: {}'.format(model, msg))
     return lines
 
 
@@ -226,6 +234,15 @@ def _parser():
                          'Reviewed badge that hides the changes already signed '
                          'off. Not loaded unless named: a report must not pick '
                          'up someone else\'s sign-off by accident')
+    ap.add_argument('--json', metavar='OUT.json', default=None,
+                    help='also write the full scan as schema-versioned JSON for '
+                         'a pipeline to read -- per-file verdict, hunks, renames, '
+                         'AUTOSAR extras, the run summary, the consistency '
+                         'advisories and the exit code')
+    ap.add_argument('--sarif', metavar='OUT.sarif', default=None,
+                    help='also write a SARIF 2.1.0 log of the files that need '
+                         'action (modified / added / deleted / error), so GitHub '
+                         'or Azure DevOps code scanning can annotate them inline')
     ap.add_argument('--exit-zero', action='store_true',
                     help='always exit 0 even when real changes exist '
                          '(report-only mode for CI pipelines); compare '
@@ -377,14 +394,51 @@ def _run(ap, args, zip_temp):
     else:
         print('Report written: {}'.format(out.resolve()))
 
+    code = _exit_code(counts, args.exit_zero)
+    # the machine outputs carry the SAME exit code the process returns, so a
+    # pipeline reading the JSON and a pipeline reading $? cannot disagree
+    if args.json or args.sarif:
+        try:
+            _write_machine(args, results, counts, old_root, new_root, code,
+                           args.baseline_name or old_zip,
+                           args.current_name or new_zip)
+        except OSError as e:
+            # a machine output a pipeline asked for is a record; failing to
+            # write it leaves the run without the file it will gate on
+            print('!! MACHINE OUTPUT NOT WRITTEN -- {}'.format(_write_hint(
+                Path(args.json or args.sarif), e)), file=sys.stderr)
+            return 2
+    return code
+
+
+def _exit_code(counts, exit_zero):
+    """The process exit code for a completed scan.
+
+    2 whenever a path could not be compared -- an incomplete compare must never
+    look green, and ``--exit-zero`` cannot mask it. Otherwise 1 when real
+    differences exist (the CI gate), 0 when they do not or ``--exit-zero``.
+    """
     if counts['error']:
-        # fail-safe: an incomplete compare must never look green, even with
-        # --exit-zero -- an uncompared file could hide a real change
         return 2
-    if args.exit_zero:
+    if exit_zero:
         return 0
-    # exit code 1 when real differences exist (CI gate)
     return 1 if counts['real-change'] or counts['added'] or counts['deleted'] else 0
+
+
+def _write_machine(args, results, counts, old_root, new_root, code,
+                   old_label, new_label):
+    """Write the JSON and/or SARIF outputs the CLI was asked for. Raises
+    ``OSError`` on a failed write, which the caller turns into exit 2."""
+    if args.json:
+        advisories = consistency_advisories(results)
+        text = serialize.dumps(results, counts, old_root, new_root, code,
+                               old_label, new_label, advisories)
+        Path(args.json).write_text(text, encoding='utf-8')
+        print('JSON written: {}'.format(Path(args.json).resolve()))
+    if args.sarif:
+        Path(args.sarif).write_text(serialize.dumps_sarif(results),
+                                    encoding='utf-8')
+        print('SARIF written: {}'.format(Path(args.sarif).resolve()))
 
 
 if __name__ == '__main__':

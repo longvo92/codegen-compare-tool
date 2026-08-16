@@ -587,5 +587,57 @@ class TestA2l(unittest.TestCase):
                                         ('K_Gain', 'CHARACTERISTIC')])
 
 
+class TestReorderEquivalent(unittest.TestCase):
+    def test_independent_permutation(self):
+        self.assertTrue(c_rules.reorder_equivalent(
+            ['a = u + 1;', 'b = v + 2;', 'c = w + 3;'],
+            ['c = w + 3;', 'a = u + 1;', 'b = v + 2;']))
+
+    def test_true_dependence_order_kept_is_ok(self):
+        # t is written then read; the new order keeps that, only independent
+        # neighbours move around it
+        self.assertTrue(c_rules.reorder_equivalent(
+            ['t = u + 1;', 'y = t + 2;', 'z = w + 3;'],
+            ['z = w + 3;', 't = u + 1;', 'y = t + 2;']))
+
+    def test_true_dependence_flipped_is_not(self):
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['t = u + 1;', 'y = t + 2;'],
+            ['y = t + 2;', 't = u + 1;']))
+
+    def test_output_dependence_flipped_is_not(self):
+        # two writes to the same variable: their order is the result
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['x = 1;', 'x = 2;'],
+            ['x = 2;', 'x = 1;']))
+
+    def test_anti_dependence_flipped_is_not(self):
+        # read of x then overwrite of x (WAR): flipping changes what y sees
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['y = x + 1;', 'x = 5;'],
+            ['x = 5;', 'y = x + 1;']))
+
+    def test_changed_statement_is_not(self):
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['a = u + 1;', 'b = v + 2;'],
+            ['b = v + 9;', 'a = u + 1;']))
+
+    def test_call_is_not_safe(self):
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['a = u + 1;', 'b = step(a);'],
+            ['b = step(a);', 'a = u + 1;']))
+
+    def test_non_scalar_lhs_is_not_safe(self):
+        # a store through an array could alias another statement's read
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['arr[i] = u;', 'b = v + 2;'],
+            ['b = v + 2;', 'arr[i] = u;']))
+
+    def test_same_order_is_not_a_reorder(self):
+        self.assertFalse(c_rules.reorder_equivalent(
+            ['a = u + 1;', 'b = v + 2;'],
+            ['a = u + 1;', 'b = v + 2;']))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -98,6 +98,8 @@ compare_tool/
 ├── langspec.py      # the comment/string grammar per language, shared by syntax.py (colouring) and the diff shadow (folding) so they agree; generic comment stripper for Python/YAML/JSON
 ├── syntax.py        # line-at-a-time C / C++ / XML / A2L / Python / JSON / YAML token spans, Qt-free so it ships in the .pyz
 ├── funcname.py      # enclosing scope name per line (C/C++ function / Python class·method / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
+├── consistency.py    # cross-artifact advisory: a model whose ARXML/A2L really changed but whose generated C did not follow (heads-up only, never a verdict)
+├── serialize.py      # machine-readable output of a scan: schema-versioned JSON (the whole record) and SARIF 2.1.0 (the files needing action) for a pipeline
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
 ├── zipsource.py     # read-only unpack of a .zip artifact into a temp folder, so a zip can be either side
@@ -242,8 +244,16 @@ consumes one dict per compared path:
 ```
 
 Ranges are 0-based, end-exclusive, into the **raw** lines of each side.
-`kind` is one of `real`, `moved`, `comment`, `rename`, `uuid`, `timestamp`,
-`sw-version`, `description`, `whitespace`, `mixed`.
+`kind` is one of `real`, `moved`, `comment`, `rename`, `reorder`, `uuid`,
+`timestamp`, `sw-version`, `description`, `whitespace`, `mixed`.
+
+`reorder` is the one ignorable kind decided on *meaning* rather than spelling:
+when the whole surviving change set is a dependence-preserving permutation of a
+straight-line block of scalar assignments, it computes the same values and is
+proven noise (`c_rules.reorder_equivalent`). Like the autogen-rename kind it is
+detected on the shadow hunks and applied by overlap, not through
+`_build_variants`; any real change mixed in, or any line that is not a safe
+scalar assignment, leaves every hunk real.
 
 The semantic extras are computed only where they can matter: a shadow-equal
 file has the same content, so it cannot have moved the AUTOSAR surface.
