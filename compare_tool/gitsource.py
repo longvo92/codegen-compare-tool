@@ -63,16 +63,6 @@ def _run(root, args, timeout=30, capture_to=None):
     return p.stdout.decode('utf-8', 'replace')
 
 
-def git_available():
-    try:
-        subprocess.run(['git', '--version'], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=10,
-                       creationflags=_NO_WINDOW)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return True
-
-
 def repo_root(path):
     """The work tree containing `path`, or None if it is not in a repository.
 

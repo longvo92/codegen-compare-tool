@@ -22,7 +22,16 @@ def _git(root, *args):
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-@unittest.skipUnless(gitsource.git_available(), 'git is not installed')
+def _git_available():
+    try:
+        subprocess.run(['git', '--version'], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+@unittest.skipUnless(_git_available(), 'git is not installed')
 class _RepoCase(unittest.TestCase):
     """A three-commit repository: gen/ appears in c1, changes in c2, and c3
     touches only a file outside it."""
