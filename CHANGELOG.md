@@ -12,11 +12,12 @@ All notable changes to this project are documented here. Versions follow
   recognises it as noise instead of a change — but only when it can prove the
   new order computes identical values. A real edit mixed into the reordering
   still shows as a change.
-- **Flag when a model's ARXML and C did not regenerate together.** The report
-  and the terminal now point out a model whose generated C changed while its
-  ARXML did not, or the reverse — the usual sign of a partial or stale
-  regenerate. It is a heads-up only: it never changes a file's verdict or the
-  exit code.
+- **Flag an interface or calibration change the code did not follow.** When a
+  model's ARXML or A2L really changed but its generated C stayed identical — a
+  new port or characteristic with no matching code — the report and the terminal
+  point it out, the usual sign of a stale regenerate. A code-only change is not
+  flagged. It is a heads-up only: it never changes a file's verdict or the exit
+  code.
 - **Write the result as JSON or SARIF for a pipeline.** `--json` emits the full
   scan — every file's verdict, the summary and the exit code — for a build to
   read directly instead of screen-scraping. `--sarif` emits a SARIF 2.1.0 log

@@ -35,31 +35,42 @@ class TestDemoTree(unittest.TestCase):
 
     # --- feature 4: cross-artifact consistency advisory ---
 
-    def test_consistency_flags_only_the_desynced_model(self):
+    def test_consistency_flags_only_the_stale_model(self):
         adv = consistency_advisories(self.res)
         models = [m for m, _msg in adv]
-        # TorqueLimiter.c changed while its ARXML stayed identical -> flagged.
-        # SpeedCtrl has no real C change; PedalMap changed both sides -> quiet.
-        self.assertEqual(models, ['TorqueLimiter'])
+        # StaleGen's ARXML and A2L really changed while its C stayed identical.
+        # Nothing else is out of step, so it is the only model named.
+        self.assertEqual(models, ['StaleGen'])
+        self.assertEqual(adv[0][1],
+                         'ARXML and A2L changed but the generated C did not')
 
-    def test_the_desync_verdicts_are_what_drive_the_flag(self):
+    def test_stale_model_verdicts_drive_the_flag(self):
+        self.assertEqual(self.res['StaleGen.arxml']['status'], 'real-change')
+        self.assertEqual(self.res['StaleGen.a2l']['status'], 'real-change')
+        self.assertEqual(self.res['StaleGen.c']['status'], 'identical')
+
+    def test_code_only_change_is_not_flagged(self):
+        # TorqueLimiter's C changed (a gain) but its ARXML did not -- a logic
+        # edit touches no interface, so this is normal and must NOT be flagged
         self.assertEqual(self.res['TorqueLimiter.c']['status'], 'real-change')
         self.assertEqual(self.res['TorqueLimiter.arxml']['status'], 'identical')
-        # the healthy model: both sides really changed
+        self.assertNotIn('TorqueLimiter',
+                         [m for m, _ in consistency_advisories(self.res)])
+
+    def test_surfaces_and_code_changing_together_is_quiet(self):
+        # PedalMap changed its C, its ARXML (a new port) and its A2L together
         self.assertEqual(self.res['PedalMap.c']['status'], 'real-change')
         self.assertEqual(self.res['PedalMap.arxml']['status'], 'real-change')
+        self.assertEqual(self.res['PedalMap.a2l']['status'], 'real-change')
+        self.assertNotIn('PedalMap',
+                         [m for m, _ in consistency_advisories(self.res)])
 
-    def test_a2l_change_alone_never_flags_a_model(self):
-        # PedalMap.a2l added a characteristic; that never makes a consistency
-        # advisory on its own -- calibration is not paired with the code
+    def test_autosar_summary_sees_the_new_objects(self):
+        swc = summarize_swcs(self.res)
+        ports = [(rel, name) for rel, _swc, name, _desc in swc['ports']['added']]
+        self.assertIn(('PedalMap.arxml', 'Scaled'), ports)
         added, _removed = summarize_a2l(self.res)
         self.assertIn(('PedalMap.a2l', 'K_PedalOffset', 'CHARACTERISTIC'), added)
-        self.assertNotIn('PedalMap', [m for m, _ in consistency_advisories(self.res)])
-
-    def test_autosar_summary_sees_the_new_port(self):
-        swc = summarize_swcs(self.res)
-        added = [(rel, name) for rel, _swc, name, _desc in swc['ports']['added']]
-        self.assertIn(('PedalMap.arxml', 'Scaled'), added)
 
     # --- feature 5: machine-readable output ---
 
@@ -67,10 +78,11 @@ class TestDemoTree(unittest.TestCase):
         log = serialize.build_sarif(self.res)
         uris = {r['locations'][0]['physicalLocation']['artifactLocation']['uri']
                 for r in log['runs'][0]['results']}
-        # the reordered file is Unimportant, so it is NOT a finding
+        # the reordered file and the stale (identical) C are NOT findings
         self.assertNotIn('SpeedCtrl.c', uris)
-        self.assertEqual(uris, {'TorqueLimiter.c', 'PedalMap.c',
-                                'PedalMap.arxml', 'PedalMap.a2l'})
+        self.assertNotIn('StaleGen.c', uris)
+        self.assertEqual(uris, {'TorqueLimiter.c', 'PedalMap.c', 'PedalMap.arxml',
+                                'PedalMap.a2l', 'StaleGen.arxml', 'StaleGen.a2l'})
 
     def test_json_round_trips_and_carries_the_reorder(self):
         counts = {k: 0 for k in ('identical', 'comment-only', 'ignorable-only',

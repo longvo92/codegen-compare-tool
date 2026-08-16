@@ -98,7 +98,7 @@ compare_tool/
 ├── langspec.py      # the comment/string grammar per language, shared by syntax.py (colouring) and the diff shadow (folding) so they agree; generic comment stripper for Python/YAML/JSON
 ├── syntax.py        # line-at-a-time C / C++ / XML / A2L / Python / JSON / YAML token spans, Qt-free so it ships in the .pyz
 ├── funcname.py      # enclosing scope name per line (C/C++ function / Python class·method / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
-├── consistency.py    # cross-artifact advisory: a model whose ARXML and generated C did not change together (heads-up only, never a verdict)
+├── consistency.py    # cross-artifact advisory: a model whose ARXML/A2L really changed but whose generated C did not follow (heads-up only, never a verdict)
 ├── serialize.py      # machine-readable output of a scan: schema-versioned JSON (the whole record) and SARIF 2.1.0 (the files needing action) for a pipeline
 ├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
 ├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side

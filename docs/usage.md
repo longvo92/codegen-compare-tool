@@ -264,18 +264,23 @@ set, …). Files that match no model land in a final **Shared / other** group.
 
 ## Consistency check
 
-A model's ARXML (its contract) and its generated C (its behaviour) come out of
-the same regenerate, so they are expected to change together. When one moved and
-the other did not — the C is Modified but its ARXML is Identical, or the reverse
-— the report and the terminal say so, per model. It is the one thing a
-file-by-file view cannot show: each file is individually fine, and the mismatch
-lives *between* them. The usual cause is a partial or stale regenerate.
+A model's ARXML is its contract and its A2L is its calibration surface; both are
+realised by the generated C. So the dependency runs **one way**: if the
+interface or the calibration really changed, the code must have changed too — a
+new port needs a new RTE access, a new characteristic needs a new symbol. When
+an ARXML or A2L change lands with the generated C left identical, the report
+(below the AUTOSAR changes) and the terminal flag the model — the usual sign of
+a stale or partial regenerate, and the one thing a file-by-file view cannot
+show, because each file is individually fine and the mismatch lives *between*
+them.
 
-This is a **heads-up, not a verdict**. It never folds a file, moves a count, or
-changes the exit code, because a partner change can be legitimately absent — a
-hand-written file kept beside generated ones, or an ARXML edited on its own.
-A2L is deliberately not paired here: a recalibration touches no code, so
-flagging it would cry wolf.
+The reverse is **not** flagged. Code that changed while the ARXML and A2L did
+not is the ordinary case — an internal logic or gain edit touches no interface
+and no calibration variable, so there is nothing for them to follow.
+
+It is a **heads-up, not a verdict**: it never folds a file, moves a count, or
+changes the exit code. Only a *real* surface change counts — an ARXML that
+merely churned UUIDs did not really change, so a stale C is not a desync.
 
 ## HTML report
 

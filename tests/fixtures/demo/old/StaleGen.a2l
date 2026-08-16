@@ -1,0 +1,8 @@
+ASAP2_VERSION 1 71
+/begin PROJECT StaleGen ""
+  /begin MODULE CAL ""
+    /begin CHARACTERISTIC K_Bias "output bias"
+      VALUE 0x9000 __UBYTE_Z 0 IDENTICAL 0 255
+    /end CHARACTERISTIC
+  /end MODULE
+/end PROJECT

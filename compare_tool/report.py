@@ -1002,17 +1002,13 @@ def consistency_advisories(results):
 
 def _consistency_html(advisories):
     """The cross-artifact advisory block, or '' when there is nothing to say.
-    Rendered as a caution, not an error: it never counts toward the verdict."""
+    A caution, not a verdict: it never counts toward the summary or exit code."""
     if not advisories:
         return ''
     rows = ['<div><span class="if-chg">&#9888; {}</span> &mdash; {}</div>'
             .format(_esc(model), _esc(msg)) for model, msg in advisories]
-    return ('<h2>Consistency check</h2>'
-            '<div class="ifnote">A model\'s ARXML and generated C are expected '
-            'to regenerate together. These changed on their own — a heads-up, '
-            'not a verdict: a file kept elsewhere or an ARXML-only edit can be '
-            'perfectly fine.</div><div class="iflist">{}</div>'
-            .format(''.join(rows)))
+    return '<h2>Consistency check</h2><div class="iflist">{}</div>'.format(
+        ''.join(rows))
 
 
 def _agg_status(node, results):
@@ -1627,9 +1623,12 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  '</span>'.format(**counts) + rev_group + '</div>')
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
+    parts.append(_autosar_section(results, anchors))
+    if groups:
+        # below the AUTOSAR changes: it reads them (a surface that moved) against
+        # the code, so it belongs after the reader has seen what moved
         parts.append(_consistency_html(
             consistency.model_advisories(groups, results, SHARED_GROUP)))
-    parts.append(_autosar_section(results, anchors))
 
     if results:
         parts.append('<div class="treehdr"><h2>Folder tree</h2>'
