@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Filter out reordered statements in generated C.** When a regenerated model
+  emits the same independent assignments in a different order, the diff now
+  recognises it as noise instead of a change — but only when it can prove the
+  new order computes identical values. A real edit mixed into the reordering
+  still shows as a change.
+
 ## [1.9.0] — 2026-08-14
 
 Diff and review C++, Python, YAML and JSON files alongside the AUTOSAR output.

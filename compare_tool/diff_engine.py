@@ -6,7 +6,7 @@ A raw hunk that does not intersect any real hunk is ignorable; it is labeled
 by testing single normalization rules one at a time.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
-kind in {real, moved, comment, rename, uuid, timestamp, sw-version,
+kind in {real, moved, comment, rename, reorder, uuid, timestamp, sw-version,
          description, whitespace, mixed}
 
 Moved blocks: a pure-delete hunk whose non-blank shadow content reappears
@@ -355,6 +355,18 @@ def compare_pair(old_text, new_text, path):
                 kept.append(h)
         candidates = kept
 
+    # MATLAB codegen reschedules independent statements (output assignments,
+    # temporaries): the raw and shadow text both read as a change, but the block
+    # computes the same values. When the whole surviving change set is one
+    # dependence-preserving permutation of a straight-line block, it is proven
+    # noise (c_rules.reorder_equivalent) -- fail-safe: a real change mixed in, or
+    # any line that is not a safe scalar assignment, leaves every hunk real.
+    reorder_hunks = []
+    if ruleset == 'c' and candidates and c_rules.is_safe_reorder(
+            final_old_shadow_lines, new_shadow_lines, candidates):
+        reorder_hunks = list(candidates)
+        candidates = []
+
     real_hunks = candidates
     moved_del, moved_ins = _detect_moves(candidates, final_old_shadow_lines,
                                          new_shadow_lines, ruleset)
@@ -391,6 +403,8 @@ def compare_pair(old_text, new_text, path):
                         break
             if kind is None and autogen_hunks and _overlaps(h, autogen_hunks):
                 kind = 'rename'  # autogen-name swap (rtb_/mangle/temp)
+            if kind is None and reorder_hunks and _overlaps(h, reorder_hunks):
+                kind = 'reorder'  # independent statements rescheduled
         if kind is None:
             kind = 'mixed'  # ignorable but caused by >1 rule combined
             for name, ov, nv in variants:

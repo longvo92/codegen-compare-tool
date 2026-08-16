@@ -6,6 +6,7 @@ always corresponds to line N in the original file.
 """
 
 import re
+from collections import Counter
 from difflib import SequenceMatcher
 
 from . import linediff
@@ -433,6 +434,130 @@ def autogen_noise_map(old_lines, new_lines, old_ids=None, new_ids=None):
     if not mapping or _map_has_cycle(mapping):
         return None
     return mapping
+
+
+# --- straight-line reorder (Embedded Coder reschedules independent stmts) ---
+#
+# Regenerating a model routinely emits the same independent assignments in a
+# different order (output ports, temporaries), which the raw and shadow text
+# both read as a change even though the block computes identical values. This
+# is the one residual churn the text rules cannot see past: it is not a rename,
+# not a comment, not a whole-block move -- it is a *reschedule*. Proving it safe
+# needs the data dependence between statements, so it is decided here on the
+# meaning of the lines, not their spelling.
+
+_ASSIGN_RE = re.compile(r'^([A-Za-z_]\w*)\s*=\s*(.*)$')
+# an identifier glued to a '(' is a call; a cast '(real_T)x' has the '(' after
+# an operator or nothing, so it is not matched and stays allowed
+_CALL_RE = re.compile(r'[A-Za-z_]\w*\s*\(')
+
+
+def _parse_scalar_stmt(line):
+    """``(canonical_content, writes, reads)`` for a side-effect-free scalar
+    assignment ``ident = expr;``, or ``None`` for anything else.
+
+    ``None`` is the conservative answer, and the caller turns any ``None`` in a
+    block into "this is a real change". A declaration carrying a type, a call, a
+    store through an array / pointer / field, a control-flow line, or two
+    statements on one line all return ``None``.
+
+    The restriction is what makes the dependence exact. Every accepted statement
+    writes a plain scalar identifier and no accepted RHS contains a call, so no
+    store can alias another statement's read: two distinct names denote two
+    distinct objects. Read/write sets keyed by name are then the true data
+    dependence, not an approximation of it.
+    """
+    s = line.strip()
+    if not s.endswith(';'):
+        return None
+    body = s[:-1]
+    if ';' in body:
+        return None  # more than one statement on the line
+    m = _ASSIGN_RE.match(body)
+    if not m:
+        return None
+    lhs, rhs = m.group(1), m.group(2)
+    if not rhs or rhs[0] == '=':
+        return None  # '==' comparison, or an empty RHS -- not an assignment
+    if _CALL_RE.search(rhs):
+        return None  # a call may have side effects; moving it is not safe
+    if lhs in C_KEYWORDS:
+        return None
+    content = canonical_generated(body)
+    reads = frozenset(t for t in tokenize(rhs) if is_identifier(t))
+    return content, frozenset((lhs,)), reads
+
+
+def reorder_equivalent(old_lines, new_lines):
+    """True when two straight-line blocks hold the SAME statements in a
+    dependence-preserving different order -- Embedded Coder rescheduling
+    independent assignments, which computes exactly the same values.
+
+    Proven, not guessed. Every line on both sides must be a safe scalar
+    assignment (see :func:`_parse_scalar_stmt`); the two sides must be a
+    permutation of one statement multiset; and every pair of statements that
+    share a variable with at least one *writing* it must keep their relative
+    order. Two schedules of a straight-line block that agree on the order of
+    every dependent pair are both linear extensions of the same dependence DAG,
+    so they compute identical results. Any unsafe line, any multiset mismatch,
+    or any flipped dependent pair returns False and the block stays real.
+
+    Residual assumption, stated plainly: a ``volatile`` scalar read is invisible
+    here (it looks like a plain identifier), so two reads of the same volatile
+    object could in principle be reordered. Embedded Coder does not emit that,
+    and any *write* to the shared name keeps the pair ordered regardless. This
+    is the same class of thing the whole tool cannot see (it never expands a
+    macro), and it errs toward calling a block real, never toward hiding one.
+    """
+    if not (2 <= len(old_lines) == len(new_lines) <= 200):
+        return False
+    old = [_parse_scalar_stmt(l) for l in old_lines]
+    new = [_parse_scalar_stmt(l) for l in new_lines]
+    if any(s is None for s in old) or any(s is None for s in new):
+        return False
+    old_keys = [s[0] for s in old]
+    new_keys = [s[0] for s in new]
+    if len(set(old_keys)) != len(old_keys):
+        return False  # a repeated statement makes the old<->new pairing ambiguous
+    if Counter(old_keys) != Counter(new_keys):
+        return False  # not a permutation: a statement was added / removed / changed
+    if old_keys == new_keys:
+        return False  # nothing was actually reordered -- not this rule's case
+    new_pos = {k: i for i, k in enumerate(new_keys)}
+    for a in range(len(old)):
+        _ka, wa, ra = old[a]
+        for b in range(a + 1, len(old)):
+            kb, wb, rb = old[b]
+            # a precedes b in the old order; they are dependent when they share
+            # a variable and at least one of them writes it (true / anti / output
+            # dependence). A dependent pair must keep its order in the new one.
+            if (wa & rb) or (wa & wb) or (wb & ra):
+                if new_pos[old_keys[a]] > new_pos[kb]:
+                    return False
+    return True
+
+
+def is_safe_reorder(old_shadow_lines, new_shadow_lines, hunks):
+    """True when the whole set of surviving change ``hunks`` is one
+    dependence-preserving reorder of a single straight-line block.
+
+    The block spans the first changed shadow line to the last, on each side, and
+    includes the unchanged statements between them -- so the dependence check is
+    complete: a hunk statement never crosses the unchanged block boundary, and
+    any real change among the hunks lands a foreign statement inside the span
+    and fails the permutation test (see :func:`reorder_equivalent`). All or
+    nothing on purpose: one genuine change mixed in leaves every hunk real,
+    which is the safe direction.
+    """
+    if not hunks:
+        return False
+    o1 = min(h[0] for h in hunks)
+    o2 = max(h[1] for h in hunks)
+    n1 = min(h[2] for h in hunks)
+    n2 = max(h[3] for h in hunks)
+    old_block = [l for l in old_shadow_lines[o1:o2] if l.strip()]
+    new_block = [l for l in new_shadow_lines[n1:n2] if l.strip()]
+    return reorder_equivalent(old_block, new_block)
 
 
 # --- RTE access-point summary (AUTOSAR blockset codegen) ---

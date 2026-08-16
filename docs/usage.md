@@ -160,6 +160,7 @@ appears in the file with its real verdict.
 |---|---|---|
 | `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML). Python docstrings and JSON are **not** folded — a triple-quoted string is code, and JSON has no comments | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated names). Anything the mapping can't fully explain stays a real change | .c .h |
+| `reorder` | Independent statements emitted in a different order (Embedded Coder rescheduling). Only folded when the block is straight-line scalar assignments **and** the new order preserves every data dependence — otherwise it stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
 | `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
@@ -189,6 +190,26 @@ Everything else keeps its suffix as meaning. `SIG_TORQUE_MIN` →
 so are `rtb_AND_…` → `rtb_OR_…` (a different block drives that buffer) and
 `Sub_…_step` → `Sub_…_Init` (a different entry point). Digits glued to a block
 name (`rtb_Switch1` vs `rtb_Switch2`) are part of the name, not a mangle tail.
+
+### Reorder
+
+Regenerating a model routinely emits the same independent assignments in a
+different order — output ports, temporaries — which the text reads as a change
+even though the block computes identical values. A `reorder` fold recognises
+this, but only where it can be **proven**, never guessed:
+
+- every line on both sides is a side-effect-free scalar assignment
+  (`ident = expr;` — no call, no store through an array/pointer/field, no
+  control flow, no declaration with a type);
+- the two sides hold the same statements, just permuted;
+- the new order preserves **every data dependence** — whenever two statements
+  share a variable and one writes it, their relative order is unchanged.
+
+Two straight-line schedules that agree on the order of every dependent pair
+compute the same result, so the reorder is behaviour-preserving. Anything that
+does not meet all three — a call between the lines, a changed right-hand side, a
+flipped dependent pair — leaves the whole block a real change. It errs toward
+calling a block real, never toward hiding one.
 
 ### Comment is its own category
 

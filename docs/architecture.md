@@ -242,8 +242,16 @@ consumes one dict per compared path:
 ```
 
 Ranges are 0-based, end-exclusive, into the **raw** lines of each side.
-`kind` is one of `real`, `moved`, `comment`, `rename`, `uuid`, `timestamp`,
-`sw-version`, `description`, `whitespace`, `mixed`.
+`kind` is one of `real`, `moved`, `comment`, `rename`, `reorder`, `uuid`,
+`timestamp`, `sw-version`, `description`, `whitespace`, `mixed`.
+
+`reorder` is the one ignorable kind decided on *meaning* rather than spelling:
+when the whole surviving change set is a dependence-preserving permutation of a
+straight-line block of scalar assignments, it computes the same values and is
+proven noise (`c_rules.reorder_equivalent`). Like the autogen-rename kind it is
+detected on the shadow hunks and applied by overlap, not through
+`_build_variants`; any real change mixed in, or any line that is not a safe
+scalar assignment, leaves every hunk real.
 
 The semantic extras are computed only where they can matter: a shadow-equal
 file has the same content, so it cannot have moved the AUTOSAR surface.
