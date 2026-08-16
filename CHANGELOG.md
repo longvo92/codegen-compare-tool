@@ -12,6 +12,11 @@ All notable changes to this project are documented here. Versions follow
   recognises it as noise instead of a change — but only when it can prove the
   new order computes identical values. A real edit mixed into the reordering
   still shows as a change.
+- **Flag when a model's ARXML and C did not regenerate together.** The report
+  and the terminal now point out a model whose generated C changed while its
+  ARXML did not, or the reverse — the usual sign of a partial or stale
+  regenerate. It is a heads-up only: it never changes a file's verdict or the
+  exit code.
 
 ## [1.9.0] — 2026-08-14
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import review, theme, zipsource
 from .diff_engine import RULES
-from .report import build_arxml_report, build_report
+from .report import build_arxml_report, build_report, consistency_advisories
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
@@ -168,6 +168,14 @@ def summary_lines(results, counts):
             lines.append('  + {} ({}) in {}'.format(n, kind, rel))
         for rel, n, kind in a2l_removed:
             lines.append('  - {} ({}) in {}'.format(n, kind, rel))
+
+    # cross-artifact heads-up: a model whose ARXML and C did not change
+    # together. Advisory only -- it never moves a count or the exit code
+    advisories = consistency_advisories(results)
+    if advisories:
+        lines.append('Consistency check:')
+        for model, msg in advisories:
+            lines.append('  !! {}: {}'.format(model, msg))
     return lines
 
 

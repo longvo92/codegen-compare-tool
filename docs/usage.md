@@ -262,6 +262,21 @@ Files are grouped by **Simulink model** using the Embedded Coder AUTOSAR naming
 convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, the modular ARXML
 set, …). Files that match no model land in a final **Shared / other** group.
 
+## Consistency check
+
+A model's ARXML (its contract) and its generated C (its behaviour) come out of
+the same regenerate, so they are expected to change together. When one moved and
+the other did not — the C is Modified but its ARXML is Identical, or the reverse
+— the report and the terminal say so, per model. It is the one thing a
+file-by-file view cannot show: each file is individually fine, and the mismatch
+lives *between* them. The usual cause is a partial or stale regenerate.
+
+This is a **heads-up, not a verdict**. It never folds a file, moves a count, or
+changes the exit code, because a partner change can be legitimately absent — a
+hand-written file kept beside generated ones, or an ARXML edited on its own.
+A2L is deliberately not paired here: a recalibration touches no code, so
+flagging it would cry wolf.
+
 ## HTML report
 
 Self-contained file, one per compare: badge toggles, folder tree, filter box,

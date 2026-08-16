@@ -11,7 +11,7 @@ import html
 import re
 from pathlib import Path
 
-from . import filepair, funcname, review, syntax, theme
+from . import consistency, filepair, funcname, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -987,6 +987,34 @@ def _overview_table(groups, results, model_anchors):
             '{}</table>'.format(''.join(rows)))
 
 
+def consistency_advisories(results):
+    """Cross-artifact advisories for a scan (see :mod:`compare_tool.consistency`).
+
+    Public so the CLI summary and the report render the SAME list from the SAME
+    model grouping -- the seam is here because the grouping is. ``[]`` when the
+    layout has no models (the flat fallback), which is also when there is no
+    model whose artifacts could be out of step."""
+    groups = _model_groups(results)
+    if not groups:
+        return []
+    return consistency.model_advisories(groups, results, SHARED_GROUP)
+
+
+def _consistency_html(advisories):
+    """The cross-artifact advisory block, or '' when there is nothing to say.
+    Rendered as a caution, not an error: it never counts toward the verdict."""
+    if not advisories:
+        return ''
+    rows = ['<div><span class="if-chg">&#9888; {}</span> &mdash; {}</div>'
+            .format(_esc(model), _esc(msg)) for model, msg in advisories]
+    return ('<h2>Consistency check</h2>'
+            '<div class="ifnote">A model\'s ARXML and generated C are expected '
+            'to regenerate together. These changed on their own — a heads-up, '
+            'not a verdict: a file kept elsewhere or an ARXML-only edit can be '
+            'perfectly fine.</div><div class="iflist">{}</div>'
+            .format(''.join(rows)))
+
+
 def _agg_status(node, results):
     """Folder status = most significant child status."""
     best = 'identical'
@@ -1599,6 +1627,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  '</span>'.format(**counts) + rev_group + '</div>')
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
+        parts.append(_consistency_html(
+            consistency.model_advisories(groups, results, SHARED_GROUP)))
     parts.append(_autosar_section(results, anchors))
 
     if results:
