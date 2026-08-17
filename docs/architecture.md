@@ -108,31 +108,54 @@ compare_tool/
 
 ## Data flow of one compare
 
-```mermaid
-sequenceDiagram
-    participant F as Front end
-    participant S as scanner.scan
-    participant D as diff_engine.compare_pair
-    participant R as Renderer
+Comparing two C files, end to end. A difference is a **real change unless a
+filter can prove it is noise** — the shadow decides the truth, the raw diff
+decides what you see, and three peeling steps (rename, autogen-name, reorder)
+each remove only what they can justify. ARXML and A2L take the same two passes;
+only the *shadow* — what each strips — differs.
 
-    F->>S: old_root, new_root, exclude/include
-    S->>S: list_files() both sides, capture listing errors
-    loop each relative path
-        alt in both trees
-            S->>D: old_text, new_text, rel
-            D->>D: pass 1 — raw line diff
-            D->>D: pass 2 — shadow diff (+ rename map)
-            D->>D: label each raw hunk, then _status_of
-            D-->>S: {status, hunks, renames, notes}
-        else one side only
-            S->>S: added / deleted + semantic extras
-        else unreadable
-            S->>S: status 'error' — loud, never silent
-        end
-    end
-    S-->>F: {rel_path: result}
-    F->>R: the SAME dict, unfiltered
+```mermaid
+flowchart TD
+    START["scanner pairs a file by path"]:::io --> DISP{"present on…"}
+    DISP -- "new side only" --> ADD["added<br/>(+ AUTOSAR/A2L extras)"]:::green
+    DISP -- "old side only" --> DEL["deleted"]:::green
+    DISP -- "could not read" --> ERR["error<br/>loud, never silent"]:::red
+    DISP -- "both sides" --> EQ{"bytes identical?"}
+
+    EQ -- "yes" --> IDENT["identical"]:::grey
+    EQ -- "no" --> EOL{"equal after newline<br/>normalize?"}
+    EOL -- "yes" --> LEN["ignorable-only<br/>line-endings / BOM"]:::grey
+    EOL -- "no" --> SHA["build the C shadow, both sides<br/>strip // and /* */ comments · collapse whitespace<br/>line count preserved"]:::step
+
+    SHA --> P2["PASS 2 · diff the shadows<br/>patience matcher (linediff.hunks)<br/>→ candidate real hunks"]:::pass
+    P2 --> F1["peel · 1-to-1 rename map<br/>verified by re-diff"]:::filter
+    F1 --> F2["peel · autogen-name noise<br/>rtb_ · _DSTATE · tmp_N swaps"]:::filter
+    F2 --> F3["peel · safe reorder<br/>dependence-preserving permutation"]:::filter
+    F3 --> REM{"candidate hunks<br/>still left?"}
+
+    REM -- "yes → real" --> MOV["detect moved blocks<br/>delete ↔ insert, same content"]:::step
+    REM -- "no" --> P1
+    MOV --> P1
+
+    P1["PASS 1 · diff the raw lines<br/>label every hunk for display<br/>real · moved · comment · rename · reorder · whitespace"]:::pass --> VER{"_status_of<br/>one place decides"}
+
+    VER -- "a real hunk survived pass 2" --> RC["real-change"]:::red
+    VER -- "only comment hunks" --> CMT["comment-only"]:::grey
+    VER -- "other noise only" --> IGN["ignorable-only"]:::grey
+
+    classDef io fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+    classDef step fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e;
+    classDef pass fill:#dcfce7,stroke:#16a34a,color:#14532d;
+    classDef filter fill:#fef9c3,stroke:#ca8a04,color:#713f12;
+    classDef red fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
+    classDef grey fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+    classDef green fill:#dcfce7,stroke:#16a34a,color:#14532d;
 ```
+
+The scanner drives the top branch — added / deleted / error / both — and hands
+the renderers **one dict, unfiltered** (`{rel_path: result}`); the two-pass body
+below the fold is `diff_engine.compare_pair`, and is the same for every text
+file, C shown here.
 
 ### The two passes
 
