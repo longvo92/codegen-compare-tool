@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-08-22
+
 ### Added
 
 - **Warn when a new RTE access needs a full architecture regenerate.** When one
