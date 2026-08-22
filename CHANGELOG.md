@@ -5,6 +5,27 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Warn when a new RTE access needs a full architecture regenerate.** When one
+  model's code adds an RTE access point while another model's code is left
+  identical — the sign of a quick single-model regenerate — the report and the
+  terminal flag it: the new interface cannot be integrated until the
+  architecture is regenerated so the other models pick it up. Heads-up only: it
+  never changes a file's verdict or the exit code.
+- **Show the consistency heads-up in the viewer.** The cautions the report and
+  the terminal already print now appear live in the viewer too, bottom-left
+  under the quick-changes panel.
+
+### Fixed
+
+- **Stop the interface-vs-code advisory from firing on library churn.** The
+  “ARXML changed but the generated C did not” heads-up now triggers when an
+  actual access point moves — a port, runnable, event or calibration object
+  added or removed — instead of on any change to the file. A regenerated ARXML
+  that only rewrote shared library packages no longer raises a false warning. A
+  file that could not be read that far, such as malformed XML, still does.
+
 ## [1.10.0] — 2026-08-16
 
 ### Added

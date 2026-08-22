@@ -37,11 +37,11 @@ for the model-grouping / Overview table):
 | `rules/arxml/iface.arxml` | **Modified** — a port-interface change, alongside a UUID bump |
 | `rules/a2l/comment_only.a2l` | **Comment** |
 | `rules/a2l/cal.a2l` | **Modified** — a calibration object change |
-| `models/Ctrl.*` | a second model, so the Overview table groups more than one |
+| `models/Ctrl.*` | a second model (Overview grouping); its `.c` also gains an `Rte_Write_Out2_Diag` access while StaleGen's C stays identical, so it triggers the **+RTE quick-regen** advisory — *"gained an RTE access while a peer model stayed identical"* |
 
 What the outputs carry:
 
-- **`demo.html`** — the human report: a *Consistency check* section (below the AUTOSAR changes) names StaleGen, `SpeedCtrl.c` sits under Unimportant with its rows greyed until you click, and the folder tree/Overview show every verdict at once.
+- **`demo.html`** — the human report: a *Consistency check* section (below the AUTOSAR changes) names StaleGen (surfaces changed, C did not) and Ctrl (+RTE while a peer stayed identical), `SpeedCtrl.c` sits under Unimportant with its rows greyed until you click, and the folder tree/Overview show every verdict at once.
 - **`demo.json`** — the whole scan under a versioned schema, including the same exit code the process returns.
 - **`demo.sarif`** — only the files that need action. Unimportant, Comment and identical files are *not* findings.
 

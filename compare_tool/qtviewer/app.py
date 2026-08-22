@@ -24,8 +24,9 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
 from .. import gitsource, review, theme, zipsource
 from ..diff_engine import RULES
 from ..main import default_report_name
-from ..report import build_arxml_report, build_report
+from ..report import build_arxml_report, build_report, consistency_advisories
 from ..scanner import apply_fold, summarize
+from .advisories import AdvisoryPanel
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
@@ -207,11 +208,22 @@ class MainWindow(QMainWindow):
         left.setStretchFactor(1, 1)
         left.setSizes([560, 240])
 
+        # cross-artifact / cross-model heads-up, pinned below the rollup so it is
+        # the last thing in the left column -- the same list the report and the
+        # CLI print, read from the raw scan. Hidden until it has something to say.
+        self.advisories = AdvisoryPanel()
+        left_col = QWidget()
+        lc = QVBoxLayout(left_col)
+        lc.setContentsMargins(0, 0, 0, 0)
+        lc.setSpacing(0)
+        lc.addWidget(left, 1)
+        lc.addWidget(self.advisories)
+
         self.diff = DiffPane()
         self.diff.unitChanged.connect(self._on_unit_changed)
 
         split = QSplitter(Qt.Horizontal)
-        split.addWidget(left)
+        split.addWidget(left_col)
         split.addWidget(self.diff)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -313,6 +325,7 @@ class MainWindow(QMainWindow):
             self._set_state(*self._state)
             self._apply_icons()
             self.summary.apply_theme()
+            self.advisories.apply_theme()
             self.diff.apply_theme()
             self._refresh_tree_keep_selection()  # verdict colours are per item
             self.diff.restore_reading_position(at)
@@ -920,6 +933,7 @@ class MainWindow(QMainWindow):
         self.banner.setVisible(False)
         self.tree.clear()
         self.summary.set_results({})
+        self.advisories.set_advisories(())
         self.diff.clear()
         self._raw_results = {}
         self.results = {}
@@ -955,6 +969,9 @@ class MainWindow(QMainWindow):
         # the rollup reports the scan itself, never the folded view: a hidden
         # category must not make the model look untouched
         self.summary.set_results(results)
+        # same rule for the advisories: read from the raw scan, so a collapsed
+        # category can never hide a desync heads-up
+        self.advisories.set_advisories(consistency_advisories(results))
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setVisible(False)
@@ -1359,6 +1376,15 @@ QToolBar#main QToolButton:checked {{ background:{chrome-checked-bg};
                 color:{chrome-checked-fg}; }}
 QToolBar#main QToolButton:checked:hover {{ background:{chrome-checked-hover}; }}
 QFrame#reviewbar {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
+/* consistency heads-up pinned at the bottom of the left column: a band of its
+   own, set off from the quick-changes rollup above it by a top border */
+QFrame#advisorypanel {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
+/* the scroll area AND its viewport: the viewport is a child widget that fills
+   itself with the Base colour, which paints a lighter block under the header
+   instead of letting the band show through */
+QFrame#advisorypanel QScrollArea,
+QFrame#advisorypanel QScrollArea > QWidget > QWidget {{ background:transparent; }}
+QLabel#advisoryhead {{ font-size:12px; }}
 QFrame#reviewbar QPlainTextEdit {{ background:{code-bg}; border:1px solid {border};
             border-radius:6px; padding:4px 6px; color:{fg}; }}
 QFrame#reviewbar QPlainTextEdit:focus {{ border:1px solid {accent-2}; }}
