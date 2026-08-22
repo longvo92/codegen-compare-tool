@@ -236,6 +236,46 @@ File được nhóm theo **model Simulink** dựa trên quy ước đặt tên A
 Embedded Coder (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, bộ ARXML modular,
 …). File không khớp model nào rơi vào nhóm cuối **Shared / other**.
 
+## Consistency check
+
+ARXML của một model là contract của nó, A2L là bề mặt calibration; cả hai đều
+được hiện thực hoá bằng code C sinh ra. Nên phụ thuộc chạy **một chiều**: nếu
+interface hoặc calibration thật sự đổi thì code bắt buộc phải đổi theo — port mới
+cần RTE access mới, characteristic mới cần symbol mới. Khi một access point dịch
+chuyển trong ARXML hoặc A2L mà code C vẫn identical, report (ngay dưới phần
+AUTOSAR changes), viewer (góc dưới bên trái, dưới panel quick-changes) và
+terminal đều nêu tên model đó — dấu hiệu quen thuộc của một lần regen thiếu hoặc
+sót, và là thứ duy nhất mà cách xem từng-file-một không chỉ ra được, vì mỗi file
+tách riêng đều bình thường, chỗ lệch nằm *giữa* chúng.
+
+Điều kiện kích hoạt tính ở **mức access point, không phải mức file**: một port
+interface hoặc port/runnable/event của SWC bị thêm hoặc bớt (ARXML), hoặc một đối
+tượng calibration bị thêm hoặc bớt (A2L). Các package thư viện mà mỗi lần export
+đều ghi lại — base type, compu-method, unit — làm đổi byte của file nhưng không
+đụng tới access point nào, và **không** làm nổi cảnh báo.
+
+Ngoại lệ là file mà tool không đọc được tới mức đó — XML hỏng, hoặc nội dung
+binary: không chứng minh được gì về access point của nó, nên file đó đổi thì vẫn
+nổi cảnh báo. Không chứng minh được thì không bao giờ bị coi là noise.
+
+Chiều ngược lại **không** bị nêu. Code đổi mà ARXML với A2L không đổi là trường
+hợp bình thường — sửa logic hay sửa gain bên trong không đụng interface, không
+đụng biến calibration, nên chẳng có gì để chúng phải chạy theo.
+
+Kèm theo đó là một cảnh báo thứ hai, xét **giữa các model**. Khi code C của một
+model có thêm **RTE access point** (`+ Rte_Write_…`) mà code C của một model
+*khác* vẫn identical từng byte, thì mẻ đó là gen nhanh một model chứ không phải
+gen đầy đủ — một lần regen thật ghi lại ít nhất cái banner timestamp ở mọi model,
+nên một model còn identical chính là bằng chứng nó bị bỏ qua. RTE access mới làm
+rộng interface của model, nên phải gen lại architecture (RTE layer và các SWC còn
+lại) thì code mới tích hợp được; model đó bị nêu kèm câu *"gained an RTE access
+while a peer model stayed identical — regenerate the architecture before
+integrating"*.
+
+Đây là **cảnh báo, không phải verdict**: nó không gộp file nào, không đổi số đếm,
+không đổi exit code. Chỉ thay đổi *thật* trên bề mặt mới tính — một ARXML chỉ
+churn UUID thì không thật sự đổi, nên code C cũ không phải là desync.
+
 ## HTML report
 
 File self-contained, mỗi lần compare một file: badge bật/tắt, cây thư mục, ô lọc,

@@ -268,15 +268,34 @@ A model's ARXML is its contract and its A2L is its calibration surface; both are
 realised by the generated C. So the dependency runs **one way**: if the
 interface or the calibration really changed, the code must have changed too — a
 new port needs a new RTE access, a new characteristic needs a new symbol. When
-an ARXML or A2L change lands with the generated C left identical, the report
-(below the AUTOSAR changes) and the terminal flag the model — the usual sign of
-a stale or partial regenerate, and the one thing a file-by-file view cannot
-show, because each file is individually fine and the mismatch lives *between*
-them.
+an access point moves in the ARXML or A2L with the generated C left identical,
+the report (below the AUTOSAR changes), the viewer (bottom-left, under the
+quick-changes panel) and the terminal flag the model — the usual sign of a stale
+or partial regenerate, and the one thing a file-by-file view cannot show,
+because each file is individually fine and the mismatch lives *between* them.
+
+The trigger is measured at the **access-point level, not the file level**: a
+port-interface or SWC port/runnable/event added or removed (ARXML), or a
+calibration object added or removed (A2L). The library packages an export
+rewrites every time — base types, compu-methods, units — change the file's bytes
+without touching an access point, and do **not** raise the advisory.
+
+A file the tool could not read that far into — malformed XML, or binary content
+— is the exception: nothing was proven about its access points, so a change to
+it still raises the advisory. Unprovable is never treated as noise.
 
 The reverse is **not** flagged. Code that changed while the ARXML and A2L did
 not is the ordinary case — an internal logic or gain edit touches no interface
 and no calibration variable, so there is nothing for them to follow.
+
+A second, cross-*model* heads-up rides along here. When one model's C gains an
+**RTE access point** (`+ Rte_Write_…`) while a *peer* model's C stayed
+byte-identical, the batch was a single-model quick regen, not a full one — a
+real regenerate rewrites at least a timestamp banner in every model, so an
+identical peer is proof it was left untouched. A new RTE access widens the
+model's interface, so the RTE layer and the peer SWCs must be regenerated before
+the code will integrate; the model is flagged *"gained an RTE access while a peer
+model stayed identical — regenerate the architecture before integrating"*.
 
 It is a **heads-up, not a verdict**: it never folds a file, moves a count, or
 changes the exit code. Only a *real* surface change counts — an ARXML that

@@ -43,14 +43,18 @@ class TestDemoTree(unittest.TestCase):
 
     # --- feature 4: cross-artifact consistency advisory ---
 
-    def test_consistency_flags_only_the_stale_model(self):
+    def test_consistency_advisories_name_the_out_of_step_models(self):
         adv = consistency_advisories(self.res)
-        models = [m for m, _msg in adv]
+        by_model = dict(adv)
         # StaleGen's ARXML and A2L really changed while its C stayed identical.
-        # Nothing else is out of step, so it is the only model named.
-        self.assertEqual(models, ['StaleGen'])
-        self.assertEqual(adv[0][1],
+        self.assertEqual(by_model['StaleGen'],
                          'ARXML and A2L changed but the generated C did not')
+        # Ctrl's C gained an RTE access (Rte_Write_Out2_Diag) while StaleGen's
+        # C stayed identical -- the tell of a single-model quick regen that did
+        # not rebuild the architecture, so the +RTE cannot be integrated as-is.
+        self.assertIn('regenerate the architecture', by_model['Ctrl'])
+        # nothing else is out of step
+        self.assertEqual(set(by_model), {'StaleGen', 'Ctrl'})
 
     def test_stale_model_verdicts_drive_the_flag(self):
         self.assertEqual(self.res['StaleGen.arxml']['status'], 'real-change')
