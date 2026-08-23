@@ -85,7 +85,7 @@ second surface can reuse it without the mapping being written twice.
 compare_tool/
 ├── main.py          # entry point: picks the CLI or the viewer, run_compare() core
 ├── resources.py     # finds the shipped icons/logo, in a checkout and in the .exe
-├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs)
+├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs, section.py = the collapsible left-column panes)
 ├── scanner.py       # walks both trees, pairs files by relative path
 ├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
 ├── linediff.py      # the line matcher both passes share: patience anchoring, exact fallback

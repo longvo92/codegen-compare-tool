@@ -92,6 +92,7 @@ thật sự rời khỏi hàm.
 
 ### Đọc một lần scan
 
+- Cột bên trái gồm ba pane — **Files**, **Quick changes** và **Consistency**. Bấm vào thanh tiêu đề để gập pane đó lại và nhường chiều cao cho các pane còn mở; bấm lần nữa thì nó mở lại đúng kích thước cũ. Cả ba nằm chung một splitter nên kéo pane nào cũng được. Pane Consistency chỉ hiện khi lần scan có cảnh báo, và thanh của nó vẫn ghi số cảnh báo kể cả lúc đang gập.
 - Scan **mở sẵn ở change đầu tiên** — bạn không bao giờ rơi vào một pane trống trong khi cây bên cạnh đầy kết quả.
 - `F8` / `F7` nhảy qua các change trong file đang mở, rồi đi tiếp sang file có change kế tiếp (hoặc trước đó) một khi hết, vòng lại khi tới cuối. `Ctrl+Home` / `Ctrl+End` giữ nguyên trong file hiện tại. File comment / noise vẫn nằm trong lộ trình đó chừng nào rule của nó còn tick, nhưng dừng ở một file như vậy không ký duyệt được gì — chỉ change thật và block moved mới vào bản ghi review.
 - `Ctrl+F` tìm text trong file đang mở, cả hai bên, với `F3` / `Shift+F3` để nhảy qua các kết quả và `Esc` để đóng. Query còn nguyên khi bạn chuyển sang file khác, nên truy một identifier xuyên suốt cả lần compare được.

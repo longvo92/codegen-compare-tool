@@ -31,6 +31,7 @@ from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
+from .section import Section
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip, review_color,
                    review_state, status_color, status_label)
@@ -185,7 +186,7 @@ class MainWindow(QMainWindow):
             'not. Verdicts, counts and the exported report are unchanged.')
         self.cb_hide_identical.toggled.connect(self._refresh_tree_keep_selection)
         rules = QHBoxLayout()
-        rules.setContentsMargins(0, 0, 0, 0)
+        rules.setContentsMargins(6, 4, 6, 4)
         rules.addWidget(QLabel('Report:'))
         rules.addWidget(self.cb_comment)
         rules.addWidget(self.cb_unimportant)
@@ -194,33 +195,60 @@ class MainWindow(QMainWindow):
 
         tree_box = QWidget()
         lv = QVBoxLayout(tree_box)
-        lv.setContentsMargins(6, 6, 6, 0)
+        lv.setContentsMargins(6, 4, 6, 0)
         lv.setSpacing(4)
         lv.addWidget(self.filter_edit)
-        lv.addLayout(rules)
         lv.addWidget(self.tree, 1)
 
         # quick-changes rollup under the tree: the same "what changed in the
         # model / calibration" view --arxml-only gives, without leaving the app
         self.summary = SummaryPanel()
         self.summary.fileActivated.connect(self._jump_to_name)
+
+        # cross-artifact / cross-model heads-up, last in the column -- the same
+        # list the report and the CLI print, read from the raw scan.
+        self.advisories = AdvisoryPanel()
+
+        # all three panes are collapsible and all three are in ONE splitter, so
+        # every one of them can be dragged to the height the reviewer wants.
+        # The advisories used to sit outside it, pinned: the one pane whose
+        # length is least predictable (a folder full of stale models) was the
+        # one that could not be resized.
+        self.sec_files = Section('FILES', tree_box)
+        self.sec_changes = Section('QUICK CHANGES', self.summary)
+        self.sec_consistency = Section('CONSISTENCY', self.advisories)
+        self._sections = (self.sec_files, self.sec_changes,
+                          self.sec_consistency)
+
+        # remembered height per pane, so folding one and opening it again
+        # puts it back where the reviewer had it
+        self._sec_height = {}
         left = QSplitter(Qt.Vertical)
-        left.addWidget(tree_box)
-        left.addWidget(self.summary)
+        for sec in self._sections:
+            left.addWidget(sec)
+            sec.toggled.connect(
+                lambda expanded, s=sec: self._on_section_toggled(s, expanded))
+        # a folded pane must not be draggable back open by the handle alone --
+        # the header is the way in, and a stray drag would leave a sliver of a
+        # pane the reviewer explicitly folded
+        for i in range(left.count()):
+            left.setCollapsible(i, False)
         left.setStretchFactor(0, 3)
         left.setStretchFactor(1, 1)
-        left.setSizes([560, 240])
+        left.setStretchFactor(2, 0)
+        self.left_split = left
+        # nothing to say yet: the consistency pane starts folded, and stays out
+        # of the way until a scan gives it something
+        self.sec_consistency.set_expanded(False)
+        self.sec_consistency.setVisible(False)
+        left.setSizes([560, 240, 0])
 
-        # cross-artifact / cross-model heads-up, pinned below the rollup so it is
-        # the last thing in the left column -- the same list the report and the
-        # CLI print, read from the raw scan. Hidden until it has something to say.
-        self.advisories = AdvisoryPanel()
         left_col = QWidget()
         lc = QVBoxLayout(left_col)
         lc.setContentsMargins(0, 0, 0, 0)
         lc.setSpacing(0)
+        lc.addLayout(rules)
         lc.addWidget(left, 1)
-        lc.addWidget(self.advisories)
 
         self.diff = DiffPane()
         self.diff.unitChanged.connect(self._on_unit_changed)
@@ -937,7 +965,7 @@ class MainWindow(QMainWindow):
         self.banner.setVisible(False)
         self.tree.clear()
         self.summary.set_results({})
-        self.advisories.set_advisories(())
+        self._show_advisories(())
         self.diff.clear()
         self._raw_results = {}
         self.results = {}
@@ -975,7 +1003,7 @@ class MainWindow(QMainWindow):
         self.summary.set_results(results)
         # same rule for the advisories: read from the raw scan, so a collapsed
         # category can never hide a desync heads-up
-        self.advisories.set_advisories(consistency_advisories(results))
+        self._show_advisories(consistency_advisories(results))
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setVisible(False)
@@ -1024,6 +1052,96 @@ class MainWindow(QMainWindow):
                             .format(counts['error']))
         else:
             self._set_state('ready', 'Ready')
+
+    # a pane never re-opens at whatever height is left over: the reviewer
+    # dragged it to a size once, and folding it away to read something else is
+    # not them changing their mind about that size
+    _SEC_MIN = 90
+
+    def _on_section_toggled(self, sec, expanded):
+        """Fold: hand that pane's height to the panes still open. Unfold: take
+        it back from them, in proportion to what each has to spare."""
+        sizes = self.left_split.sizes()
+        if len(sizes) != len(self._sections):
+            return
+        i = self._sections.index(sec)
+        bar = sec.header_height()
+        others = [n for n, s in enumerate(self._sections)
+                  if n != i and s.is_expanded() and s.isVisible()]
+        if not others:
+            return  # nothing to trade with; leave the bars stacked
+        if not expanded:
+            self._sec_height[sec] = max(sizes[i], self._SEC_MIN)
+            self._spread(sizes, sizes[i] - bar, others)
+            sizes[i] = bar
+        else:
+            want = max(self._sec_height.get(sec, 200), self._SEC_MIN)
+            got = self._spread(sizes, -(want - sizes[i]), others)
+            sizes[i] += -got
+        self.left_split.setSizes(sizes)
+
+    def _spread(self, sizes, amount, idx):
+        """Add `amount` px across `idx` (negative takes away). Returns what was
+        actually moved -- a pane is never squeezed below _SEC_MIN, so asking
+        for more than the column has spare gives back less than was asked."""
+        if amount >= 0:
+            share, rest = divmod(amount, len(idx))
+            for n, i in enumerate(idx):
+                sizes[i] += share + (rest if n == 0 else 0)
+            return amount
+        spare = [max(0, sizes[i] - self._SEC_MIN) for i in idx]
+        take = min(-amount, sum(spare))
+        left = take
+        for n, i in enumerate(idx):
+            cut = min(spare[n], left) if n < len(idx) - 1 else left
+            cut = min(cut, spare[n])
+            sizes[i] -= cut
+            left -= cut
+        return -(take - left)
+
+    def _resize_sections(self):
+        """Re-cap every folded pane at its bar. Used after the panes change on
+        their own -- a scan revealing the consistency pane, say."""
+        sizes = self.left_split.sizes()
+        if len(sizes) != len(self._sections):
+            return
+        freed = 0
+        for i, sec in enumerate(self._sections):
+            if not sec.is_expanded():
+                bar = sec.header_height()
+                freed += max(0, sizes[i] - bar)
+                sizes[i] = bar
+        open_idx = [i for i, s in enumerate(self._sections)
+                    if s.is_expanded() and s.isVisible()]
+        if freed and open_idx:
+            self._spread(sizes, freed, open_idx)
+        elif not open_idx:
+            return
+        self.left_split.setSizes(sizes)
+
+    def _show_advisories(self, advisories):
+        """Fill the consistency pane and open it only when it has something to
+        say. A clean compare spends no height on it, and a reviewer who folded
+        it stays folded -- reopening a pane someone shut is the tool arguing
+        with them."""
+        self.advisories.set_advisories(advisories)
+        # AdvisoryPanel hides itself when empty; inside a section the SECTION is
+        # what has to go, or an empty bar is left behind
+        had = self.sec_consistency.isVisible()
+        n = len(advisories)
+        self.sec_consistency.setVisible(bool(n))
+        self.sec_consistency.set_suffix(
+            '{} heads-up{}'.format(n, '' if n == 1 else 's') if n else '')
+        if n and not had:
+            self.sec_consistency.set_expanded(True)
+            sizes = self.left_split.sizes()
+            want = min(140, max(80, 28 * n + 34))
+            if len(sizes) == 3 and sizes[2] < want:
+                take = want - sizes[2]
+                sizes[2] = want
+                sizes[0] = max(120, sizes[0] - take)
+                self.left_split.setSizes(sizes)
+        self._resize_sections()
 
     def _on_fail(self, msg):
         self.progress.setVisible(False)
@@ -1386,9 +1504,17 @@ QToolBar#main QToolButton:checked {{ background:{chrome-checked-bg};
                 color:{chrome-checked-fg}; }}
 QToolBar#main QToolButton:checked:hover {{ background:{chrome-checked-hover}; }}
 QFrame#reviewbar {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
-/* consistency heads-up pinned at the bottom of the left column: a band of its
-   own, set off from the quick-changes rollup above it by a top border */
-QFrame#advisorypanel {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
+/* left-column section bars. Small, flat and quiet: a bar the eye skips over
+   until it is looking for one, the way an editor sidebar names its panes. The
+   arrow lives in the label (see section.py) so no icon theme is needed. */
+QPushButton#sectionhead {{ background:{chrome-bar-bg}; color:{header-fg};
+            border:none; border-top:1px solid {border}; padding:5px 8px;
+            font-size:11px; font-weight:bold; text-align:left; }}
+QPushButton#sectionhead:hover {{ background:{chrome-hover}; color:{fg-strong}; }}
+QPushButton#sectionhead:focus {{ outline:none; }}
+/* consistency heads-up at the bottom of the left column: a band of its own,
+   set off from the quick-changes rollup above it by a top border */
+QFrame#advisorypanel {{ background:{chrome-bar-bg}; }}
 /* the scroll area AND its viewport: the viewport is a child widget that fills
    itself with the Base colour, which paints a lighter block under the header
    instead of letting the band show through */

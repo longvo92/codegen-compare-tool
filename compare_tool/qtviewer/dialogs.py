@@ -36,6 +36,12 @@ GUIDE = """
 
 ## 3. Read the tree
 
+- The left column is three panes -- **Files**, **Quick changes**,
+  **Consistency**. Click a bar to fold that pane away and give its height to
+  the ones still open; click again and it comes back the size it was
+- Drag any bar to resize -- all three share one splitter
+- **Consistency** only appears when the scan has a heads-up, and its bar says
+  how many even while folded
 - Every file listed -- a verdict never removes a row on its own
 - A folder shows its heaviest child verdict
 - Box above the tree filters by path

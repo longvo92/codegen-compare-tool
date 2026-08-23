@@ -63,6 +63,7 @@ Once a file is open, a small caption next to its name tracks whatever you're loo
 
 ### Reading a scan
 
+- The left column is three panes — **Files**, **Quick changes** and **Consistency**. Click a bar to fold that pane away and hand its height to the panes still open; click again and it comes back the size it was. All three share one splitter, so any of them can be dragged to the height you want. The Consistency pane only appears when the scan has a heads-up, and its bar keeps the count even folded.
 - The scan **opens on the first change** — you never land on an empty pane next to a tree full of results.
 - `F8` / `F7` step through the changes in the open file, then carry on into the next (or previous) changed file once you run out, wrapping around at the end. `Ctrl+Home` / `Ctrl+End` stay inside the current file. Comment and noise files join that walk while their category is ticked on, but stopping on one signs off nothing — only real and moved changes ever enter the review record.
 - `Ctrl+F` finds text in the open file, either side, with `F3` / `Shift+F3` to step through matches and `Esc` to close it. The query survives moving to another file, so you can chase one identifier across the whole compare.
