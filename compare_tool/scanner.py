@@ -160,24 +160,6 @@ def fold_status(result, fold):
     return result
 
 
-def apply_fold(results, fold):
-    """Re-judge an ALREADY scanned tree under different compare rules, with no
-    disk access: the verdict a fold produces is a pure function of the hunks,
-    so re-reading every file to learn it would be pure waste. Returns a new
-    dict of (copied) results; the input is left untouched so the rules can be
-    changed back and forth without a rescan."""
-    fold = tuple(f for f in fold if f in FOLDABLE)
-    if not fold:
-        return dict(results)
-    out = {}
-    for rel, r in results.items():
-        if r['status'] in fold:
-            r = dict(r, notes=list(r['notes']))
-            fold_status(r, fold)
-        out[rel] = r
-    return out
-
-
 def _shadow_lines(rel, text):
     """The file's non-blank shadow lines, under its own ruleset.
 

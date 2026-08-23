@@ -237,10 +237,11 @@ the file `identical`, the tree and the exported report (built from
 `_raw_results`) disagreed about the same file, and the tree made the one claim
 this tool must never make about a file that really differs.
 
-`scanner.apply_fold` / `fold_status` still implement the old collapse for
-`scan(fold=…)` — a CLI-side option — and `scanner.FOLDABLE` still names the only
-two statuses any caller may collapse. Real changes, one-sided files and errors
-are absent from that tuple **by construction**.
+`scanner.fold_status` still implements that collapse for `scan(fold=…)`, where
+a caller asks for it up front, and `scanner.FOLDABLE` still names the only two
+statuses any caller may collapse — real changes, one-sided files and errors are
+absent from that tuple **by construction**. `apply_fold`, which re-judged an
+already-scanned tree, went with the behaviour it existed for.
 
 Navigation follows what is on screen. A shown comment or Unimportant hunk **is**
 an `F7`/`F8` stop, and such a file is in `MainWindow._NAV_STATUS`, so the walk
