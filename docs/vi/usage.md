@@ -349,7 +349,7 @@ xung quanh:
 
 Các dòng đó không bị xoá khỏi file — chỉ là report không hiện chúng ra. File mà
 khác biệt *chỉ* là comment thì không có mục chi tiết riêng; nó chỉ giữ marker
-`≉` và được đếm vào `Comment` trên cây. (Vì sao cửa sổ ngữ cảnh hẹp như vậy chứ
+`≈` và được đếm vào `Comment` trên cây. (Vì sao cửa sổ ngữ cảnh hẹp như vậy chứ
 không rộng hơn:
 [architecture.md](architecture.md#những-quyết-định-nên-biết-trước-khi-sửa).)
 

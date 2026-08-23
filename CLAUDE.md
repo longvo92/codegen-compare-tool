@@ -63,9 +63,11 @@ Removing those rows instead of greying them was tried and reverted too: a
 regenerated file is mostly banner churn, so a `⋯ N lines hidden` placeholder
 took away the context the surviving hunks have to be read in.
 
-Both noise verdicts wear the same `≈` mark in the tree — they are one answer to
-"must I read this?", and the Status word beside it says which kind of nothing
-it is.
+Both noise verdicts wear the same `≈` mark, in the report's tree and the
+viewer's alike — they are one answer to "must I read this?", and the label
+beside the mark says which kind of nothing it is. The mark lives once, in
+`view_model.VERDICT_MARK`: the two trees each kept a copy and drifted, so the
+same file read `≉` in one and `≈` in the other.
 
 ## 3. One seam per shared decision
 

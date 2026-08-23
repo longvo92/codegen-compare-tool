@@ -150,6 +150,39 @@ class TestLeftColumnSections(unittest.TestCase):
         self._settle_ui()
         self.assertTrue(self.win.tree.isVisible())
 
+    def test_folding_everything_stacks_the_bars_at_the_top(self):
+        # left alone Qt centres a splitter shorter than the space it is given,
+        # which left the three bars adrift halfway down an empty panel
+        for sec in self.win._sections:
+            if sec.is_expanded():
+                sec.header.click()
+        self._settle_ui()
+        tops = [sec.mapTo(self.win.left_split, sec.rect().topLeft()).y()
+                for sec in self.win._sections if sec.isVisible()]
+        self.assertEqual(tops[0], 0)
+        self.assertEqual(tops, sorted(tops))
+        # and the splitter itself is capped, so it cannot claim the empty space
+        self.assertLess(self.win.left_split.maximumHeight(), 200)
+
+    def test_opening_one_again_lets_the_column_fill(self):
+        for sec in self.win._sections:
+            if sec.is_expanded():
+                sec.header.click()
+        self._settle_ui()
+        self.win.sec_files.header.click()
+        self._settle_ui()
+        self.assertGreater(self.win.left_split.maximumHeight(), 1000)
+        self.assertTrue(self.win.tree.isVisible())
+
+    def test_the_rule_checkboxes_live_inside_the_files_pane(self):
+        # they used to float above all three panes, which left them stranded
+        # mid-panel once every pane was folded
+        self.assertTrue(self.win.cb_comment.isVisible())
+        self.win.sec_files.header.click()
+        self._settle_ui()
+        self.assertFalse(self.win.cb_comment.isVisible())
+        self.assertFalse(self.win.cb_hide_identical.isVisible())
+
     def test_consistency_pane_carries_the_count_on_its_bar(self):
         # this fixture has two, and the bar has to say so even folded
         self.assertFalse(self.win.sec_consistency.isHidden())

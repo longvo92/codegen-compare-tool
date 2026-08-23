@@ -15,7 +15,8 @@ from . import consistency, filepair, funcname, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
-from .view_model import (A2L_KINDS, SWC_DISPLAY, a2l_kind_label, char_span,
+from .view_model import (A2L_KINDS, SWC_DISPLAY, VERDICT_MARK,
+                         a2l_kind_label, char_span,
                          iface_kind, mode_of, swc_item)
 
 CONTEXT = 3
@@ -777,15 +778,17 @@ def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
 
 # status -> (tree marker, marker css class, section css class for badge toggling)
 # 'error' has no body.hide-* CSS rule on purpose: it can never be hidden
-_TREE = {
-    'real-change':    ('≠', 't-real', 'sec-real'),   # ≠
-    'comment-only':   ('≉', 't-cmt',  'sec-cmt'),    # ≉ comments only
-    'ignorable-only': ('≈', 't-ign',  'sec-ign'),    # ≈ minor
-    'added':          ('+',      't-add',  'sec-add'),
-    'deleted':        ('−', 't-del',  'sec-del'),    # −
-    'identical':      ('=',      't-id',   'sec-id'),
-    'error':          ('!',      't-err',  'sec-err'),
-}
+# the mark itself comes from view_model.VERDICT_MARK, which the viewer's tree
+# reads too -- the two used to keep their own copy and drifted apart
+_TREE = {status: (VERDICT_MARK[status],) + cls for status, cls in {
+    'real-change':    ('t-real', 'sec-real'),
+    'comment-only':   ('t-cmt',  'sec-cmt'),
+    'ignorable-only': ('t-ign',  'sec-ign'),
+    'added':          ('t-add',  'sec-add'),
+    'deleted':        ('t-del',  'sec-del'),
+    'identical':      ('t-id',   'sec-id'),
+    'error':          ('t-err',  'sec-err'),
+}.items()}
 # status -> (display label, tag css class); the wording a reviewer already
 # expects from a folder compare -- Modified/Added/Deleted for the file's fate,
 # Unimportant/Identical for the ones that need no reading

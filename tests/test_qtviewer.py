@@ -63,6 +63,24 @@ class TestBuildNodes(unittest.TestCase):
             for name in theme.THEMES:
                 self.assertTrue(theme.color(role, name).startswith('#'))
 
+    def test_the_two_trees_mark_a_verdict_the_same_way(self):
+        # the viewer's tree and the report's tree each kept their own copy of
+        # the marks once, and they drifted: the same comment-only file read
+        # '≉' in the report and '≈' in the viewer. Both read VERDICT_MARK now,
+        # and this is what stops a copy creeping back in.
+        from compare_tool.report import _TREE
+        from compare_tool.view_model import VERDICT_MARK
+        for st in PRIO:
+            self.assertEqual(STATUS[st][0], VERDICT_MARK[st], st)
+            self.assertEqual(_TREE[st][0], VERDICT_MARK[st], st)
+
+    def test_the_two_noise_verdicts_share_one_mark(self):
+        # they are one answer to "must I read this?"; the label beside the mark
+        # is what tells a moved banner from a renamed identifier
+        self.assertEqual(STATUS['comment-only'][0], STATUS['ignorable-only'][0])
+        self.assertNotEqual(STATUS['comment-only'][1],
+                            STATUS['ignorable-only'][1])
+
 
 class TestFilterNodes(unittest.TestCase):
     def _nodes(self, mapping):

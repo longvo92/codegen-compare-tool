@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QPushButton, QSizePolicy, QVBoxLayout,
 _ARROW = {True: '▾', False: '▸'}
 
 # Qt's own "no maximum"; PySide6 does not re-export QWIDGETSIZE_MAX
-_NO_MAX = (1 << 24) - 1
+NO_MAX = (1 << 24) - 1
 
 
 class Section(QWidget):
@@ -66,7 +66,7 @@ class Section(QWidget):
         self._content.setVisible(expanded)
         self._relabel()
         if expanded:
-            self.setMaximumHeight(_NO_MAX)
+            self.setMaximumHeight(NO_MAX)
         else:
             # the bar itself stays, so the splitter keeps a handle to drag and
             # the reviewer keeps a way back in

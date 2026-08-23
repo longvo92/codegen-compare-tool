@@ -31,7 +31,7 @@ from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
-from .section import Section
+from .section import NO_MAX, Section
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip, review_color,
                    review_state, status_color, status_label)
@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         lv = QVBoxLayout(tree_box)
         lv.setContentsMargins(6, 4, 6, 0)
         lv.setSpacing(4)
+        lv.addLayout(rules)
         lv.addWidget(self.filter_edit)
         lv.addWidget(self.tree, 1)
 
@@ -247,8 +248,8 @@ class MainWindow(QMainWindow):
         lc = QVBoxLayout(left_col)
         lc.setContentsMargins(0, 0, 0, 0)
         lc.setSpacing(0)
-        lc.addLayout(rules)
         lc.addWidget(left, 1)
+        self._left_layout = lc
 
         self.diff = DiffPane()
         self.diff.unitChanged.connect(self._on_unit_changed)
@@ -1069,7 +1070,8 @@ class MainWindow(QMainWindow):
         others = [n for n, s in enumerate(self._sections)
                   if n != i and s.is_expanded() and s.isVisible()]
         if not others:
-            return  # nothing to trade with; leave the bars stacked
+            self._park_column()      # last pane folded: stack them at the top
+            return
         if not expanded:
             self._sec_height[sec] = max(sizes[i], self._SEC_MIN)
             self._spread(sizes, sizes[i] - bar, others)
@@ -1079,6 +1081,7 @@ class MainWindow(QMainWindow):
             got = self._spread(sizes, -(want - sizes[i]), others)
             sizes[i] += -got
         self.left_split.setSizes(sizes)
+        self._park_column()
 
     def _spread(self, sizes, amount, idx):
         """Add `amount` px across `idx` (negative takes away). Returns what was
@@ -1099,6 +1102,21 @@ class MainWindow(QMainWindow):
             left -= cut
         return -(take - left)
 
+    def _park_column(self):
+        """With every pane folded the splitter is shorter than the column it
+        sits in. Left alone, Qt centres it and the bars end up adrift halfway
+        down an empty panel; capped and top-aligned they stack under the
+        toolbar, which is where a row of collapsed headers belongs."""
+        shown = [s for s in self._sections if s.isVisible()]
+        if any(s.is_expanded() for s in shown):
+            self._left_layout.setAlignment(self.left_split, Qt.Alignment(0))
+            self.left_split.setMaximumHeight(NO_MAX)
+            return
+        bars = sum(s.header_height() for s in shown)
+        handles = self.left_split.handleWidth() * max(0, len(shown) - 1)
+        self.left_split.setMaximumHeight(bars + handles)
+        self._left_layout.setAlignment(self.left_split, Qt.AlignTop)
+
     def _resize_sections(self):
         """Re-cap every folded pane at its bar. Used after the panes change on
         their own -- a scan revealing the consistency pane, say."""
@@ -1116,8 +1134,11 @@ class MainWindow(QMainWindow):
         if freed and open_idx:
             self._spread(sizes, freed, open_idx)
         elif not open_idx:
+            self.left_split.setSizes(sizes)
+            self._park_column()
             return
         self.left_split.setSizes(sizes)
+        self._park_column()
 
     def _show_advisories(self, advisories):
         """Fill the consistency pane and open it only when it has something to

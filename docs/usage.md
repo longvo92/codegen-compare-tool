@@ -208,7 +208,7 @@ Each real change shows three lines of context on either side of it — not the w
 - Hunks that fall **outside every window** show nothing at all until you click `Unimportant`, at which point they appear flat grey exactly where they sit in the file.
 - A file with **no** real change at all keeps its full context, and its collapsed hunks keep a `⋯ N lines hidden` placeholder rather than vanishing.
 
-The lines themselves are always in the file — only the screen stays quiet about them. A file whose differences are purely comments doesn't even get a detail section; it just keeps its `≉` mark and `Comment` count in the tree. (If you're curious why the window is kept this tight rather than wider, that's covered in [architecture.md](architecture.md#decisions-worth-knowing-before-you-change-something).)
+The lines themselves are always in the file — only the screen stays quiet about them. A file whose differences are purely comments doesn't even get a detail section; it just keeps its `≈` mark and `Comment` count in the tree. (If you're curious why the window is kept this tight rather than wider, that's covered in [architecture.md](architecture.md#decisions-worth-knowing-before-you-change-something).)
 
 `Focus on changes`, next to the folder tree, narrows the tree down to files that actually changed — identical, comment-only and Unimportant rows drop out, and any folder left holding none of them goes with them. Like the viewer's `Hide identical`, this is purely a view: verdicts and counts underneath are untouched. A `☀ Light` / `☾ Dark` button sits in the top right; both palettes are embedded in the file itself, so switching between them fetches nothing and works fine on a machine with no internet connection at all.
 

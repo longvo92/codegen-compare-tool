@@ -8,26 +8,24 @@ to walk the returned Node list and paint it.
 from collections import namedtuple
 
 from .. import filepair, theme
+from ..view_model import VERDICT_MARK
 
-# status -> (tree marker, display label, theme role). Mirrors the HTML
-# report's verdict vocabulary (Modified / Unimportant / Added / Deleted /
-# Identical) and reads its colours from the SAME roles the report's CSS does,
-# so the viewer and the report cannot disagree about what Modified looks like
-# -- in either theme.
-STATUS = {
-    'real-change':    ('≠', 'Modified',     'st-real'),   # not-equal sign
-    # the two noise verdicts are grey on purpose: grey is what "this does not
-    # count" looks like, and it keeps red/green meaning removed/added only
-    # both carry the same almost-equal sign: they are the same answer to
-    # "does this differ in a way I have to read?" -- the Status word beside it
-    # is what separates a moved banner from a renamed identifier
-    'comment-only':   ('≈', 'Comment',      'st-cmt'),
-    'ignorable-only': ('≈', 'Unimportant',  'st-ign'),
-    'added':          ('+',      'Added',        'st-add'),
-    'deleted':        ('−', 'Deleted',      'st-del'),    # minus sign
-    'identical':      ('=',      'Identical',    'st-id'),
-    'error':          ('!',      'NOT compared', 'st-err'),
-}
+# status -> (tree marker, display label, theme role). The mark comes from
+# view_model.VERDICT_MARK, which the report's tree reads too; the colours are
+# the SAME theme roles the report's CSS uses. Neither surface owns a copy, so
+# they cannot disagree about what a verdict looks like -- in either theme.
+#
+# The two noise verdicts are grey on purpose: grey is what "this does not
+# count" looks like, and it keeps red/green meaning removed/added only.
+STATUS = {status: (VERDICT_MARK[status],) + rest for status, rest in {
+    'real-change':    ('Modified',     'st-real'),
+    'comment-only':   ('Comment',      'st-cmt'),
+    'ignorable-only': ('Unimportant',  'st-ign'),
+    'added':          ('Added',        'st-add'),
+    'deleted':        ('Deleted',      'st-del'),
+    'identical':      ('Identical',    'st-id'),
+    'error':          ('NOT compared', 'st-err'),
+}.items()}
 
 
 def status_color(status):
@@ -144,9 +142,9 @@ def filter_nodes(nodes, text='', hide_identical=False):
     past hundreds of `=` rows to reach five changed ones is its own kind of
     hiding -- the reviewer gets to make that call with a button they can undo.
 
-    Note this composes with the compare rules rather than fighting them: a
-    folded category re-judges its files as identical, so hiding identical
-    files hides those too. That is the point -- both say "this does not count".
+    Only a genuinely identical file goes. A Comment or Unimportant file whose
+    rows the reviewer greyed out with the category toggles is still a file that
+    differs, and it keeps its row: greying is a reading aid, not a verdict.
     """
     text = text.strip().lower()
     if not text and not hide_identical:
