@@ -1067,13 +1067,17 @@ class MainWindow(QMainWindow):
             return
         i = self._sections.index(sec)
         bar = sec.header_height()
+        # remember the height FIRST: folding the last open pane returns early
+        # below, and skipping this there lost the size -- reopening some other
+        # pane and coming back to this one then landed on the default
+        if not expanded:
+            self._sec_height[sec] = max(sizes[i], self._SEC_MIN)
         others = [n for n, s in enumerate(self._sections)
                   if n != i and s.is_expanded() and s.isVisible()]
         if not others:
             self._park_column()      # last pane folded: stack them at the top
             return
         if not expanded:
-            self._sec_height[sec] = max(sizes[i], self._SEC_MIN)
             self._spread(sizes, sizes[i] - bar, others)
             sizes[i] = bar
         else:
@@ -1096,8 +1100,7 @@ class MainWindow(QMainWindow):
         take = min(-amount, sum(spare))
         left = take
         for n, i in enumerate(idx):
-            cut = min(spare[n], left) if n < len(idx) - 1 else left
-            cut = min(cut, spare[n])
+            cut = min(spare[n], left)
             sizes[i] -= cut
             left -= cut
         return -(take - left)

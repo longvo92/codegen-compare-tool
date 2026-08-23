@@ -138,6 +138,23 @@ class TestLeftColumnSections(unittest.TestCase):
         # pane to read something else is not them resizing it
         self.assertAlmostEqual(self.win.left_split.sizes()[1], want, delta=4)
 
+    def test_the_last_pane_folded_still_remembers_its_size(self):
+        # folding the last open pane takes an early exit (there is nobody to
+        # hand the height to). Recording the size has to happen before that
+        # exit, or reopening a different pane first and coming back to this one
+        # lands on the default instead of where the reviewer had it.
+        self.win.sec_files.header.click()
+        self.win.sec_changes.header.click()
+        self._settle_ui()
+        want = self.win.left_split.sizes()[2]
+        self.win.sec_consistency.header.click()     # the last one open
+        self._settle_ui()
+        self.win.sec_files.header.click()           # a DIFFERENT pane first
+        self._settle_ui()
+        self.win.sec_consistency.header.click()     # now back to it
+        self._settle_ui()
+        self.assertAlmostEqual(self.win.left_split.sizes()[2], want, delta=8)
+
     def test_folding_the_tree_leaves_its_bar_behind(self):
         self.win.sec_files.header.click()
         self._settle_ui()
