@@ -290,8 +290,8 @@ characteristic trong A2L thì trong code phải có thêm biến tương ứng.
 
 Quan hệ này chỉ đi **một chiều**. Khi ARXML hoặc A2L có thêm/bớt một port,
 runnable, event hay biến calibration mà file C của model đó không đổi một byte
-nào, thì có gì đó sai: report (ngay dưới phần AUTOSAR changes), viewer (góc
-dưới bên trái, dưới panel quick-changes) và terminal đều nêu tên model đó ra.
+nào, thì có gì đó sai: report (ngay dưới phần AUTOSAR changes), viewer (pane
+Consistency, cuối cột bên trái) và terminal đều nêu tên model đó ra.
 Nguyên nhân thường gặp là lần regenerate chạy chưa xong hoặc chạy thiếu model.
 Một diff xem từng file riêng lẻ không phát hiện được, vì bản thân từng file
 đều bình thường — cái sai nằm ở chỗ hai file không khớp nhau.

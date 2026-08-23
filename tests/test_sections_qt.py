@@ -188,6 +188,13 @@ class TestLeftColumnSections(unittest.TestCase):
         self.assertFalse(self.win.sec_consistency.isHidden())
         self.assertIn('2 heads-ups', self.win.sec_consistency.header.text())
 
+    def test_one_heads_up_reads_singular_on_the_bar(self):
+        self.win._show_advisories([('Ctrl', 'gained an RTE access')])
+        self._settle_ui()
+        text = self.win.sec_consistency.header.text()
+        self.assertIn('1 heads-up', text)
+        self.assertNotIn('heads-ups', text)
+
     def test_the_consistency_pane_goes_away_when_there_is_nothing_to_say(self):
         self.win._show_advisories(())
         self._settle_ui()
