@@ -95,15 +95,15 @@ thật sự rời khỏi hàm.
 - Scan **mở sẵn ở change đầu tiên** — bạn không bao giờ rơi vào một pane trống trong khi cây bên cạnh đầy kết quả.
 - `F8` / `F7` nhảy qua các change trong file đang mở, rồi đi tiếp sang file có change kế tiếp (hoặc trước đó) một khi hết, vòng lại khi tới cuối. `Ctrl+Home` / `Ctrl+End` giữ nguyên trong file hiện tại. File comment / noise vẫn nằm trong lộ trình đó chừng nào rule của nó còn tick, nhưng dừng ở một file như vậy không ký duyệt được gì — chỉ change thật và block moved mới vào bản ghi review.
 - `Ctrl+F` tìm text trong file đang mở, cả hai bên, với `F3` / `Shift+F3` để nhảy qua các kết quả và `Esc` để đóng. Query còn nguyên khi bạn chuyển sang file khác, nên truy một identifier xuyên suốt cả lần compare được.
-- `Hide identical` thu cây lại còn đúng các file thật sự khác nhau. Đây thuần là một view — verdict, số đếm và report export ra đều không đổi vì nó.
-- Bỏ tick `Comment` / `Unimportant` làm mờ các dòng đó chứ không xoá đi: chúng ở nguyên chỗ cũ, giữ số dòng, chỉ mất màu đỏ/xanh và biến khỏi minimap lẫn lộ trình `F7`/`F8`. Để nguyên tick — mặc định là vậy — chúng giữ màu và là điểm dừng như mọi change khác.
+- `Hide identical` thu cây lại còn đúng các file thật sự khác nhau. Chỉ file identical thật mới bị ẩn: file Comment hay Unimportant vẫn nằm đó, dù đang bị làm mờ hay không. Đây thuần là một view — verdict, số đếm và report export ra đều không đổi vì nó.
+- Bỏ tick `Comment` / `Unimportant` làm mờ các dòng đó chứ không xoá đi: chúng ở nguyên chỗ cũ, giữ số dòng, chỉ mất màu đỏ/xanh và biến khỏi minimap lẫn lộ trình `F7`/`F8`. Để nguyên tick — mặc định là vậy — chúng giữ màu và là điểm dừng như mọi change khác. **Verdict không đổi** trong cả hai trường hợp: file chỉ khác comment vẫn hiện Comment trên cây và trong report export ra.
 - Chỗ bạn đang đứng được đánh dấu bằng một mũi tên nhỏ trong cột số dòng, ở cả hai pane, nên `F7`/`F8` vẫn thấy rõ là có nhảy kể cả trong một file ngắn tới mức không có gì để cuộn.
 - `☀ Light` / `☾ Dark` trên toolbar đổi bảng màu ngay lập tức; `--theme` chỉ chọn màu lúc mở. C, C++, ARXML/XML, A2L, Python, JSON và YAML đều được tô cú pháp ở cả hai theme.
 
 | Marker | Verdict | Nghĩa |
 |---|---|---|
 | `≠` | Modified | có thay đổi thật |
-| `≉` | Comment | chỉ khác comment |
+| `≈` | Comment | chỉ khác comment |
 | `≈` | Unimportant | UUID, timestamp, rename, whitespace |
 | `+` | Added | file chỉ có ở CURRENT |
 | `−` | Deleted | file chỉ có ở BASELINE |

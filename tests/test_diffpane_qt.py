@@ -698,12 +698,35 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
                          'ignorable-only')
         self.assertTrue(self.win._is_nav('arxml/NoiseDemo_implementation.arxml'))
 
-    def test_unticking_a_rule_folds_its_files_out_of_the_walk(self):
-        self.assertTrue(self.win._is_nav('NoiseDemo_autosar_rtw/ert_main.c'))
+    def test_unticking_a_rule_takes_its_files_out_of_the_walk(self):
+        rel = 'NoiseDemo_autosar_rtw/ert_main.c'
+        self.assertTrue(self.win._is_nav(rel))
         self.win.cb_comment.setChecked(False)
         self._settle_ui()
-        self.assertEqual(self.win.results['NoiseDemo_autosar_rtw/ert_main.c']['status'], 'identical')
-        self.assertFalse(self.win._is_nav('NoiseDemo_autosar_rtw/ert_main.c'))
+        self.assertFalse(self.win._is_nav(rel))
+
+    def test_unticking_a_rule_never_re_judges_the_file(self):
+        # greying a category is a reading aid, not a verdict: calling a file
+        # Identical when its comments really did move is the one claim this
+        # tool must never make, and it would put the tree at odds with the
+        # exported report, which is always built from the raw scan
+        rel = 'NoiseDemo_autosar_rtw/ert_main.c'
+        for checked in (False, True):
+            self.win.cb_comment.setChecked(checked)
+            self._settle_ui()
+            self.assertEqual(self.win.results[rel]['status'], 'comment-only')
+
+    def test_hide_identical_keeps_a_greyed_out_file(self):
+        # 'Hide identical' hides files that are identical -- not files whose
+        # differences the reviewer chose to play down
+        rel = 'NoiseDemo_autosar_rtw/ert_main.c'
+        self.win.cb_comment.setChecked(False)
+        self.win.cb_hide_identical.setChecked(True)
+        self._settle_ui()
+        self.assertIn(rel, self.win._tree_rels())
+        # a genuinely identical file is gone in the same breath
+        self.assertNotIn('NoiseDemo_autosar_rtw/NoiseDemo.h',
+                         self.win._tree_rels())
 
     def test_next_change_stops_inside_a_shown_comment_only_file_with_no_unit(self):
         nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]

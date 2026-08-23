@@ -25,7 +25,7 @@ from .. import gitsource, review, theme, zipsource
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report, consistency_advisories
-from ..scanner import apply_fold, summarize
+from ..scanner import summarize
 from .advisories import AdvisoryPanel
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
@@ -154,32 +154,35 @@ class MainWindow(QMainWindow):
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._refresh_tree)
 
-        # compare-rule toggles: unticking a category means "do not report it
-        # separately" -- the tree is rescanned and each such file comes back as
-        # Identical (nothing left) or Modified (real changes underneath).
+        # reading toggles: unticking a category greys its lines out and drops
+        # them from the minimap and F7/F8. The VERDICT is left alone -- a
+        # comment-only file keeps saying Comment. Re-judging it to Identical is
+        # what this used to do, and it made the tree disagree with the exported
+        # report about the same file; worse, "Identical" is the one word a
+        # reviewer is entitled to read as "nothing differs here at all".
         self.cb_comment = QCheckBox('Comment')
         self.cb_comment.setChecked(True)
         self.cb_comment.setToolTip(
-            'Untick to ignore comment-only differences: each such file is then '
-            'reported as Identical or Modified.')
+            'Untick to grey out comment-only differences. The file keeps its '
+            'Comment verdict; its lines just stop competing for attention and '
+            'drop out of F7/F8.')
         self.cb_comment.toggled.connect(self._apply_rules)
         self.cb_unimportant = QCheckBox('Unimportant')
         self.cb_unimportant.setChecked(True)
         self.cb_unimportant.setToolTip(
-            'Untick to ignore the other unimportant differences (UUIDs, '
-            'timestamps, renames, whitespace): each such file is then reported '
-            'as Identical or Modified.')
+            'Untick to grey out the other unimportant differences (UUIDs, '
+            'timestamps, renames, whitespace). The file keeps its Unimportant '
+            'verdict; its lines drop out of F7/F8.')
         self.cb_unimportant.toggled.connect(self._apply_rules)
-        # a display filter, NOT a compare rule: it removes rows from the tree
-        # without touching a verdict, which is why it sits apart from the two
-        # above. A regenerated tree is mostly untouched files, and scrolling
+        # a display filter over the tree, which is why it sits apart from the
+        # two above. A regenerated tree is mostly untouched files, and scrolling
         # past hundreds of '=' rows to reach five changed ones is its own way
         # of hiding them.
         self.cb_hide_identical = QCheckBox('Hide identical')
         self.cb_hide_identical.setToolTip(
-            'Leave only the files with a difference in the tree. Nothing is '
-            're-judged: verdicts, counts and the exported report are unchanged. '
-            'Files folded to Identical by the two boxes on the left go too.')
+            'Leave only the files with a difference in the tree. Only genuinely '
+            'identical files go: a Comment or Unimportant file stays, greyed or '
+            'not. Verdicts, counts and the exported report are unchanged.')
         self.cb_hide_identical.toggled.connect(self._refresh_tree_keep_selection)
         rules = QHBoxLayout()
         rules.setContentsMargins(0, 0, 0, 0)
@@ -906,23 +909,24 @@ class MainWindow(QMainWindow):
 
     # --- scan lifecycle ---
 
-    # switching a category off changes BOTH places it shows: the file's verdict
-    # (status -> Identical/Modified) and how its lines are painted in the diff
-    # panes -- greyed out, and dropped from the minimap and from F7/F8. Leaving
-    # a wall of red and green in the code after saying those do not count was
-    # the worst of both; taking the lines away instead cost the context the
-    # remaining changes have to be read in.
-    _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
+    # switching a category off changes how its lines are PAINTED -- greyed
+    # out, and dropped from the minimap and from F7/F8 -- and nothing else.
+    # Leaving a wall of red and green in the code after saying those do not
+    # count was the worst of both; taking the lines away instead cost the
+    # context the remaining changes have to be read in. The verdict is not
+    # part of it: a file the reviewer greyed out still differs, and the tree
+    # has to keep saying so.
+    _MUTE_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
-    def _fold(self):
-        """Change categories the current rules do NOT report separately; those
-        files come back Identical (or Modified when real changes remain)."""
-        fold = []
+    def _muted_statuses(self):
+        """Verdicts whose lines the reviewer has switched off. They are played
+        down in the panes, never re-judged."""
+        muted = []
         if not self.cb_comment.isChecked():
-            fold.append('comment-only')
+            muted.append('comment-only')
         if not self.cb_unimportant.isChecked():
-            fold.append('ignorable-only')
-        return tuple(fold)
+            muted.append('ignorable-only')
+        return tuple(muted)
 
     def _start_scan(self):
         if not (self.old and self.new):
@@ -985,15 +989,18 @@ class MainWindow(QMainWindow):
         self._apply_rules()
 
     def _apply_rules(self):
-        """Re-judge the scanned tree under the current category toggles. Pure
+        """Re-paint the scanned tree under the current category toggles. Pure
         bookkeeping on results already in memory -- no second walk of the disk,
-        so a toggle is instant and the folders are read exactly once."""
+        so a toggle is instant and the folders are read exactly once.
+
+        The results themselves are the raw scan: a toggle decides what is
+        greyed, never what a file's verdict is."""
         if not self._raw_results:
             return
         keep = self._selected_rel()
-        fold = self._fold()
-        self.results = apply_fold(self._raw_results, fold)
-        self.diff.set_muted_modes([self._FOLD_MODE[f] for f in fold])
+        muted = self._muted_statuses()
+        self.results = dict(self._raw_results)
+        self.diff.set_muted_modes([self._MUTE_MODE[s] for s in muted])
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
         if self._autoselect:
@@ -1248,13 +1255,11 @@ class MainWindow(QMainWindow):
     # finished scan opens on the first of these, and F7/F8 step between them
     # once the current file runs out of changes.
     #
-    # comment-only / ignorable-only are noise verdicts, but self.results is the
-    # FOLDED view (_apply_rules): a file only keeps one of those statuses while
-    # its checkbox is ticked (unfolded), and apply_fold turns it into
-    # 'identical' the moment it is unticked. So including them here means F7/F8
-    # walks into a comment/unimportant-only file exactly while it is shown on
-    # screen, and stops treating it as navigable the instant it is hidden --
-    # with no extra state to keep in sync with the checkboxes.
+    # comment-only / ignorable-only are noise verdicts, but they are walkable
+    # while their checkbox is ticked, so a reviewer can step through
+    # everything. _is_nav drops them again the moment the box is unticked:
+    # those rows are greyed and off the minimap, so there is nothing in such a
+    # file for F7/F8 to stop on, and stepping into it would dead-end.
     _NAV_STATUS = ('error', 'real-change', 'added', 'deleted',
                    'comment-only', 'ignorable-only')
 
@@ -1280,7 +1285,12 @@ class MainWindow(QMainWindow):
 
     def _is_nav(self, rel):
         r = self.results.get(rel)
-        return bool(r) and r['status'] in self._NAV_STATUS
+        if not r:
+            return False
+        # a greyed-out category has no stops left in it
+        if r['status'] in self._muted_statuses():
+            return False
+        return r['status'] in self._NAV_STATUS
 
     def _select_first_change(self):
         """Open the first file a reviewer would have to read. Called once per

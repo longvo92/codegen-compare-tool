@@ -40,28 +40,34 @@ GUIDE = """
 - A folder shows its heaviest child verdict
 - Box above the tree filters by path
 - `Hide identical` leaves only the files with a difference. It is a view, not a
-  rule: verdicts, counts and the exported report do not change
+  rule: verdicts, counts and the exported report do not change. Only genuinely
+  identical files go -- a Comment or Unimportant file stays in the tree
 - Right-click a row: show it in Explorer, or copy its full path
 
 | Mark | Verdict | Meaning |
 |---|---|---|
 | `≠` | Modified | Real changes |
-| `≉` | Comment | Only comments differ |
+| `≈` | Comment | Only comments differ |
 | `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
 | `+` | Added | Exists only in CURRENT |
 | `−` | Deleted | Exists only in BASELINE |
 | `=` | Identical | No difference |
 | `‼` | NOT compared | Treat as changed |
 
-## 4. Fold the noise
+Comment and Unimportant share the `≈` mark: both answer "no, you do not have
+to read this". The Status word says which kind of nothing it is.
 
-- Untick `Comment` / `Unimportant` -- affected files re-judge instantly
-- Those lines are **greyed out, not removed**: they stay where they are, keep
-  their line numbers, and lose their red/green
+## 4. Quiet the noise
+
+- Untick `Comment` / `Unimportant` -- those lines go grey instantly
+- They are **greyed out, not removed**: they stay where they are, keep their
+  line numbers, and lose their red/green
 - They also drop off the minimap and out of `F7` / `F8`, so nothing sends you
   back to them
+- The **verdict does not change**: a comment-only file still reads Comment in
+  the tree, and still appears as Comment in an exported report
 - Tick back on to bring the colour back
-- Real changes can never be folded away
+- Real changes can never be quietened
 
 ## 5. Read the diff
 

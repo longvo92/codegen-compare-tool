@@ -50,12 +50,22 @@ place, `diff_engine._status_of`.
 Only noise verdicts are foldable (`scanner.FOLDABLE`). `real-change`, `added`,
 `deleted` and `error` can **never** be folded away by a UI toggle.
 
-Folding a category in the viewer changes the file's verdict and **greys** its
-rows (`view_model.mute_rows`) — it does not remove them. The lines stay
-readable, and only the "where should I look next" surfaces (minimap, F7/F8)
-stop counting them. Collapsing them to a `⋯ N lines hidden` placeholder was
-tried and reverted: a regenerated file is mostly banner churn, so it took the
-context the surviving hunks have to be read in.
+**A viewer toggle never changes a verdict.** Unticking `Comment` or
+`Unimportant` **greys** those rows (`view_model.mute_rows`) and drops them from
+the minimap and `F7`/`F8` — nothing else. The file keeps saying Comment, the
+counts keep counting it, and `Hide identical` still leaves it in the tree,
+because it is not identical. Re-judging it to `identical` is what the viewer
+used to do, and it was wrong twice over: the tree then disagreed with the
+exported report about the same file, and "Identical" is the one word a reviewer
+is entitled to read as *nothing differs here at all*.
+
+Removing those rows instead of greying them was tried and reverted too: a
+regenerated file is mostly banner churn, so a `⋯ N lines hidden` placeholder
+took away the context the surviving hunks have to be read in.
+
+Both noise verdicts wear the same `≈` mark in the tree — they are one answer to
+"must I read this?", and the Status word beside it says which kind of nothing
+it is.
 
 ## 3. One seam per shared decision
 

@@ -66,15 +66,15 @@ Once a file is open, a small caption next to its name tracks whatever you're loo
 - The scan **opens on the first change** — you never land on an empty pane next to a tree full of results.
 - `F8` / `F7` step through the changes in the open file, then carry on into the next (or previous) changed file once you run out, wrapping around at the end. `Ctrl+Home` / `Ctrl+End` stay inside the current file. Comment and noise files join that walk while their category is ticked on, but stopping on one signs off nothing — only real and moved changes ever enter the review record.
 - `Ctrl+F` finds text in the open file, either side, with `F3` / `Shift+F3` to step through matches and `Esc` to close it. The query survives moving to another file, so you can chase one identifier across the whole compare.
-- `Hide identical` narrows the tree down to files that actually differ. It's purely a view — verdicts, counts and the exported report are untouched by it.
-- Unticking `Comment` / `Unimportant` greys those lines out rather than deleting them: they keep their place and their line numbers, just lose their red/green colouring and drop off the minimap and the `F7`/`F8` walk. Left ticked, which is the default, they keep their colour and behave like any other stop.
+- `Hide identical` narrows the tree down to files that actually differ. Only genuinely identical files go: a Comment or Unimportant file stays, greyed or not. It's purely a view — verdicts, counts and the exported report are untouched by it.
+- Unticking `Comment` / `Unimportant` greys those lines out rather than deleting them: they keep their place and their line numbers, just lose their red/green colouring and drop off the minimap and the `F7`/`F8` walk. Left ticked, which is the default, they keep their colour and behave like any other stop. The **verdict does not change** either way — a comment-only file still reads Comment in the tree and in an exported report.
 - Wherever you currently are is marked with a small arrow in the line-number gutter, on both panes, so `F7`/`F8` visibly move you even in a file too short to scroll.
 - `☀ Light` / `☾ Dark` in the toolbar swaps the colour scheme on the fly; `--theme` just picks which one it opens in. C, C++, ARXML/XML, A2L, Python, JSON and YAML are all syntax-coloured in either theme.
 
 | Mark | Verdict | Meaning |
 |---|---|---|
 | `≠` | Modified | real changes |
-| `≉` | Comment | only comments differ |
+| `≈` | Comment | only comments differ |
 | `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
 | `+` | Added | file exists only in CURRENT |
 | `−` | Deleted | file exists only in BASELINE |

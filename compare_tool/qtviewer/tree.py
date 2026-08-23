@@ -18,8 +18,11 @@ STATUS = {
     'real-change':    ('≠', 'Modified',     'st-real'),   # not-equal sign
     # the two noise verdicts are grey on purpose: grey is what "this does not
     # count" looks like, and it keeps red/green meaning removed/added only
-    'comment-only':   ('≉', 'Comment',      'st-cmt'),    # comments only
-    'ignorable-only': ('≈', 'Unimportant',  'st-ign'),    # almost-equal
+    # both carry the same almost-equal sign: they are the same answer to
+    # "does this differ in a way I have to read?" -- the Status word beside it
+    # is what separates a moved banner from a renamed identifier
+    'comment-only':   ('≈', 'Comment',      'st-cmt'),
+    'ignorable-only': ('≈', 'Unimportant',  'st-ign'),
     'added':          ('+',      'Added',        'st-add'),
     'deleted':        ('−', 'Deleted',      'st-del'),    # minus sign
     'identical':      ('=',      'Identical',    'st-id'),
