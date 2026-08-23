@@ -211,7 +211,42 @@ facts a file cannot know: the ref is `main`, and the tag is not taken.
 
 Releases are not moved. A published version is refused, never overwritten.
 
-## 10. Workflow
+## 10. Docs are written for someone who did not build the tool
+
+The README, `docs/usage.md`, the CHANGELOG and the `docs/vi/` translations ship
+with the product. The reader is an engineer who knows AUTOSAR and Simulink but
+has never seen this codebase — not a reviewer who already knows why a rule
+exists.
+
+- **Define the thing before leaning on it.** "A model's ARXML is its interface
+  contract, its A2L is its calibration surface" tells that reader nothing.
+  "Its ARXML declares which ports, runnables and events the model has; its A2L
+  declares the calibration and measurement variables" tells them what the files
+  hold, so the rule built on top of it lands.
+- **No metaphor where a plain description fits.** "the fingerprint of a quick
+  regen", "only the screen is quiet", "a near-tie is not an answer" all read as
+  writing. Say what happens: "you probably regenerated only model A", "the lines
+  are still in the file, the report just doesn't render them", "generated files
+  resemble each other, so a close second match isn't trustworthy".
+- **Give the user's reason, not the internal one.** *Why* Comment is its own
+  category is rule 2's problem. The doc's job is "a rewritten comment you can
+  skim; a renamed identifier you have to check."
+- **Three conditions in one paragraph become a list.** Prose that chains
+  "and… and… but only when…" is where a reader loses the thread. The rename and
+  reorder rules are both lists for that reason.
+- **CHANGELOG entries lead with the outcome**, one bold sentence naming what
+  the user now gets, then a sentence or two on when they hit it. Same language
+  rules as above.
+
+`docs/vi/` translates the **meaning**, never the words. "Hợp đồng interface" is
+what "interface contract" turns into when it is translated literally, and it is
+meaningless in Vietnamese. Terms that live in the tool and in the industry —
+port, runnable, calibration, noise, hunk, verdict — stay in English rather than
+being forced into a Vietnamese word nobody uses. The English file is the
+source of truth: when a fix to the Vietnamese actually changes what a sentence
+claims, fix the English in the same change or the two versions quietly diverge.
+
+## 11. Workflow
 
 - **Commit per phase / per goal batch.** The message explains *why*, not what
   the diff already shows.
