@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python dist/compare_tool.pyz tests/fixtures/old tests/fixtures/new --report pyz.html
+          python dist/compare_tool.pyz tests/fixtures/demo/old tests/fixtures/demo/new --report pyz.html
           code=$?
           set -e
           test "$code" -eq 1   # fixtures hold real changes
@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python -m compare_tool tests/fixtures/old tests/fixtures/new --report report.html
+          python -m compare_tool tests/fixtures/demo/old tests/fixtures/demo/new --report report.html
           code=$?
           set -e
           test "$code" -eq 1  # fixtures contain real changes -> exit code 1 expected

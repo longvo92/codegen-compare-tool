@@ -20,6 +20,7 @@ except ImportError:                                  # pragma: no cover
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
+DEMO = FIX / 'demo'
 _APP = None
 
 
@@ -77,13 +78,13 @@ class TestCaretDoesNotPaint(unittest.TestCase):
     say by accident.
     """
 
-    REL = 'a2l/comment_only.a2l'
-    OTHER = 'a2l/cal.a2l'
+    REL = 'a2l/Ctrl.a2l'
+    OTHER = 'a2l/NoiseDemo.a2l'
 
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.pane.resize(1200, 600)
         self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
@@ -92,7 +93,7 @@ class TestCaretDoesNotPaint(unittest.TestCase):
 
     def _open(self, rel):
         self.pane.show_file(rel, self.results[rel],
-                            str(FIX / 'old'), str(FIX / 'new'))
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
 
@@ -135,7 +136,7 @@ class TestCurrentFunctionCaption(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.pane.resize(1000, 600)
         self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
@@ -144,32 +145,32 @@ class TestCurrentFunctionCaption(unittest.TestCase):
 
     def _open(self, rel):
         self.pane.show_file(rel, self.results[rel],
-                            str(FIX / 'old'), str(FIX / 'new'))
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
 
     def test_opens_on_the_changed_functions_scope(self):
-        # the real change in real_change.c is inside Calc_step, so the file
+        # the real change in NoiseDemo.c is inside Calc_step, so the file
         # opens with that named in the caption -- not the banner line above it
-        self._open('src/real_change.c')
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self.assertIn('Calc_step', self.pane._fn.text())
         self.assertTrue(self.pane._fn.isVisible())
 
     def test_row_labels_align_with_rows(self):
-        self._open('src/real_change.c')
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self.assertEqual(len(self.pane._row_fn), len(self.pane.rows))
         self.assertIn('Calc_step', self.pane._row_fn)
 
     def test_one_sided_file_is_captioned_too(self):
         # a whole added file still has a scope: New_step
-        self._open('src/added.c')
-        self.assertIn('New_step', self.pane._row_fn)
+        self._open('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c')
+        self.assertIn('SpeedCtrl_initialize', self.pane._row_fn)
 
     def test_caption_clears_between_files(self):
-        # deleted.h holds only a declaration -- no function body -- so its
+        # NoiseDemo_types.h holds only a typedef -- no function body -- so its
         # caption must not keep the previous file's function name
-        self._open('src/real_change.c')
-        self._open('src/deleted.h')
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo_types.h')
         self.assertNotIn('Calc_step', self.pane._fn.text())
 
 
@@ -180,7 +181,7 @@ class TestMinimapOnOneSidedFiles(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.pane.resize(1200, 500)
         self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
@@ -189,12 +190,12 @@ class TestMinimapOnOneSidedFiles(unittest.TestCase):
 
     def _open(self, rel):
         self.pane.show_file(rel, self.results[rel],
-                            str(FIX / 'old'), str(FIX / 'new'))
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
 
     def test_added_and_deleted_files_have_a_map(self):
-        for rel, side in (('src/added.c', 'new'), ('src/deleted.h', 'old')):
+        for rel, side in (('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c', 'new'), ('NoiseDemo_autosar_rtw/NoiseDemo_types.h', 'old')):
             self._open(rel)
             self.assertTrue(self.pane.minimap._rows, rel)
             # driven by the pane that holds the text, or the slider sits at the
@@ -205,12 +206,12 @@ class TestMinimapOnOneSidedFiles(unittest.TestCase):
     def test_a_one_sided_map_carries_no_diff_colour(self):
         # the pane is already one solid colour; repeating it on the map would
         # be a rectangle carrying no information
-        self._open('src/added.c')
+        self._open('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c')
         self.assertEqual({r.mode for r in self.pane.minimap._rows}, {'ctx'})
 
     def test_two_pane_files_go_back_to_the_baseline_editor(self):
-        self._open('src/added.c')
-        self._open('src/real_change.c')
+        self._open('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c')
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self.assertIs(self.pane.minimap._editor, self.pane.old_edit)
         self.assertTrue(self.pane.minimap._rows)
 
@@ -222,7 +223,7 @@ class TestStickyHeaderAndScrollbar(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.pane.resize(1000, 400)
         self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
@@ -231,12 +232,12 @@ class TestStickyHeaderAndScrollbar(unittest.TestCase):
 
     def _open(self, rel):
         self.pane.show_file(rel, self.results[rel],
-                            str(FIX / 'old'), str(FIX / 'new'))
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(6):
             self.app.processEvents()
 
     def _long_c(self):
-        """A tall two-pane file: real_change.c is a handful of lines, so its
+        """A tall two-pane file: NoiseDemo.c is a handful of lines, so its
         function signature never scrolls off and the sticky would never show.
         Build one long enough that it does."""
         tmp = Path(tempfile.mkdtemp())
@@ -250,7 +251,7 @@ class TestStickyHeaderAndScrollbar(unittest.TestCase):
         return tmp
 
     def test_only_the_driving_pane_shows_a_vertical_scrollbar(self):
-        self._open('src/real_change.c')  # two-pane: old drives
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')  # two-pane: old drives
         self.assertEqual(self.pane.old_edit.verticalScrollBarPolicy(),
                          Qt.ScrollBarAsNeeded)
         self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
@@ -260,7 +261,7 @@ class TestStickyHeaderAndScrollbar(unittest.TestCase):
         # a whole added file's text is on the NEW (right) pane, which drives --
         # but the minimap sits immediately to its right, so a bar there would
         # collide with it. It stays off; the minimap, wheel and keyboard scroll.
-        self._open('src/added.c')
+        self._open('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c')
         self.assertIs(self.pane._drive, self.pane.new_edit)
         self.assertEqual(self.pane.new_edit.verticalScrollBarPolicy(),
                          Qt.ScrollBarAlwaysOff)
@@ -431,10 +432,10 @@ class TestQuickChangesJump(unittest.TestCase):
                           'row {!r} landed on line {}'.format(item.text(0), landed))
 
     def test_every_row_lands_on_its_own_object(self):
-        self._check(FIX / 'old', FIX / 'new')
+        self._check(DEMO / 'old', DEMO / 'new')
 
     def test_every_row_lands_on_its_own_object_in_the_model_fixture(self):
-        self._check(FIX / 'model_old', FIX / 'model_new')
+        self._check(DEMO / 'old', DEMO / 'new')
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
@@ -444,7 +445,7 @@ class TestFindInFile(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.pane.resize(1200, 600)
         self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
@@ -453,12 +454,12 @@ class TestFindInFile(unittest.TestCase):
 
     def _open(self, rel):
         self.pane.show_file(rel, self.results[rel],
-                            str(FIX / 'old'), str(FIX / 'new'))
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
 
     def test_a_hit_on_either_side_counts_once(self):
-        self._open('src/rename_conflict.c')
+        self._open('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         hits = self.pane.find_matches('rtb_')
         self.assertTrue(hits)
         for row in hits:
@@ -468,7 +469,7 @@ class TestFindInFile(unittest.TestCase):
         self.assertEqual(len(hits), len(set(hits)))
 
     def test_search_is_case_insensitive_and_empty_finds_nothing(self):
-        self._open('src/rename_conflict.c')
+        self._open('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self.assertEqual(self.pane.find_matches('RTB_'),
                          self.pane.find_matches('rtb_'))
         self.assertEqual(self.pane.find_matches('   '), [])
@@ -476,12 +477,12 @@ class TestFindInFile(unittest.TestCase):
     def test_a_whole_added_file_is_searchable(self):
         # it renders through the one-sided path, which used to leave .rows
         # empty -- a file with no rows is a file the find box cannot see
-        self._open('src/added.c')
+        self._open('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c')
         self.assertTrue(self.pane.rows)
         self.assertTrue(self.pane.find_matches('void'))
 
     def test_stepping_wraps_and_reports_position(self):
-        self._open('src/rename_conflict.c')
+        self._open('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self.pane.open_find()
         self.pane._find_edit.setText('rtb_')
         for _ in range(5):
@@ -506,7 +507,7 @@ class TestFindInFile(unittest.TestCase):
     def test_a_query_that_stops_matching_takes_its_highlights_with_it(self):
         # typing on past the last hit ("begin" -> "beginal") said "No match"
         # while the old word stayed lit, which reads as the wrong answer
-        self._open('a2l/comment_only.a2l')
+        self._open('a2l/Ctrl.a2l')
         self.pane.open_find()
         self._type('begin')
         self.assertGreater(self._match_marks(), 0)
@@ -515,7 +516,7 @@ class TestFindInFile(unittest.TestCase):
         self.assertEqual(self._match_marks(), 0)
 
     def test_clearing_the_box_clears_the_marks(self):
-        self._open('a2l/comment_only.a2l')
+        self._open('a2l/Ctrl.a2l')
         self.pane.open_find()
         self._type('begin')
         self._type('')
@@ -523,7 +524,7 @@ class TestFindInFile(unittest.TestCase):
         self.assertEqual(self.pane._find_count.text(), '')
 
     def test_closing_the_bar_clears_the_marks(self):
-        self._open('a2l/comment_only.a2l')
+        self._open('a2l/Ctrl.a2l')
         self.pane.open_find()
         self._type('begin')
         self.pane.close_find()
@@ -532,7 +533,7 @@ class TestFindInFile(unittest.TestCase):
         self.assertEqual(self._match_marks(), 0)
 
     def test_every_occurrence_is_marked_not_only_the_current_one(self):
-        self._open('a2l/comment_only.a2l')
+        self._open('a2l/Ctrl.a2l')
         self.pane.open_find()
         self._type('begin')
         # one mark per occurrence per pane that has the row
@@ -543,26 +544,26 @@ class TestFindInFile(unittest.TestCase):
         # tracked separately; clearing the search used to wipe the block the
         # reviewer is standing on as well (back when both shared one
         # extraSelections list)
-        self._open('src/rename_conflict.c')
+        self._open('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self.pane.open_find()
         self._type('rtb_')
         self._type('')
         self.assertTrue(self.pane.old_edit._cur_rows or self.pane.new_edit._cur_rows)
 
     def test_leaving_a_file_takes_its_marks_with_it(self):
-        self._open('src/rename_conflict.c')
+        self._open('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self.pane.open_find()
         self._type('rtb_')
-        self._open('src/real_change.c')  # no rtb_ in this one
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')  # no rtb_ in this one
         self.assertEqual(self._match_marks(), 0)
 
     def test_the_query_survives_a_file_change_without_moving_the_pane(self):
-        self._open('src/rename_conflict.c')
+        self._open('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self.pane.open_find()
         self.pane._find_edit.setText('rtb_')
         for _ in range(5):
             self.app.processEvents()
-        self._open('src/real_change.c')
+        self._open('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self.assertEqual(self.pane._find_edit.text(), 'rtb_')
         # opening a file parks on its FIRST CHANGE; a query carried over from
         # another file must not quietly scroll somewhere else
@@ -582,15 +583,15 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.pane.resize(1200, 600)
         self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
         self.pane.show()
         self.addCleanup(self.pane.close)
-        self.pane.show_file('src/rename_conflict.c',
-                            self.results['src/rename_conflict.c'],
-                            str(FIX / 'old'), str(FIX / 'new'))
+        self.pane.show_file('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c',
+                            self.results['TorqueLimiter_autosar_rtw/TorqueLimiter_data.c'],
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
 
@@ -607,10 +608,10 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
         self.assertFalse(self.pane.prev_change())
 
     def test_a_file_with_no_change_stops_never_claims_to_move(self):
-        # same.h is identical -- no hunks at all, real or noise -- so there is
+        # NoiseDemo_private.h is identical -- no hunks at all, real or noise --
         # truly nothing to step to regardless of what is muted
-        self.pane.show_file('src/same.h', self.results['src/same.h'],
-                            str(FIX / 'old'), str(FIX / 'new'))
+        self.pane.show_file('NoiseDemo_autosar_rtw/NoiseDemo_private.h', self.results['NoiseDemo_autosar_rtw/NoiseDemo_private.h'],
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
         self.assertFalse(self.pane.next_change())
@@ -621,8 +622,8 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
         # (the default, nothing muted) they are themselves valid F7/F8 stops,
         # but landing on one offers nothing to sign off -- noise never enters
         # the review record (review.REVIEWABLE)
-        self.pane.show_file('src/rename_only.c', self.results['src/rename_only.c'],
-                            str(FIX / 'old'), str(FIX / 'new'))
+        self.pane.show_file('NoiseDemo_autosar_rtw/NoiseDemo_data.c', self.results['NoiseDemo_autosar_rtw/NoiseDemo_data.c'],
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
         self.assertTrue(self.pane._stops)
@@ -642,11 +643,11 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
     def test_leaving_a_file_clears_the_arrow_it_left_behind(self):
         self.pane.first_change()
         self.assertTrue(self.pane.old_edit._cur_rows)
-        # same.h has no hunks at all -- the marker from the previous file
+        # NoiseDemo_private.h has no hunks at all -- the marker from the
         # must not still be sitting there once a file with nothing to mark
         # replaces it
-        self.pane.show_file('src/same.h', self.results['src/same.h'],
-                            str(FIX / 'old'), str(FIX / 'new'))
+        self.pane.show_file('NoiseDemo_autosar_rtw/NoiseDemo_private.h', self.results['NoiseDemo_autosar_rtw/NoiseDemo_private.h'],
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
         self.assertEqual(self.pane.old_edit._cur_rows, frozenset())
@@ -660,7 +661,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.app import MainWindow
         self.app = _app()
-        self.win = MainWindow(str(FIX / 'old'), str(FIX / 'new'))
+        self.win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'))
         self.win.resize(1400, 800)
         self.win.setAttribute(Qt.WA_DontShowOnScreen, True)
         self.win.show()
@@ -680,38 +681,38 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
                                    if self.win._is_nav(r)))
 
     def test_flipping_a_compare_rule_does_not_move_the_reviewer(self):
-        self.win._reselect('src/rename_conflict.c')
+        self.win._reselect('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self._settle_ui()
         self.win.cb_comment.setChecked(False)
         self._settle_ui()
-        self.assertEqual(self.win._selected_rel(), 'src/rename_conflict.c')
+        self.assertEqual(self.win._selected_rel(), 'TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
 
     def test_comment_only_and_ignorable_only_files_are_walkable_by_default(self):
-        # comment_only.c / admindata.arxml keep their noise verdict while the
+        # ert_main.c / NoiseDemo_implementation.arxml keep their noise verdict
         # matching checkbox is ticked (the default) -- F7/F8 must walk into
         # them too, not stop at real-change / added / deleted / error alone
-        self.assertEqual(self.win.results['src/comment_only.c']['status'],
+        self.assertEqual(self.win.results['NoiseDemo_autosar_rtw/ert_main.c']['status'],
                          'comment-only')
-        self.assertTrue(self.win._is_nav('src/comment_only.c'))
-        self.assertEqual(self.win.results['arxml/admindata.arxml']['status'],
+        self.assertTrue(self.win._is_nav('NoiseDemo_autosar_rtw/ert_main.c'))
+        self.assertEqual(self.win.results['arxml/NoiseDemo_implementation.arxml']['status'],
                          'ignorable-only')
-        self.assertTrue(self.win._is_nav('arxml/admindata.arxml'))
+        self.assertTrue(self.win._is_nav('arxml/NoiseDemo_implementation.arxml'))
 
     def test_unticking_a_rule_folds_its_files_out_of_the_walk(self):
-        self.assertTrue(self.win._is_nav('src/comment_only.c'))
+        self.assertTrue(self.win._is_nav('NoiseDemo_autosar_rtw/ert_main.c'))
         self.win.cb_comment.setChecked(False)
         self._settle_ui()
-        self.assertEqual(self.win.results['src/comment_only.c']['status'], 'identical')
-        self.assertFalse(self.win._is_nav('src/comment_only.c'))
+        self.assertEqual(self.win.results['NoiseDemo_autosar_rtw/ert_main.c']['status'], 'identical')
+        self.assertFalse(self.win._is_nav('NoiseDemo_autosar_rtw/ert_main.c'))
 
     def test_next_change_stops_inside_a_shown_comment_only_file_with_no_unit(self):
         nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]
-        self.assertIn('src/comment_only.c', nav)
-        self.win._reselect(nav[nav.index('src/comment_only.c') - 1])
+        self.assertIn('NoiseDemo_autosar_rtw/ert_main.c', nav)
+        self.win._reselect(nav[nav.index('NoiseDemo_autosar_rtw/ert_main.c') - 1])
         self._settle_ui()
         self.win._next_change()
         self._settle_ui()
-        self.assertEqual(self.win._selected_rel(), 'src/comment_only.c')
+        self.assertEqual(self.win._selected_rel(), 'NoiseDemo_autosar_rtw/ert_main.c')
         self.assertTrue(self.win.diff._stops)
         self.assertIsNone(self.win.diff.current_unit())
 
@@ -745,7 +746,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
 
     def test_prev_change_steps_back_a_file_at_its_last_change(self):
         nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]
-        target = 'src/rename_conflict.c'  # the fixture file with two changes
+        target = 'TorqueLimiter_autosar_rtw/TorqueLimiter_data.c'  # the fixture file with two changes
         self.assertIn(target, nav)
         # the file after it, wrapping: rename_conflict.c is the last nav file
         # in this fixture, so this also covers stepping back over the wrap
@@ -771,11 +772,11 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         self.assertEqual(self.win._tree_rels(), before)
 
     def test_hide_identical_keeps_the_file_on_screen(self):
-        self.win._reselect('src/real_change.c')
+        self.win._reselect('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self._settle_ui()
         self.win.cb_hide_identical.setChecked(True)
         self._settle_ui()
-        self.assertEqual(self.win._selected_rel(), 'src/real_change.c')
+        self.assertEqual(self.win._selected_rel(), 'NoiseDemo_autosar_rtw/NoiseDemo.c')
 
     def test_hiding_rows_never_changes_a_verdict_or_the_counts(self):
         # the filter is display-only: the record the export is built from must
@@ -800,19 +801,19 @@ class TestMutedCategories(unittest.TestCase):
     the minimap and F7/F8.
     """
 
-    REL = 'a2l/cal.a2l'  # one comment hunk and one real one
+    REL = 'a2l/NoiseDemo.a2l'  # one comment hunk and one real one
 
     def setUp(self):
         from compare_tool.qtviewer.diffpane import DiffPane
         self.app = _app()
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
         self.pane = DiffPane()
         self.addCleanup(self.pane.deleteLater)
 
     def _show(self, muted=()):
         self.pane.set_muted_modes(muted)
         self.pane.show_file(self.REL, self.results[self.REL],
-                            str(FIX / 'old'), str(FIX / 'new'))
+                            str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
         return self.pane.rows
@@ -889,7 +890,7 @@ class TestThemeSwitch(unittest.TestCase):
         self.theme = theme
         self.app = _app()
         self.addCleanup(theme.set_current, theme.DEFAULT)
-        self.win = MainWindow(str(FIX / 'old'), str(FIX / 'new'))
+        self.win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'))
         self.win.resize(1200, 800)
         self.win.setAttribute(Qt.WA_DontShowOnScreen, True)
         self.win.show()
@@ -907,13 +908,13 @@ class TestThemeSwitch(unittest.TestCase):
 
     def test_the_viewer_opens_in_the_theme_it_was_asked_for(self):
         from compare_tool.qtviewer.app import MainWindow
-        win = MainWindow(str(FIX / 'old'), str(FIX / 'new'),
+        win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'),
                          theme_name=self.theme.LIGHT)
         self.addCleanup(win.close)
         self.assertEqual(self.theme.current(), self.theme.LIGHT)
 
     def test_switching_repaints_the_diff_rows_not_just_the_chrome(self):
-        self.win._reselect('src/real_change.c')
+        self.win._reselect('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self._settle_ui()
         dark = self._row_bgs()
         self.assertIn(self.theme.color('del-bg', self.theme.DARK), dark)
@@ -934,17 +935,17 @@ class TestThemeSwitch(unittest.TestCase):
         self.assertNotEqual(first_colour(), dark)
 
     def test_the_file_on_screen_survives_the_switch(self):
-        self.win._reselect('src/real_change.c')
+        self.win._reselect('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self._settle_ui()
         self.win._set_theme(self.theme.LIGHT)
         self._settle_ui()
-        self.assertEqual(self.win._selected_rel(), 'src/real_change.c')
-        self.assertEqual(self.win.diff._rel, 'src/real_change.c')
+        self.assertEqual(self.win._selected_rel(), 'NoiseDemo_autosar_rtw/NoiseDemo.c')
+        self.assertEqual(self.win.diff._rel, 'NoiseDemo_autosar_rtw/NoiseDemo.c')
 
     def test_the_change_being_read_survives_the_switch(self):
         # re-rendering the file parks on change 1; a colour switch is not a
         # navigation command, so the reviewer must come back to where they were
-        self.win._reselect('src/rename_conflict.c')
+        self.win._reselect('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self._settle_ui()
         self.assertTrue(self.win.diff.next_change())
         self._settle_ui()

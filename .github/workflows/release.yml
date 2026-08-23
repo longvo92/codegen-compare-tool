@@ -94,7 +94,7 @@ jobs:
         run: |
           for tool in "dist/compare-tool.exe" "python dist/compare_tool.pyz"; do
             set +e
-            $tool tests/fixtures/old tests/fixtures/new --report out.html
+            $tool tests/fixtures/demo/old tests/fixtures/demo/new --report out.html
             code=$?
             set -e
             test "$code" -eq 1 || { echo "::error::$tool exited $code, expected 1"; exit 1; }

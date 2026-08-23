@@ -8,6 +8,7 @@ from compare_tool.scanner import (scan, summarize, summarize_a2l,
                                   summarize_ifaces)
 
 FIX = Path(__file__).parent / 'fixtures'
+DEMO = FIX / 'demo'
 
 
 def kinds(result):
@@ -565,7 +566,7 @@ class TestMovedBlocks(unittest.TestCase):
 class TestFixtureTree(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.results = scan(FIX / 'old', FIX / 'new')
+        cls.results = scan(DEMO / 'old', DEMO / 'new')
 
     def expect(self, rel, status):
         self.assertIn(rel, self.results)
@@ -573,22 +574,22 @@ class TestFixtureTree(unittest.TestCase):
                          '{}: {}'.format(rel, self.results[rel]))
 
     def test_statuses(self):
-        self.expect('src/comment_only.c', 'comment-only')
-        self.expect('src/rename_only.c', 'ignorable-only')
-        self.expect('src/rename_conflict.c', 'real-change')
-        self.expect('src/real_change.c', 'real-change')
-        self.expect('src/same.h', 'identical')
-        self.expect('src/added.c', 'added')
-        self.expect('src/deleted.h', 'deleted')
-        self.expect('arxml/uuid_only.arxml', 'ignorable-only')
-        self.expect('arxml/admindata.arxml', 'ignorable-only')
-        self.expect('arxml/real_change.arxml', 'real-change')
-        self.expect('arxml/iface.arxml', 'real-change')
-        self.expect('a2l/comment_only.a2l', 'comment-only')
-        self.expect('a2l/cal.a2l', 'real-change')
+        self.expect('NoiseDemo_autosar_rtw/ert_main.c', 'comment-only')
+        self.expect('NoiseDemo_autosar_rtw/NoiseDemo_data.c', 'ignorable-only')
+        self.expect('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c', 'real-change')
+        self.expect('NoiseDemo_autosar_rtw/NoiseDemo.c', 'real-change')
+        self.expect('NoiseDemo_autosar_rtw/NoiseDemo_private.h', 'identical')
+        self.expect('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c', 'added')
+        self.expect('NoiseDemo_autosar_rtw/NoiseDemo_types.h', 'deleted')
+        self.expect('arxml/NoiseDemo_component.arxml', 'ignorable-only')
+        self.expect('arxml/NoiseDemo_implementation.arxml', 'ignorable-only')
+        self.expect('arxml/NoiseDemo_datatype.arxml', 'real-change')
+        self.expect('arxml/NoiseDemo_interface.arxml', 'real-change')
+        self.expect('a2l/Ctrl.a2l', 'comment-only')
+        self.expect('a2l/NoiseDemo.a2l', 'real-change')
 
     def test_a2l_diff_recorded(self):
-        r = self.results['a2l/cal.a2l']
+        r = self.results['a2l/NoiseDemo.a2l']
         self.assertEqual(r['a2l'], {
             'added': [('VehSpd', 'MEASUREMENT')],
             'removed': [('K_Gain', 'CHARACTERISTIC')],
@@ -596,11 +597,11 @@ class TestFixtureTree(unittest.TestCase):
 
     def test_a2l_summary_flattened(self):
         added, removed = summarize_a2l(self.results)
-        self.assertIn(('a2l/cal.a2l', 'VehSpd', 'MEASUREMENT'), added)
-        self.assertIn(('a2l/cal.a2l', 'K_Gain', 'CHARACTERISTIC'), removed)
+        self.assertIn(('a2l/NoiseDemo.a2l', 'VehSpd', 'MEASUREMENT'), added)
+        self.assertIn(('a2l/NoiseDemo.a2l', 'K_Gain', 'CHARACTERISTIC'), removed)
 
     def test_iface_diff_recorded(self):
-        r = self.results['arxml/iface.arxml']
+        r = self.results['arxml/NoiseDemo_interface.arxml']
         self.assertEqual(r['ifaces'], {
             'added': [('/Interfaces/If_Torque', 'SENDER-RECEIVER-INTERFACE')],
             'removed': [('/Interfaces/If_Diag', 'CLIENT-SERVER-INTERFACE')],
@@ -608,25 +609,25 @@ class TestFixtureTree(unittest.TestCase):
 
     def test_iface_summary_flattened(self):
         added, removed = summarize_ifaces(self.results)
-        self.assertIn(('arxml/iface.arxml', '/Interfaces/If_Torque',
+        self.assertIn(('arxml/NoiseDemo_interface.arxml', '/Interfaces/If_Torque',
                        'SENDER-RECEIVER-INTERFACE'), added)
-        self.assertIn(('arxml/iface.arxml', '/Interfaces/If_Diag',
+        self.assertIn(('arxml/NoiseDemo_interface.arxml', '/Interfaces/If_Diag',
                        'CLIENT-SERVER-INTERFACE'), removed)
 
     def test_exclude_patterns(self):
-        results = scan(FIX / 'old', FIX / 'new',
-                       exclude=['same.h', 'arxml/*'])
-        self.assertNotIn('src/same.h', results)
-        self.assertNotIn('arxml/iface.arxml', results)
-        self.assertIn('src/real_change.c', results)
+        results = scan(DEMO / 'old', DEMO / 'new',
+                       exclude=['NoiseDemo_private.h', 'arxml/*'])
+        self.assertNotIn('NoiseDemo_autosar_rtw/NoiseDemo_private.h', results)
+        self.assertNotIn('arxml/NoiseDemo_interface.arxml', results)
+        self.assertIn('NoiseDemo_autosar_rtw/NoiseDemo.c', results)
 
     def test_rename_map_recorded(self):
-        r = self.results['src/rename_only.c']
+        r = self.results['NoiseDemo_autosar_rtw/NoiseDemo_data.c']
         self.assertEqual(r['renames'],
                          {'rtb_Sum1': 'rtb_Sum_k2j', 'rtb_Gain2': 'rtb_Gain_p0f'})
 
     def test_real_change_c_has_one_real_hunk(self):
-        r = self.results['src/real_change.c']
+        r = self.results['NoiseDemo_autosar_rtw/NoiseDemo.c']
         real = [h for h in r['hunks'] if h['kind'] == 'real']
         ign = [h for h in r['hunks'] if h['kind'] != 'real']
         self.assertEqual(len(real), 1)
@@ -665,7 +666,7 @@ class TestCommentSplit(unittest.TestCase):
         self.assertEqual(compare_pair(old, new, 'f.c')['status'], 'real-change')
 
     def test_counts_are_separate(self):
-        counts = summarize(scan(FIX / 'old', FIX / 'new'))
+        counts = summarize(scan(DEMO / 'old', DEMO / 'new'))
         self.assertTrue(counts['comment-only'])
         self.assertTrue(counts['ignorable-only'])
 
@@ -676,8 +677,8 @@ class TestFoldRules(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.plain = scan(FIX / 'old', FIX / 'new')
-        cls.folded = scan(FIX / 'old', FIX / 'new', fold=('ignorable-only',))
+        cls.plain = scan(DEMO / 'old', DEMO / 'new')
+        cls.folded = scan(DEMO / 'old', DEMO / 'new', fold=('ignorable-only',))
 
     def test_noise_only_files_become_identical(self):
         noisy = [p for p, r in self.plain.items() if r['status'] == 'ignorable-only']
@@ -704,8 +705,8 @@ class TestFoldRules(unittest.TestCase):
         self.assertEqual(self.folded[p]['hunks'], self.plain[p]['hunks'])
 
     def test_real_change_is_not_foldable(self):
-        results = scan(FIX / 'old', FIX / 'new', fold=('real-change',))
-        self.assertEqual(results['src/real_change.c']['status'], 'real-change')
+        results = scan(DEMO / 'old', DEMO / 'new', fold=('real-change',))
+        self.assertEqual(results['NoiseDemo_autosar_rtw/NoiseDemo.c']['status'], 'real-change')
 
 
 class TestArxmlShadowStillAligns(unittest.TestCase):
