@@ -63,18 +63,19 @@ Once a file is open, a small caption next to its name tracks whatever you're loo
 
 ### Reading a scan
 
+- The left column is three panes — **Files**, **Quick changes** and **Consistency**. Click a bar to fold that pane away and hand its height to the panes still open; click again and it comes back the size it was. All three share one splitter, so any of them can be dragged to the height you want. The Consistency pane only appears when the scan has a heads-up, and its bar keeps the count even folded.
 - The scan **opens on the first change** — you never land on an empty pane next to a tree full of results.
 - `F8` / `F7` step through the changes in the open file, then carry on into the next (or previous) changed file once you run out, wrapping around at the end. `Ctrl+Home` / `Ctrl+End` stay inside the current file. Comment and noise files join that walk while their category is ticked on, but stopping on one signs off nothing — only real and moved changes ever enter the review record.
 - `Ctrl+F` finds text in the open file, either side, with `F3` / `Shift+F3` to step through matches and `Esc` to close it. The query survives moving to another file, so you can chase one identifier across the whole compare.
-- `Hide identical` narrows the tree down to files that actually differ. It's purely a view — verdicts, counts and the exported report are untouched by it.
-- Unticking `Comment` / `Unimportant` greys those lines out rather than deleting them: they keep their place and their line numbers, just lose their red/green colouring and drop off the minimap and the `F7`/`F8` walk. Left ticked, which is the default, they keep their colour and behave like any other stop.
+- `Hide identical` narrows the tree down to files that actually differ. Only genuinely identical files go: a Comment or Unimportant file stays, greyed or not. It's purely a view — verdicts, counts and the exported report are untouched by it.
+- Unticking `Comment` / `Unimportant` greys those lines out rather than deleting them: they keep their place and their line numbers, just lose their red/green colouring and drop off the minimap and the `F7`/`F8` walk. Left ticked, which is the default, they keep their colour and behave like any other stop. The **verdict does not change** either way — a comment-only file still reads Comment in the tree and in an exported report.
 - Wherever you currently are is marked with a small arrow in the line-number gutter, on both panes, so `F7`/`F8` visibly move you even in a file too short to scroll.
 - `☀ Light` / `☾ Dark` in the toolbar swaps the colour scheme on the fly; `--theme` just picks which one it opens in. C, C++, ARXML/XML, A2L, Python, JSON and YAML are all syntax-coloured in either theme.
 
 | Mark | Verdict | Meaning |
 |---|---|---|
 | `≠` | Modified | real changes |
-| `≉` | Comment | only comments differ |
+| `≈` | Comment | only comments differ |
 | `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
 | `+` | Added | file exists only in CURRENT |
 | `−` | Deleted | file exists only in BASELINE |
@@ -183,7 +184,7 @@ Files are grouped by **Simulink model**, following the Embedded Coder AUTOSAR na
 
 A model's ARXML declares its interface — which ports, runnables and events it has. Its A2L declares the calibration and measurement variables. The generated C has to implement both: add a port in the ARXML and the code needs a matching `Rte_*` call, add a characteristic in the A2L and the code needs a matching variable.
 
-That relationship only runs **one way**. When a port, runnable, event or calibration variable is added or removed in the ARXML or A2L while that model's C file doesn't change by a single byte, something is wrong: the report (just below the AUTOSAR changes), the viewer (bottom-left, under the quick-changes panel) and the terminal all name that model. The usual cause is a regenerate that didn't finish, or that skipped a model. A file-by-file diff can't catch it, because each file is fine on its own — what's wrong is that the two no longer agree.
+That relationship only runs **one way**. When a port, runnable, event or calibration variable is added or removed in the ARXML or A2L while that model's C file doesn't change by a single byte, something is wrong: the report (just below the AUTOSAR changes), the viewer (its Consistency pane, last in the left column) and the terminal all name that model. The usual cause is a regenerate that didn't finish, or that skipped a model. A file-by-file diff can't catch it, because each file is fine on its own — what's wrong is that the two no longer agree.
 
 The check is measured **per access point, not per file**: it needs a port interface or an SWC port/runnable/event added or removed in the ARXML, or a calibration object added or removed in the A2L. Every export also rewrites the shared library packages — base types, compu-methods, units — which changes plenty of bytes without touching a single port or runnable, so those alone never raise the advisory.
 
@@ -207,7 +208,7 @@ Each real change shows three lines of context on either side of it — not the w
 - Hunks that fall **outside every window** show nothing at all until you click `Unimportant`, at which point they appear flat grey exactly where they sit in the file.
 - A file with **no** real change at all keeps its full context, and its collapsed hunks keep a `⋯ N lines hidden` placeholder rather than vanishing.
 
-The lines themselves are always in the file — only the screen stays quiet about them. A file whose differences are purely comments doesn't even get a detail section; it just keeps its `≉` mark and `Comment` count in the tree. (If you're curious why the window is kept this tight rather than wider, that's covered in [architecture.md](architecture.md#decisions-worth-knowing-before-you-change-something).)
+The lines themselves are always in the file — only the screen stays quiet about them. A file whose differences are purely comments doesn't even get a detail section; it just keeps its `≈` mark and `Comment` count in the tree. (If you're curious why the window is kept this tight rather than wider, that's covered in [architecture.md](architecture.md#decisions-worth-knowing-before-you-change-something).)
 
 `Focus on changes`, next to the folder tree, narrows the tree down to files that actually changed — identical, comment-only and Unimportant rows drop out, and any folder left holding none of them goes with them. Like the viewer's `Hide identical`, this is purely a view: verdicts and counts underneath are untouched. A `☀ Light` / `☾ Dark` button sits in the top right; both palettes are embedded in the file itself, so switching between them fetches nothing and works fine on a machine with no internet connection at all.
 

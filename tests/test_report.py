@@ -12,6 +12,7 @@ from compare_tool.report import (_autosar_chips, _char_diff, _counts_html,
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
+DEMO = FIX / 'demo'
 
 # mirrors the fragmented-report case: two uuid changes 2 lines apart --
 # their 3-line contexts overlap, so they must render as ONE table
@@ -98,11 +99,11 @@ class TestRealPlusMinor(unittest.TestCase):
         # rows already show now that noise beside a real change always
         # renders in full (see TestNoiseBesideRealAlwaysShows) -- neither
         # earns its place any more
-        results = scan(FIX / 'old', FIX / 'new')
-        page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        page = build_report(results, DEMO / 'old', DEMO / 'new')
         sect = next(s for s in page.split('<details class="file')
                     if s.startswith(' sec-real" id="f') and
-                    'data-p="src/real_change.c"' in s).split('</details>')[0]
+                    'data-p="NoiseDemo_autosar_rtw/NoiseDemo.c"' in s).split('</details>')[0]
         # the header may now carry an "Affected: <fn>" hint (which functions
         # changed -- not a recount of the rows), so the check is on the
         # composition wording itself, not the hcount span it once rode in on
@@ -112,23 +113,23 @@ class TestRealPlusMinor(unittest.TestCase):
         self.assertNotIn('comment + real', sect)
 
     def test_report_captions_the_enclosing_function(self):
-        # the real hunk in real_change.c sits inside Calc_step; the group gets
+        # the real hunk in NoiseDemo.c sits inside Calc_step; the group gets
         # a caption naming it, and the file header lists it as Affected
-        results = scan(FIX / 'old', FIX / 'new')
-        page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        page = build_report(results, DEMO / 'old', DEMO / 'new')
         sect = next(s for s in page.split('<details class="file')
                     if s.startswith(' sec-real" id="f') and
-                    'data-p="src/real_change.c"' in s).split('</details>')[0]
+                    'data-p="NoiseDemo_autosar_rtw/NoiseDemo.c"' in s).split('</details>')[0]
         header = sect.split('<div class="body">')[0]
         self.assertIn('Affected: Calc_step', header)
         self.assertIn('class="fnhdr"', sect)
         self.assertIn('Calc_step', sect.split('<table')[0].rsplit('fnhdr', 1)[-1])
 
     def test_report_shows_minor_hunks_in_modified_files(self):
-        results = scan(FIX / 'old', FIX / 'new')
-        page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        page = build_report(results, DEMO / 'old', DEMO / 'new')
         self.assertNotIn('not shown', page)
-        self.assertIn('delm', page)  # fixture real_change.c has comment hunks
+        self.assertIn('delm', page)  # NoiseDemo.c has comment hunks too
 
 
 class TestUnimportantToggle(unittest.TestCase):
@@ -181,8 +182,8 @@ class TestUnimportantToggle(unittest.TestCase):
             self.assertNotIn('grp-cmt', out)
 
     def test_css_hides_minor_on_toggle_and_comment_unconditionally(self):
-        results = scan(FIX / 'old', FIX / 'new')
-        page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        page = build_report(results, DEMO / 'old', DEMO / 'new')
         self.assertIn('body.hide-ign tr.minor { display: none; }', page)
         self.assertIn('body.hide-ign tr.minorph { display: table-row; }', page)
         self.assertIn('\ntr.comment { display: none; }', page)
@@ -197,8 +198,8 @@ class TestUnimportantToggle(unittest.TestCase):
         # chg-seg used to carry font-weight:700 on top of its background/text
         # colour -- doubling up bold AND colour on the same span read as
         # over-emphasis. Colour alone marks the changed characters now.
-        results = scan(FIX / 'old', FIX / 'new')
-        page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        page = build_report(results, DEMO / 'old', DEMO / 'new')
         rule = re.search(r'td\.del \.chg-seg \{[^}]*\}', page).group(0)
         self.assertIn('background:', rule)
         self.assertIn('color:', rule)
@@ -363,11 +364,12 @@ class TestStandaloneNoiseLosesItsContext(unittest.TestCase):
         pairs = [(self.OLD, self.NEW, 'f.arxml'),
                  (self.DENSE_OLD, self.DENSE_NEW, 'f.arxml'),
                  (OLD_ARXML, NEW_ARXML, 'f.arxml')]
-        for rel in sorted(p.name for p in (FIX / 'old' / 'src').iterdir()):
-            new = FIX / 'new' / 'src' / rel
-            if new.exists():
-                pairs.append(((FIX / 'old' / 'src' / rel).read_text(),
-                              new.read_text(), rel))
+        # plus every real generated-C pair in the fixture tree
+        for old_p in sorted((DEMO / 'old').rglob('*.[ch]')):
+            new_p = DEMO / 'new' / old_p.relative_to(DEMO / 'old')
+            if new_p.exists():
+                pairs.append((old_p.read_text(), new_p.read_text(),
+                              old_p.name))
         for old, new, rel in pairs:
             r = compare_pair(old, new, rel)
             out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
@@ -420,8 +422,8 @@ class TestCleanDefaults(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        results = scan(FIX / 'old', FIX / 'new')
-        cls.page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        cls.page = build_report(results, DEMO / 'old', DEMO / 'new')
 
     def test_unimportant_hidden_by_default(self):
         self.assertIn('<body class="hide-ign">', self.page)
@@ -509,8 +511,8 @@ class TestIfaceSection(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        results = scan(FIX / 'old', FIX / 'new')
-        cls.page = build_report(results, FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
+        cls.page = build_report(results, DEMO / 'old', DEMO / 'new')
 
     def test_section_lists_added_and_removed(self):
         self.assertIn('AUTOSAR changes', self.page)
@@ -537,8 +539,11 @@ class TestIfaceSection(unittest.TestCase):
         # it used to vanish, which is exactly the run where the reviewer most
         # needs the answer: an absent heading looks like the report forgot to
         # check, while "no AUTOSAR-level changes" IS the finding
-        results = scan(FIX / 'old', FIX / 'new', exclude=['arxml/*', 'a2l/*'])
-        page = build_report(results, FIX / 'old', FIX / 'new')
+        # Ctrl.c goes too: its new Rte_Write_Out2_Diag is itself an
+        # AUTOSAR-level change, and this case is about having none at all
+        results = scan(DEMO / 'old', DEMO / 'new',
+                       exclude=['arxml/*', 'a2l/*', 'Ctrl.c'])
+        page = build_report(results, DEMO / 'old', DEMO / 'new')
         self.assertIn('<h2>AUTOSAR changes</h2>', page)
         self.assertIn('No AUTOSAR-level changes', page)
         self.assertNotIn('Port interfaces', page)
@@ -627,7 +632,7 @@ class TestOneColourLanguage(unittest.TestCase):
         # the muted grey gets its own swatch (sw-mut) now that noise can be
         # revealed; what it must NOT do is reuse or resemble the real-change
         # red/green swatches, which is what sw-min / sw-cmt would have implied
-        page = build_report(scan(FIX / 'old', FIX / 'new'), FIX / 'old', FIX / 'new')
+        page = build_report(scan(DEMO / 'old', DEMO / 'new'), DEMO / 'old', DEMO / 'new')
         legend = page.split('class="legend"')[1].split('</div>')[0]
         self.assertNotIn('sw-min', legend)
         self.assertNotIn('sw-cmt', legend)
@@ -641,15 +646,15 @@ class TestOldSideNaming(unittest.TestCase):
 
     @staticmethod
     def _results():
-        return scan(FIX / 'old', FIX / 'new')
+        return scan(DEMO / 'old', DEMO / 'new')
 
     def test_without_a_label_the_folder_name_is_used(self):
-        page = build_report(self._results(), FIX / 'old', FIX / 'new')
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new')
         self.assertIn('BASELINE <code title=', page)
         self.assertIn('>old</code>', page)
 
     def test_a_label_replaces_the_folder_name_on_the_old_side_only(self):
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             old_label='a1b2c3d  2026-07-20  raise the limit')
         self.assertIn('a1b2c3d  2026-07-20  raise the limit', page)
         self.assertNotIn('>old</code>', page)
@@ -658,17 +663,17 @@ class TestOldSideNaming(unittest.TestCase):
     def test_the_real_path_stays_on_hover(self):
         # the temp folder is still where the files were read from: hiding it
         # entirely would make a failed compare impossible to trace
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             old_label='a1b2c3d')
-        self.assertIn('title="{}"'.format(FIX / 'old'), page)
+        self.assertIn('title="{}"'.format(DEMO / 'old'), page)
 
     def test_the_arxml_report_names_the_commit_too(self):
-        page = build_arxml_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_arxml_report(self._results(), DEMO / 'old', DEMO / 'new',
                                   old_label='a1b2c3d  raise the limit')
         self.assertIn('a1b2c3d  raise the limit', page)
 
     def test_a_label_is_escaped_like_any_other_text(self):
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             old_label='fix <script>alert(1)</script>')
         self.assertNotIn('<script>alert(1)</script>', page)
         self.assertIn('&lt;script&gt;', page)
@@ -682,17 +687,17 @@ class TestCurrentSideNaming(unittest.TestCase):
 
     @staticmethod
     def _results():
-        return scan(FIX / 'old', FIX / 'new')
+        return scan(DEMO / 'old', DEMO / 'new')
 
     def test_a_label_replaces_the_folder_name_on_the_new_side_only(self):
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             new_label='PR 312')
         self.assertIn('>PR 312</code>', page)
         self.assertNotIn('>new</code>', page)
         self.assertIn('>old</code>', page)  # BASELINE is still its own folder
 
     def test_both_sides_can_be_named_at_once(self):
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             old_label='build 4820', new_label='build 4821')
         self.assertIn('>build 4820</code>', page)
         self.assertIn('>build 4821</code>', page)
@@ -700,17 +705,17 @@ class TestCurrentSideNaming(unittest.TestCase):
     def test_the_real_path_stays_on_hover(self):
         # naming a side must not cost the reader the folder it was read from:
         # a rerun of a failed compare needs the actual path
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             new_label='PR 312')
-        self.assertIn('title="{}"'.format(FIX / 'new'), page)
+        self.assertIn('title="{}"'.format(DEMO / 'new'), page)
 
     def test_the_arxml_report_takes_it_too(self):
-        page = build_arxml_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_arxml_report(self._results(), DEMO / 'old', DEMO / 'new',
                                   new_label='PR 312')
         self.assertIn('>PR 312</code>', page)
 
     def test_a_label_is_escaped_like_any_other_text(self):
-        page = build_report(self._results(), FIX / 'old', FIX / 'new',
+        page = build_report(self._results(), DEMO / 'old', DEMO / 'new',
                             new_label='<script>alert(1)</script>')
         self.assertNotIn('<script>alert(1)</script>', page)
         self.assertIn('&lt;script&gt;', page)
@@ -725,10 +730,10 @@ class TestPageTheme(unittest.TestCase):
     """
 
     def setUp(self):
-        self.results = scan(FIX / 'old', FIX / 'new')
+        self.results = scan(DEMO / 'old', DEMO / 'new')
 
     def _page(self, **kw):
-        return build_report(self.results, FIX / 'old', FIX / 'new', **kw)
+        return build_report(self.results, DEMO / 'old', DEMO / 'new', **kw)
 
     def test_the_default_is_dark(self):
         from compare_tool import theme
@@ -775,7 +780,7 @@ class TestPageTheme(unittest.TestCase):
         self.assertIn('if(save){try{localStorage.setItem', js)
 
     def test_the_arxml_report_switches_too(self):
-        page = build_arxml_report(self.results, FIX / 'old', FIX / 'new',
+        page = build_arxml_report(self.results, DEMO / 'old', DEMO / 'new',
                                   theme_name='light')
         self.assertIn('<html data-theme="light">', page)
         self.assertIn('id="thm"', page)
@@ -803,7 +808,8 @@ class TestModelGrouping(unittest.TestCase):
     def test_modular_arxml_export_names_model(self):
         g = _model_groups(self._results(
             ['Ctrl_component.arxml', 'Ctrl_interface.arxml', 'other.txt']))
-        self.assertEqual(g['Ctrl'], ['Ctrl_component.arxml', 'Ctrl_interface.arxml'])
+        self.assertEqual(g['Ctrl'],
+                         ['Ctrl_component.arxml', 'Ctrl_interface.arxml'])
 
     def test_longest_model_name_wins(self):
         paths = ['Ctrl.c', 'Ctrl.h', 'Ctrl_types.h',
@@ -849,8 +855,8 @@ class TestModelReport(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.results = scan(FIX / 'model_old', FIX / 'model_new')
-        cls.page = build_report(cls.results, FIX / 'model_old', FIX / 'model_new')
+        cls.results = scan(DEMO / 'old', DEMO / 'new')
+        cls.page = build_report(cls.results, DEMO / 'old', DEMO / 'new')
 
     def test_overview_table_lists_model(self):
         self.assertIn('Overview', self.page)
@@ -886,11 +892,11 @@ class TestModelReport(unittest.TestCase):
     def test_filter_plumbing_present(self):
         self.assertIn('id="flt"', self.page)
         self.assertIn('function flt(', self.page)
-        self.assertIn('data-p="Ctrl.c"', self.page)
+        self.assertIn('data-p="Ctrl_autosar_rtw/Ctrl.c"', self.page)
 
     def test_scanner_attached_semantics(self):
-        self.assertIn('swc', self.results['Ctrl_component.arxml'])
-        self.assertIn('rte', self.results['Ctrl.c'])
+        self.assertIn('swc', self.results['arxml/Ctrl_component.arxml'])
+        self.assertIn('rte', self.results['Ctrl_autosar_rtw/Ctrl.c'])
 
 
 class TestOverviewCountsStayTrue(unittest.TestCase):
@@ -931,8 +937,8 @@ class TestOneSidedContentPicksItsSide(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.page = build_report(scan(FIX / 'old', FIX / 'new'),
-                                FIX / 'old', FIX / 'new')
+        cls.page = build_report(scan(DEMO / 'old', DEMO / 'new'),
+                                DEMO / 'old', DEMO / 'new')
 
     def _rows(self, rel):
         # the folder tree carries data-p too, so the section is the chunk that
@@ -943,7 +949,7 @@ class TestOneSidedContentPicksItsSide(unittest.TestCase):
         return re.findall(r'<tr>(.*?)</tr>', sect.split('</details>')[0])
 
     def test_added_content_sits_in_the_current_half(self):
-        rows = self._rows('src/added.c')
+        rows = self._rows('SpeedCtrl_autosar_rtw/SpeedCtrl_data.c')
         self.assertTrue(rows)
         for row in rows:
             cells = re.findall(r'<td[^>]*>', row)
@@ -953,7 +959,7 @@ class TestOneSidedContentPicksItsSide(unittest.TestCase):
             self.assertIn('<td class="add">', row)
 
     def test_deleted_content_sits_in_the_baseline_half(self):
-        rows = self._rows('src/deleted.h')
+        rows = self._rows('NoiseDemo_autosar_rtw/NoiseDemo_types.h')
         self.assertTrue(rows)
         for row in rows:
             self.assertTrue(row.endswith('<td class="ln ln-empty"></td><td></td>'),
@@ -976,8 +982,8 @@ class TestModelGroupHidesWhenEmpty(unittest.TestCase):
     or a future badge would hide the files and leave the header behind."""
 
     def setUp(self):
-        self.page = build_report(scan(FIX / 'model_old', FIX / 'model_new'),
-                                 FIX / 'model_old', FIX / 'model_new')
+        self.page = build_report(scan(DEMO / 'old', DEMO / 'new'),
+                                 DEMO / 'old', DEMO / 'new')
 
     def test_every_css_file_toggle_is_in_the_mv_table(self):
         # body.hide-X .sec-Y  and  body.hide-rev details.file.file-rev
@@ -1005,26 +1011,28 @@ class TestArxmlOnlyReport(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.results = scan(FIX / 'old', FIX / 'new',
+        cls.results = scan(DEMO / 'old', DEMO / 'new',
                            include=['*.arxml', '*.xml', '*.a2l'])
-        cls.page = build_arxml_report(cls.results, FIX / 'old', FIX / 'new')
+        cls.page = build_arxml_report(cls.results, DEMO / 'old', DEMO / 'new')
 
     def test_include_filter_limits_scan_to_arxml_and_a2l(self):
-        self.assertIn('arxml/real_change.arxml', self.results)
-        self.assertIn('a2l/cal.a2l', self.results)
-        self.assertNotIn('src/real_change.c', self.results)
+        self.assertIn('arxml/NoiseDemo_datatype.arxml', self.results)
+        self.assertIn('a2l/NoiseDemo.a2l', self.results)
+        self.assertNotIn('NoiseDemo_autosar_rtw/NoiseDemo.c', self.results)
 
     def test_page_lists_updated_files_per_type(self):
         self.assertIn('ARXML / A2L Update Report', self.page)
         self.assertIn('Updated ARXML files', self.page)
-        self.assertIn('arxml/real_change.arxml', self.page)
-        self.assertIn('arxml/iface.arxml', self.page)
+        self.assertIn('arxml/NoiseDemo_datatype.arxml', self.page)
+        self.assertIn('arxml/NoiseDemo_interface.arxml', self.page)
         self.assertIn('Updated A2L files', self.page)
-        self.assertIn('a2l/cal.a2l', self.page)
+        self.assertIn('a2l/NoiseDemo.a2l', self.page)
 
     def test_per_type_verdict_badges(self):
         self.assertIn('ARXML updated:', self.page)
-        self.assertIn('A2L updated: 1 modified', self.page)
+        # NoiseDemo, PedalMap and StaleGen each changed a calibration object;
+        # Ctrl.a2l only churned a comment and is not counted
+        self.assertIn('A2L updated: 3 modified', self.page)
 
     def test_page_carries_autosar_summary(self):
         self.assertIn('AUTOSAR changes', self.page)
@@ -1036,17 +1044,29 @@ class TestArxmlOnlyReport(unittest.TestCase):
 
     def test_noise_only_files_not_listed(self):
         files_block = self.page.split('Updated ARXML files')[1]
-        self.assertNotIn('uuid_only.arxml', files_block)
-        self.assertNotIn('admindata.arxml', files_block)
-        self.assertNotIn('comment_only.a2l', files_block)
+        # UUID churn, an ADMIN-DATA timestamp and a comment-only A2L are all
+        # noise: they are in the scan but must not be listed as updates
+        self.assertNotIn('NoiseDemo_component.arxml', files_block)
+        self.assertNotIn('NoiseDemo_implementation.arxml', files_block)
+        self.assertNotIn('Ctrl.a2l', files_block)
         self.assertIn('noise-only differences', self.page)
 
     def test_no_changes_stated_explicitly_when_only_noise(self):
-        results = scan(FIX / 'old', FIX / 'new',
-                       exclude=['real_change.arxml', 'iface.arxml', 'cal.a2l'])
+        # every ARXML/A2L that really changed is excluded, leaving only the
+        # noise-only ones -- the report must still say so out loud
+        results = scan(DEMO / 'old', DEMO / 'new',
+                       exclude=['NoiseDemo_datatype.arxml',
+                                'NoiseDemo_interface.arxml',
+                                'Ctrl_component.arxml',
+                                'PedalMap_component.arxml',
+                                'StaleGen_component.arxml',
+                                'NoiseDemo.a2l', 'PedalMap.a2l',
+                                'StaleGen.a2l'])
         # C-file real changes present but must not count as arxml/a2l update
-        self.assertEqual(results['src/real_change.c']['status'], 'real-change')
-        page = build_arxml_report(results, FIX / 'old', FIX / 'new')
+        self.assertEqual(
+            results['NoiseDemo_autosar_rtw/NoiseDemo.c']['status'],
+            'real-change')
+        page = build_arxml_report(results, DEMO / 'old', DEMO / 'new')
         self.assertIn('ARXML: no changes', page)
         self.assertIn('A2L: no changes', page)
         self.assertIn('No ARXML or A2L updates', page)

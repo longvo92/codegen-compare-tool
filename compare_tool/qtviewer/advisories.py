@@ -1,6 +1,6 @@
-"""Consistency advisories under the quick-changes panel: the same cross-artifact
-and cross-model heads-up the HTML report and the CLI print, shown live in the
-viewer's bottom-left.
+"""Consistency advisories: the same cross-artifact and cross-model heads-up
+the HTML report and the CLI print, shown live in the viewer's Consistency
+section (last of the three panes in the left column).
 
 Display only, exactly like the report's block -- it names the model and the
 caution, never folds a file, moves a count or changes the exit code. The text
@@ -19,16 +19,14 @@ from .. import theme
 
 
 class AdvisoryPanel(QFrame):
-    """Pinned strip at the very bottom of the left column. Hidden outright when
-    there is nothing to say, so a clean compare spends no height on it."""
+    """Body of the left column's Consistency section. Hidden outright when
+    there is nothing to say, so a clean compare spends no height on it -- the
+    section around it goes with it (see MainWindow._show_advisories)."""
 
     def __init__(self):
         super().__init__()
         self.setObjectName('advisorypanel')
         self._advisories = []
-
-        self._header = QLabel()
-        self._header.setObjectName('advisoryhead')
 
         self._body = QLabel()
         self._body.setWordWrap(True)
@@ -37,20 +35,22 @@ class AdvisoryPanel(QFrame):
         # ticket, and selection never triggers navigation
         self._body.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
-        # bounded height: a folder full of stale models must not eat the tree
-        # above it, so past a few rows the strip scrolls instead of growing
+        # the pane is a section the reviewer can drag, so the height is theirs
+        # to set: the panel fills whatever it is given and scrolls past that.
+        # It used to be capped at 120px from the days it was pinned under the
+        # splitter and could not be resized -- with the cap still in, opening
+        # this pane alone left the text stranded in the middle of an empty
+        # panel with the rest of the height unused.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setMaximumHeight(120)
         scroll.setWidget(self._body)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 8)
         lay.setSpacing(4)
-        lay.addWidget(self._header)
-        lay.addWidget(scroll)
+        lay.addWidget(scroll, 1)
         self.setVisible(False)
 
     def set_advisories(self, advisories):
@@ -61,19 +61,15 @@ class AdvisoryPanel(QFrame):
         if not self._advisories:
             self.setVisible(False)
             return
-        n = len(self._advisories)
-        self._header.setText('⚠ Consistency — {} heads-up{}'.format(
-            n, '' if n == 1 else 's'))
-        # apply_theme owns both the header style and the body render, so the
-        # first show is painted in the current theme without a separate init call
-        self.apply_theme()
+        # no heading of its own: the section bar above already says
+        # "CONSISTENCY  2 heads-ups", and repeating it here spends a row of a
+        # narrow panel restating what the reviewer just read
+        self.apply_theme()   # paints the body in the current theme
         self.setVisible(True)
 
     def apply_theme(self):
-        """Colours are stamped per label, so a theme switch has to repaint them
-        from the advisories the panel was last given."""
-        self._header.setStyleSheet(
-            'color:{}; font-weight:bold;'.format(theme.c('mv-fg')))
+        """Colours are stamped into the body's markup, so a theme switch has to
+        re-render it from the advisories the panel was last given."""
         self._render()
 
     def _render(self):

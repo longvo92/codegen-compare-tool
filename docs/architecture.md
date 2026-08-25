@@ -85,7 +85,7 @@ second surface can reuse it without the mapping being written twice.
 compare_tool/
 ├── main.py          # entry point: picks the CLI or the viewer, run_compare() core
 ├── resources.py     # finds the shipped icons/logo, in a checkout and in the .exe
-├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs)
+├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs, section.py = the collapsible left-column panes)
 ├── scanner.py       # walks both trees, pairs files by relative path
 ├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
 ├── linediff.py      # the line matcher both passes share: patience anchoring, exact fallback
@@ -217,31 +217,40 @@ be exact.
 changes, one-sided files and errors are absent from that tuple **by
 construction**, so no caller mistake can hide one.
 
-### Folding is a pure function, not a rescan
+### A viewer toggle is a paint decision, not a verdict
 
-`scanner.apply_fold` re-judges an already scanned tree under different rules
-with no disk access: the hunks already say what kind each difference is, so
-re-reading every file to learn the same thing is pure waste. It copies rather
-than mutates, so the rules can be toggled back and forth. The viewer keeps the
-untouched scan in `MainWindow._raw_results` and folds into `self.results` for
-display.
+`MainWindow._muted_statuses()` reads the two checkboxes; `_apply_rules` passes
+the matching row modes to `DiffPane.set_muted_modes` and otherwise hands the
+**raw scan** straight through to `self.results`. Nothing is re-judged, so a
+toggle is instant and the folders are read exactly once.
 
-Folding a category changes two things, and only these two: the file's
-**verdict** (it comes back `identical`, or `real-change` if something real
-remains) and how its rows are **painted** — `view_model.mute_rows` greys them,
-the minimap stops striping them and `F7`/`F8` stop landing on them. The lines
-themselves stay on screen. The hunks are never touched, so the exported report,
-built from `_raw_results`, cannot notice that a category was folded.
+Unticking a category changes how its rows are **painted** and nothing else:
+`view_model.mute_rows` greys them, the minimap stops striping them, `F7`/`F8`
+stop landing on them. The lines stay on screen, the hunks are untouched, and
+the verdict is untouched — a comment-only file still reads Comment in the tree,
+in the counts, and in the exported report. `Hide identical` therefore leaves it
+alone: it hides files that are identical, not files whose differences the
+reviewer chose to play down.
 
-Navigation follows what is on screen, not what is reviewable. A shown (unfolded)
-comment or Unimportant hunk **is** an `F7`/`F8` stop, and a file whose whole
-verdict is `comment-only` / `ignorable-only` is in `MainWindow._NAV_STATUS`, so
-the walk crosses into it. Both fall out again the moment the category is folded,
-because `apply_fold` has by then re-judged that file `identical` — one source of
-truth, no second flag to keep in step with the checkboxes. What navigation must
-never do is imply a sign-off: `DiffPane._stop_units` carries `None` for those
-stops, so `current_unit()` reports nothing to review there. Only `real` and
-`moved` are reviewable (`review.REVIEWABLE`), navigable or not.
+That the verdict is left alone is the whole point. When the toggle re-judged
+the file `identical`, the tree and the exported report (built from
+`_raw_results`) disagreed about the same file, and the tree made the one claim
+this tool must never make about a file that really differs.
+
+`scanner.fold_status` still implements that collapse for `scan(fold=…)`, where
+a caller asks for it up front, and `scanner.FOLDABLE` still names the only two
+statuses any caller may collapse — real changes, one-sided files and errors are
+absent from that tuple **by construction**. `apply_fold`, which re-judged an
+already-scanned tree, went with the behaviour it existed for.
+
+Navigation follows what is on screen. A shown comment or Unimportant hunk **is**
+an `F7`/`F8` stop, and such a file is in `MainWindow._NAV_STATUS`, so the walk
+crosses into it. `_is_nav` drops it again the moment its box is unticked —
+those rows are greyed and off the minimap, so the file has no stops left and
+stepping into it would dead-end. What navigation must never do is imply a
+sign-off: `DiffPane._stop_units` carries `None` for those stops, so
+`current_unit()` reports nothing to review there. Only `real` and `moved` are
+reviewable (`review.REVIEWABLE`), navigable or not.
 
 ## The result dict is the contract
 

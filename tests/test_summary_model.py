@@ -7,13 +7,14 @@ from compare_tool.qtviewer.summary_model import summary_sections
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
+DEMO = FIX / 'demo'
 
 
 class TestSummarySections(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.sections = dict(summary_sections(scan(FIX / 'old', FIX / 'new')))
-        cls.model = dict(summary_sections(scan(FIX / 'model_old', FIX / 'model_new')))
+        cls.sections = dict(summary_sections(scan(DEMO / 'old', DEMO / 'new')))
+        cls.model = dict(summary_sections(scan(DEMO / 'old', DEMO / 'new')))
 
     def test_updated_files_section_is_gone(self):
         # the folder tree already lists every changed file, so the panel no
@@ -44,10 +45,10 @@ class TestSummarySections(unittest.TestCase):
                             for r in self.model['RTE access points']))
 
     def test_no_changes_gives_no_sections(self):
-        self.assertEqual(summary_sections(scan(FIX / 'old', FIX / 'old')), [])
+        self.assertEqual(summary_sections(scan(DEMO / 'old', DEMO / 'old')), [])
 
     def test_every_row_points_at_a_real_file(self):
-        results = scan(FIX / 'old', FIX / 'new')
+        results = scan(DEMO / 'old', DEMO / 'new')
         for _title, rows in summary_sections(results):
             for row in rows:
                 self.assertIn(row.rel, results)

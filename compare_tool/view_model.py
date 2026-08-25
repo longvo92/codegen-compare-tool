@@ -49,6 +49,25 @@ FOLDABLE_MODES = ('comment', 'minor')
 # says WHY it was played down (uuid, comment, rename, …).
 MUTED = 'muted'
 
+# The one-character mark a verdict wears in a file tree, for BOTH trees -- the
+# report's and the viewer's. It lived in each of them once and they drifted:
+# the same file read '≉' in one and '≈' in the other, which is the whole
+# failure mode "one seam per shared decision" exists to stop.
+#
+# Comment and Unimportant deliberately share a mark. They are one answer to
+# "must I read this?"; the label beside the mark (Comment / Unimportant) is
+# what separates a moved banner from a renamed identifier, and each surface
+# spells that label its own way.
+VERDICT_MARK = {
+    'real-change':    '≠',
+    'comment-only':   '≈',
+    'ignorable-only': '≈',
+    'added':          '+',
+    'deleted':        '−',
+    'identical':      '=',
+    'error':          '!',
+}
+
 # How the SWC sub-categories are SPELLED, in the two forms the surfaces need:
 # `title` heads a section, `noun` sits inline in a chip or a one-line note.
 # Both are capitalised: these are labels, and a lower-case one beside 'SWC',

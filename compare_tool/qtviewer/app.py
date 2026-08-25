@@ -25,12 +25,13 @@ from .. import gitsource, review, theme, zipsource
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report, consistency_advisories
-from ..scanner import apply_fold, summarize
+from ..scanner import summarize
 from .advisories import AdvisoryPanel
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
+from .section import NO_MAX, Section
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip, review_color,
                    review_state, status_color, status_label)
@@ -154,35 +155,38 @@ class MainWindow(QMainWindow):
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._refresh_tree)
 
-        # compare-rule toggles: unticking a category means "do not report it
-        # separately" -- the tree is rescanned and each such file comes back as
-        # Identical (nothing left) or Modified (real changes underneath).
+        # reading toggles: unticking a category greys its lines out and drops
+        # them from the minimap and F7/F8. The VERDICT is left alone -- a
+        # comment-only file keeps saying Comment. Re-judging it to Identical is
+        # what this used to do, and it made the tree disagree with the exported
+        # report about the same file; worse, "Identical" is the one word a
+        # reviewer is entitled to read as "nothing differs here at all".
         self.cb_comment = QCheckBox('Comment')
         self.cb_comment.setChecked(True)
         self.cb_comment.setToolTip(
-            'Untick to ignore comment-only differences: each such file is then '
-            'reported as Identical or Modified.')
+            'Untick to grey out comment-only differences. The file keeps its '
+            'Comment verdict; its lines just stop competing for attention and '
+            'drop out of F7/F8.')
         self.cb_comment.toggled.connect(self._apply_rules)
         self.cb_unimportant = QCheckBox('Unimportant')
         self.cb_unimportant.setChecked(True)
         self.cb_unimportant.setToolTip(
-            'Untick to ignore the other unimportant differences (UUIDs, '
-            'timestamps, renames, whitespace): each such file is then reported '
-            'as Identical or Modified.')
+            'Untick to grey out the other unimportant differences (UUIDs, '
+            'timestamps, renames, whitespace). The file keeps its Unimportant '
+            'verdict; its lines drop out of F7/F8.')
         self.cb_unimportant.toggled.connect(self._apply_rules)
-        # a display filter, NOT a compare rule: it removes rows from the tree
-        # without touching a verdict, which is why it sits apart from the two
-        # above. A regenerated tree is mostly untouched files, and scrolling
+        # a display filter over the tree, which is why it sits apart from the
+        # two above. A regenerated tree is mostly untouched files, and scrolling
         # past hundreds of '=' rows to reach five changed ones is its own way
         # of hiding them.
         self.cb_hide_identical = QCheckBox('Hide identical')
         self.cb_hide_identical.setToolTip(
-            'Leave only the files with a difference in the tree. Nothing is '
-            're-judged: verdicts, counts and the exported report are unchanged. '
-            'Files folded to Identical by the two boxes on the left go too.')
+            'Leave only the files with a difference in the tree. Only genuinely '
+            'identical files go: a Comment or Unimportant file stays, greyed or '
+            'not. Verdicts, counts and the exported report are unchanged.')
         self.cb_hide_identical.toggled.connect(self._refresh_tree_keep_selection)
         rules = QHBoxLayout()
-        rules.setContentsMargins(0, 0, 0, 0)
+        rules.setContentsMargins(6, 4, 6, 4)
         rules.addWidget(QLabel('Report:'))
         rules.addWidget(self.cb_comment)
         rules.addWidget(self.cb_unimportant)
@@ -191,33 +195,61 @@ class MainWindow(QMainWindow):
 
         tree_box = QWidget()
         lv = QVBoxLayout(tree_box)
-        lv.setContentsMargins(6, 6, 6, 0)
+        lv.setContentsMargins(6, 4, 6, 0)
         lv.setSpacing(4)
-        lv.addWidget(self.filter_edit)
         lv.addLayout(rules)
+        lv.addWidget(self.filter_edit)
         lv.addWidget(self.tree, 1)
 
         # quick-changes rollup under the tree: the same "what changed in the
         # model / calibration" view --arxml-only gives, without leaving the app
         self.summary = SummaryPanel()
         self.summary.fileActivated.connect(self._jump_to_name)
+
+        # cross-artifact / cross-model heads-up, last in the column -- the same
+        # list the report and the CLI print, read from the raw scan.
+        self.advisories = AdvisoryPanel()
+
+        # all three panes are collapsible and all three are in ONE splitter, so
+        # every one of them can be dragged to the height the reviewer wants.
+        # The advisories used to sit outside it, pinned: the one pane whose
+        # length is least predictable (a folder full of stale models) was the
+        # one that could not be resized.
+        self.sec_files = Section('FILES', tree_box)
+        self.sec_changes = Section('QUICK CHANGES', self.summary)
+        self.sec_consistency = Section('CONSISTENCY', self.advisories)
+        self._sections = (self.sec_files, self.sec_changes,
+                          self.sec_consistency)
+
+        # remembered height per pane, so folding one and opening it again
+        # puts it back where the reviewer had it
+        self._sec_height = {}
         left = QSplitter(Qt.Vertical)
-        left.addWidget(tree_box)
-        left.addWidget(self.summary)
+        for sec in self._sections:
+            left.addWidget(sec)
+            sec.toggled.connect(
+                lambda expanded, s=sec: self._on_section_toggled(s, expanded))
+        # a folded pane must not be draggable back open by the handle alone --
+        # the header is the way in, and a stray drag would leave a sliver of a
+        # pane the reviewer explicitly folded
+        for i in range(left.count()):
+            left.setCollapsible(i, False)
         left.setStretchFactor(0, 3)
         left.setStretchFactor(1, 1)
-        left.setSizes([560, 240])
+        left.setStretchFactor(2, 0)
+        self.left_split = left
+        # nothing to say yet: the consistency pane starts folded, and stays out
+        # of the way until a scan gives it something
+        self.sec_consistency.set_expanded(False)
+        self.sec_consistency.setVisible(False)
+        left.setSizes([560, 240, 0])
 
-        # cross-artifact / cross-model heads-up, pinned below the rollup so it is
-        # the last thing in the left column -- the same list the report and the
-        # CLI print, read from the raw scan. Hidden until it has something to say.
-        self.advisories = AdvisoryPanel()
         left_col = QWidget()
         lc = QVBoxLayout(left_col)
         lc.setContentsMargins(0, 0, 0, 0)
         lc.setSpacing(0)
         lc.addWidget(left, 1)
-        lc.addWidget(self.advisories)
+        self._left_layout = lc
 
         self.diff = DiffPane()
         self.diff.unitChanged.connect(self._on_unit_changed)
@@ -906,23 +938,24 @@ class MainWindow(QMainWindow):
 
     # --- scan lifecycle ---
 
-    # switching a category off changes BOTH places it shows: the file's verdict
-    # (status -> Identical/Modified) and how its lines are painted in the diff
-    # panes -- greyed out, and dropped from the minimap and from F7/F8. Leaving
-    # a wall of red and green in the code after saying those do not count was
-    # the worst of both; taking the lines away instead cost the context the
-    # remaining changes have to be read in.
-    _FOLD_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
+    # switching a category off changes how its lines are PAINTED -- greyed
+    # out, and dropped from the minimap and from F7/F8 -- and nothing else.
+    # Leaving a wall of red and green in the code after saying those do not
+    # count was the worst of both; taking the lines away instead cost the
+    # context the remaining changes have to be read in. The verdict is not
+    # part of it: a file the reviewer greyed out still differs, and the tree
+    # has to keep saying so.
+    _MUTE_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
-    def _fold(self):
-        """Change categories the current rules do NOT report separately; those
-        files come back Identical (or Modified when real changes remain)."""
-        fold = []
+    def _muted_statuses(self):
+        """Verdicts whose lines the reviewer has switched off. They are played
+        down in the panes, never re-judged."""
+        muted = []
         if not self.cb_comment.isChecked():
-            fold.append('comment-only')
+            muted.append('comment-only')
         if not self.cb_unimportant.isChecked():
-            fold.append('ignorable-only')
-        return tuple(fold)
+            muted.append('ignorable-only')
+        return tuple(muted)
 
     def _start_scan(self):
         if not (self.old and self.new):
@@ -933,7 +966,7 @@ class MainWindow(QMainWindow):
         self.banner.setVisible(False)
         self.tree.clear()
         self.summary.set_results({})
-        self.advisories.set_advisories(())
+        self._show_advisories(())
         self.diff.clear()
         self._raw_results = {}
         self.results = {}
@@ -971,7 +1004,7 @@ class MainWindow(QMainWindow):
         self.summary.set_results(results)
         # same rule for the advisories: read from the raw scan, so a collapsed
         # category can never hide a desync heads-up
-        self.advisories.set_advisories(consistency_advisories(results))
+        self._show_advisories(consistency_advisories(results))
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setVisible(False)
@@ -985,15 +1018,18 @@ class MainWindow(QMainWindow):
         self._apply_rules()
 
     def _apply_rules(self):
-        """Re-judge the scanned tree under the current category toggles. Pure
+        """Re-paint the scanned tree under the current category toggles. Pure
         bookkeeping on results already in memory -- no second walk of the disk,
-        so a toggle is instant and the folders are read exactly once."""
+        so a toggle is instant and the folders are read exactly once.
+
+        The results themselves are the raw scan: a toggle decides what is
+        greyed, never what a file's verdict is."""
         if not self._raw_results:
             return
         keep = self._selected_rel()
-        fold = self._fold()
-        self.results = apply_fold(self._raw_results, fold)
-        self.diff.set_muted_modes([self._FOLD_MODE[f] for f in fold])
+        muted = self._muted_statuses()
+        self.results = dict(self._raw_results)
+        self.diff.set_muted_modes([self._MUTE_MODE[s] for s in muted])
         self._refresh_tree()
         self._reselect(keep)  # keep the reviewer on the file they were reading
         if self._autoselect:
@@ -1017,6 +1053,119 @@ class MainWindow(QMainWindow):
                             .format(counts['error']))
         else:
             self._set_state('ready', 'Ready')
+
+    # a pane never re-opens at whatever height is left over: the reviewer
+    # dragged it to a size once, and folding it away to read something else is
+    # not them changing their mind about that size
+    _SEC_MIN = 90
+
+    def _on_section_toggled(self, sec, expanded):
+        """Fold: hand that pane's height to the panes still open. Unfold: take
+        it back from them, in proportion to what each has to spare."""
+        sizes = self.left_split.sizes()
+        if len(sizes) != len(self._sections):
+            return
+        i = self._sections.index(sec)
+        bar = sec.header_height()
+        # remember the height FIRST: folding the last open pane returns early
+        # below, and skipping this there lost the size -- reopening some other
+        # pane and coming back to this one then landed on the default
+        if not expanded:
+            self._sec_height[sec] = max(sizes[i], self._SEC_MIN)
+        others = [n for n, s in enumerate(self._sections)
+                  if n != i and s.is_expanded() and s.isVisible()]
+        if not others:
+            self._park_column()      # last pane folded: stack them at the top
+            return
+        if not expanded:
+            self._spread(sizes, sizes[i] - bar, others)
+            sizes[i] = bar
+        else:
+            want = max(self._sec_height.get(sec, 200), self._SEC_MIN)
+            got = self._spread(sizes, -(want - sizes[i]), others)
+            sizes[i] += -got
+        self.left_split.setSizes(sizes)
+        self._park_column()
+
+    def _spread(self, sizes, amount, idx):
+        """Add `amount` px across `idx` (negative takes away). Returns what was
+        actually moved -- a pane is never squeezed below _SEC_MIN, so asking
+        for more than the column has spare gives back less than was asked."""
+        if amount >= 0:
+            share, rest = divmod(amount, len(idx))
+            for n, i in enumerate(idx):
+                sizes[i] += share + (rest if n == 0 else 0)
+            return amount
+        spare = [max(0, sizes[i] - self._SEC_MIN) for i in idx]
+        take = min(-amount, sum(spare))
+        left = take
+        for n, i in enumerate(idx):
+            cut = min(spare[n], left)
+            sizes[i] -= cut
+            left -= cut
+        return -(take - left)
+
+    def _park_column(self):
+        """With every pane folded the splitter is shorter than the column it
+        sits in. Left alone, Qt centres it and the bars end up adrift halfway
+        down an empty panel; capped and top-aligned they stack under the
+        toolbar, which is where a row of collapsed headers belongs."""
+        shown = [s for s in self._sections if s.isVisible()]
+        if any(s.is_expanded() for s in shown):
+            self._left_layout.setAlignment(self.left_split, Qt.Alignment(0))
+            self.left_split.setMaximumHeight(NO_MAX)
+            return
+        bars = sum(s.header_height() for s in shown)
+        handles = self.left_split.handleWidth() * max(0, len(shown) - 1)
+        self.left_split.setMaximumHeight(bars + handles)
+        self._left_layout.setAlignment(self.left_split, Qt.AlignTop)
+
+    def _resize_sections(self):
+        """Re-cap every folded pane at its bar. Used after the panes change on
+        their own -- a scan revealing the consistency pane, say."""
+        sizes = self.left_split.sizes()
+        if len(sizes) != len(self._sections):
+            return
+        freed = 0
+        for i, sec in enumerate(self._sections):
+            if not sec.is_expanded():
+                bar = sec.header_height()
+                freed += max(0, sizes[i] - bar)
+                sizes[i] = bar
+        open_idx = [i for i, s in enumerate(self._sections)
+                    if s.is_expanded() and s.isVisible()]
+        if freed and open_idx:
+            self._spread(sizes, freed, open_idx)
+        elif not open_idx:
+            self.left_split.setSizes(sizes)
+            self._park_column()
+            return
+        self.left_split.setSizes(sizes)
+        self._park_column()
+
+    def _show_advisories(self, advisories):
+        """Fill the consistency pane and open it only when it has something to
+        say. A clean compare spends no height on it, and a reviewer who folded
+        it stays folded -- reopening a pane someone shut is the tool arguing
+        with them."""
+        self.advisories.set_advisories(advisories)
+        # AdvisoryPanel hides itself when empty; inside a section the SECTION is
+        # what has to go, or an empty bar is left behind
+        had = self.sec_consistency.isVisible()
+        n = len(advisories)
+        self.sec_consistency.setVisible(bool(n))
+        self.sec_consistency.set_suffix(
+            '{} heads-up{}'.format(n, '' if n == 1 else 's') if n else '')
+        if n and not had:
+            self.sec_consistency.set_expanded(True)
+            sizes = self.left_split.sizes()
+            want = min(140, max(80, 28 * n + 34))
+            if len(sizes) == 3 and sizes[2] < want:
+                take = want - sizes[2]
+                sizes[2] = want
+                sizes[0] = max(120, sizes[0] - take)
+                self.left_split.setSizes(sizes)
+        self._resize_sections()
 
     def _on_fail(self, msg):
         self.progress.setVisible(False)
@@ -1248,13 +1397,11 @@ class MainWindow(QMainWindow):
     # finished scan opens on the first of these, and F7/F8 step between them
     # once the current file runs out of changes.
     #
-    # comment-only / ignorable-only are noise verdicts, but self.results is the
-    # FOLDED view (_apply_rules): a file only keeps one of those statuses while
-    # its checkbox is ticked (unfolded), and apply_fold turns it into
-    # 'identical' the moment it is unticked. So including them here means F7/F8
-    # walks into a comment/unimportant-only file exactly while it is shown on
-    # screen, and stops treating it as navigable the instant it is hidden --
-    # with no extra state to keep in sync with the checkboxes.
+    # comment-only / ignorable-only are noise verdicts, but they are walkable
+    # while their checkbox is ticked, so a reviewer can step through
+    # everything. _is_nav drops them again the moment the box is unticked:
+    # those rows are greyed and off the minimap, so there is nothing in such a
+    # file for F7/F8 to stop on, and stepping into it would dead-end.
     _NAV_STATUS = ('error', 'real-change', 'added', 'deleted',
                    'comment-only', 'ignorable-only')
 
@@ -1280,7 +1427,12 @@ class MainWindow(QMainWindow):
 
     def _is_nav(self, rel):
         r = self.results.get(rel)
-        return bool(r) and r['status'] in self._NAV_STATUS
+        if not r:
+            return False
+        # a greyed-out category has no stops left in it
+        if r['status'] in self._muted_statuses():
+            return False
+        return r['status'] in self._NAV_STATUS
 
     def _select_first_change(self):
         """Open the first file a reviewer would have to read. Called once per
@@ -1376,9 +1528,17 @@ QToolBar#main QToolButton:checked {{ background:{chrome-checked-bg};
                 color:{chrome-checked-fg}; }}
 QToolBar#main QToolButton:checked:hover {{ background:{chrome-checked-hover}; }}
 QFrame#reviewbar {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
-/* consistency heads-up pinned at the bottom of the left column: a band of its
-   own, set off from the quick-changes rollup above it by a top border */
-QFrame#advisorypanel {{ background:{chrome-bar-bg}; border-top:1px solid {border}; }}
+/* left-column section bars. Small, flat and quiet: a bar the eye skips over
+   until it is looking for one, the way an editor sidebar names its panes. The
+   arrow lives in the label (see section.py) so no icon theme is needed. */
+QPushButton#sectionhead {{ background:{chrome-bar-bg}; color:{header-fg};
+            border:none; border-top:1px solid {border}; padding:5px 8px;
+            font-size:11px; font-weight:bold; text-align:left; }}
+QPushButton#sectionhead:hover {{ background:{chrome-hover}; color:{fg-strong}; }}
+QPushButton#sectionhead:focus {{ outline:none; }}
+/* consistency heads-up at the bottom of the left column: a band of its own,
+   set off from the quick-changes rollup above it by a top border */
+QFrame#advisorypanel {{ background:{chrome-bar-bg}; }}
 /* the scroll area AND its viewport: the viewport is a child widget that fills
    itself with the Base colour, which paints a lighter block under the header
    instead of letting the band show through */

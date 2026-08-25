@@ -165,28 +165,35 @@ thành `mixed`.
 đổi thật, file một bên và lỗi vắng mặt khỏi tuple đó **do cấu trúc**, nên không lỗi
 lập trình nào ở phía caller giấu được chúng.
 
-### Fold là hàm thuần, không phải scan lại
+### Toggle của viewer là quyết định tô màu, không phải verdict
 
-`scanner.apply_fold` phán lại một cây đã scan theo bộ luật khác mà không đụng đĩa:
-hunk đã nói sẵn mỗi khác biệt thuộc loại gì, nên đọc lại toàn bộ file để biết đúng
-cái đó là phí công. Nó copy chứ không sửa tại chỗ, nên bật tắt luật qua lại thoải
-mái. Viewer giữ nguyên lần scan gốc trong `MainWindow._raw_results` và fold vào
-`self.results` để hiển thị.
+`MainWindow._muted_statuses()` đọc hai checkbox; `_apply_rules` truyền các row
+mode tương ứng cho `DiffPane.set_muted_modes`, còn `self.results` nhận thẳng
+**lần scan gốc**. Không có gì bị phán lại, nên một lần bật tắt là tức thì và hai
+thư mục chỉ được đọc đúng một lần.
 
-Fold một nhóm chỉ đổi đúng hai thứ: **verdict** của file (thành `identical`, hoặc
-`real-change` nếu còn thay đổi thật) và cách các dòng đó được **tô** —
-`view_model.mute_rows` làm chúng xám đi, minimap thôi kẻ vạch cho chúng, còn
-`F7`/`F8` thôi dừng ở đó. Bản thân các dòng vẫn nằm trên màn hình. Hunk
-không bị đụng tới, nên report xuất ra từ `_raw_results` không thể biết là có nhóm
-nào đã bị fold.
+Bỏ tick một nhóm chỉ đổi cách các dòng đó được **tô**, không gì khác:
+`view_model.mute_rows` làm chúng xám đi, minimap thôi kẻ vạch, `F7`/`F8` thôi
+dừng ở đó. Các dòng vẫn nằm trên màn hình, hunk không bị đụng, và verdict cũng
+không: file chỉ khác comment vẫn hiện Comment trên cây, trong số đếm, và trong
+report xuất ra. `Hide identical` vì thế để yên nó — nút đó ẩn file identical,
+không ẩn file mà người review chọn làm mờ đi.
 
-Navigation đi theo cái đang hiện trên màn hình, không phải cái review được. Hunk
-comment hoặc Unimportant đang hiện (chưa fold) **là** một điểm dừng `F7`/`F8`, và
-file mà verdict cả file là `comment-only` / `ignorable-only` thì nằm trong
-`MainWindow._NAV_STATUS` nên lộ trình đi vào file đó. Cả hai rơi ra ngay khi
-nhóm bị fold, vì lúc đó `apply_fold` đã xử lại file thành `identical` — một nguồn
-sự thật duy nhất, không phải giữ thêm cờ nào đồng bộ với checkbox. Cái mà
-navigation tuyệt đối không được làm là ngụ ý đã ký duyệt:
+Chuyện verdict được để yên chính là điểm mấu chốt. Hồi toggle còn phán lại file
+thành `identical`, cây và report xuất ra (dựng từ `_raw_results`) nói khác nhau
+về cùng một file, và cây đưa ra đúng lời khẳng định mà tool này không bao giờ
+được phép nói về một file thật sự có khác biệt.
+
+`scanner.fold_status` vẫn hiện thực cách thu gọn cũ cho `scan(fold=…)`, nơi
+caller yêu cầu ngay từ đầu, và `scanner.FOLDABLE` vẫn liệt kê đúng hai status mà
+caller được phép thu gọn.
+
+Navigation đi theo cái đang hiện trên màn hình. Hunk comment hoặc Unimportant
+đang hiện **là** một điểm dừng `F7`/`F8`, và file mà cả verdict là
+`comment-only` / `ignorable-only` nằm trong `MainWindow._NAV_STATUS` nên lộ
+trình đi vào đó. `_is_nav` loại nó ra ngay khi checkbox bị bỏ tick — các dòng đó
+đã xám và biến khỏi minimap, nên file không còn điểm dừng nào, bước vào chỉ là
+đi vào ngõ cụt. Cái mà navigation tuyệt đối không được làm là ngụ ý đã ký duyệt:
 `DiffPane._stop_units` mang `None` cho các stop đó, nên `current_unit()` báo là
 không có gì để review ở đây. Chỉ `real` và `moved` mới review được
 (`review.REVIEWABLE`), dù có navigate tới hay không.

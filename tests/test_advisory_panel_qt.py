@@ -1,4 +1,4 @@
-"""Consistency advisory panel (viewer bottom-left).
+"""Consistency advisory panel (the viewer's Consistency section).
 
 Skipped when PySide6 is absent, so the rest of the suite still runs headless
 (see the "viewer logic that can be Qt-free must be Qt-free" rule). The advisory
@@ -53,21 +53,21 @@ class TestAdvisoryPanel(unittest.TestCase):
         self.panel.set_advisories([])
         self.assertFalse(self.panel.isVisible())
 
-    def test_populated_is_visible_and_counts(self):
+    def test_populated_is_visible_and_lists_every_model(self):
         self.panel.set_advisories([('Ctrl', 'gained an RTE access'),
                                    ('Brake', 'ARXML changed but the C did not')])
         # QWidget.isVisible() is False until shown, but isVisibleTo(parent) and
         # the non-hidden flag both report the intent set here
         self.assertFalse(self.panel.isHidden())
-        self.assertIn('2 heads-ups', self.panel._header.text())
         body = self.panel._body.text()
         self.assertIn('Ctrl', body)
         self.assertIn('Brake', body)
 
-    def test_singular_header(self):
+    def test_the_panel_does_not_restate_the_section_bar(self):
+        # the bar above it already reads "CONSISTENCY  2 heads-ups"; a heading
+        # in here would spend a row of a narrow panel saying it twice
         self.panel.set_advisories([('Ctrl', 'gained an RTE access')])
-        self.assertIn('1 heads-up', self.panel._header.text())
-        self.assertNotIn('heads-ups', self.panel._header.text())
+        self.assertNotIn('heads-up', self.panel._body.text())
 
     def test_html_in_message_is_escaped(self):
         self.panel.set_advisories([('A<b>', 'x & y <z>')])

@@ -5,6 +5,26 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Fold and resize the panes in the viewer's left column.** The folder tree,
+  the quick-changes rollup and the consistency heads-up each have a bar you can
+  click to fold that pane away and give its height to the others; click again
+  and it comes back the size you left it. All three can be dragged, including
+  the heads-up pane, which was previously pinned at a fixed height.
+
+### Changed
+
+- **Turning off Comment or Unimportant no longer reports those files as
+  Identical.** Their lines still grey out and drop off the minimap and F7/F8,
+  but the file keeps its real verdict everywhere — in the tree, in the counts
+  and in an exported report. `Hide identical` follows suit and hides only files
+  that genuinely have no difference. Previously a file whose comments really
+  had moved could read as Identical on screen while the exported report said
+  otherwise.
+- Improve how the two noise verdicts are marked in the tree, so the report and
+  the viewer no longer show the same file differently.
+
 ## [1.11.0] — 2026-08-22
 
 ### Added

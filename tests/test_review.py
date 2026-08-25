@@ -16,6 +16,7 @@ from compare_tool.report import build_report
 from compare_tool.scanner import scan
 
 FIX = Path(__file__).parent / 'fixtures'
+DEMO = FIX / 'demo'
 
 # match the emitted markup, not the CSS rule that carries the same class name
 # (the stylesheet ships with every report, review or no review)
@@ -295,20 +296,20 @@ class TestMarkWholeFile(unittest.TestCase):
 
 class TestReportRendering(unittest.TestCase):
     def setUp(self):
-        self.results = scan(FIX / 'old', FIX / 'new')
-        self.rel = 'src/real_change.c'
+        self.results = scan(DEMO / 'old', DEMO / 'new')
+        self.rel = 'NoiseDemo_autosar_rtw/NoiseDemo.c'
         r = self.results[self.rel]
-        old = (FIX / 'old' / self.rel).read_text()
-        new = (FIX / 'new' / self.rel).read_text()
+        old = (DEMO / 'old' / self.rel).read_text()
+        new = (DEMO / 'new' / self.rel).read_text()
         self.unit = review.units(r, old.split('\n'), new.split('\n'))[0]
         self.store = review.ReviewStore()
 
     def _page(self, store=None):
-        return build_report(self.results, FIX / 'old', FIX / 'new',
+        return build_report(self.results, DEMO / 'old', DEMO / 'new',
                             self.store if store is None else store)
 
     def test_no_store_means_no_review_markup_at_all(self):
-        page = build_report(self.results, FIX / 'old', FIX / 'new')
+        page = build_report(self.results, DEMO / 'old', DEMO / 'new')
         self.assertNotIn(_NOTE, page)
         self.assertNotIn(_BADGE, page)
 
@@ -318,7 +319,7 @@ class TestReportRendering(unittest.TestCase):
         page = self._page()
         self.assertIn('Gain raised for the new plant.', page)
         self.assertIn('&#10003; Reviewed', page)
-        self.assertIn('1 of 8 Reviewed', page)
+        self.assertIn('1 of 17 Reviewed', page)
 
     def test_a_note_without_the_tick_still_shows_but_does_not_hide(self):
         self.store.set(self.rel, self.unit.key, 'Asking the integrator.', False,
@@ -327,7 +328,7 @@ class TestReportRendering(unittest.TestCase):
         self.assertIn('Asking the integrator.', page)
         self.assertIn('rvnote pending', page)
         self.assertNotIn(_GRP_REV, page)
-        self.assertIn('0 of 8 Reviewed', page)
+        self.assertIn('0 of 17 Reviewed', page)
 
     def test_reviewed_change_is_marked_hideable_but_stays_in_the_record(self):
         self.store.set(self.rel, self.unit.key, 'ok', True, self.unit.label)
@@ -350,7 +351,7 @@ class TestReportRendering(unittest.TestCase):
         page = self._page()
         self.assertNotIn('signed off long ago', page)
         self.assertNotIn(_GRP_REV, page)
-        self.assertIn('0 of 8 Reviewed', page)
+        self.assertIn('0 of 17 Reviewed', page)
 
     def test_unreadable_review_file_is_loud_in_the_report(self):
         broken = review.ReviewStore(path='x.json', error='ValueError: bad')
