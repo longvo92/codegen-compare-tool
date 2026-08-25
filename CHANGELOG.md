@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-08-25
+
 ### Added
 
 - **Fold and resize the panes in the viewer's left column.** The folder tree,
