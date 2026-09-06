@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-09-06
+
 ### Added
 
 - **Add your own noise rules with `--rules`.** A team on TargetLink or DaVinci
