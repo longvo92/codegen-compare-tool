@@ -8,7 +8,7 @@ it is tested once, here.
 
 import io
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 
 from compare_tool.main import main, viewer_requested
 
@@ -159,6 +159,16 @@ class TestZipArguments(unittest.TestCase):
             pass
         with self.assertRaises(SystemExit):
             quiet(main, [str(empty), str(tmp), '--report', str(tmp / 'o.html')])
+
+
+class TestVersionFlag(unittest.TestCase):
+    def test_version_prints_the_package_version_and_exits_zero(self):
+        from compare_tool import __version__
+        out = io.StringIO()
+        with self.assertRaises(SystemExit) as cm, redirect_stdout(out):
+            main(['--version'])
+        self.assertEqual(cm.exception.code, 0)
+        self.assertIn(__version__, out.getvalue())
 
 
 class TestTkinterPanelIsGone(unittest.TestCase):

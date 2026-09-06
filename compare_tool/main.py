@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import review, serialize, theme, zipsource
+from . import __version__, review, serialize, theme, userrules, zipsource
 from .diff_engine import RULES
 from .report import build_arxml_report, build_report, consistency_advisories
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
@@ -55,7 +55,7 @@ def default_report_name(arxml_only):
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                 progress=None, reviews=None, theme_name=theme.DEFAULT,
-                old_label=None, new_label=None):
+                old_label=None, new_label=None, max_diff_lines=0, user_rules=()):
     """Scan two trees and write the HTML report.
 
     ``old_label`` / ``new_label`` name the two sides in the report header when
@@ -78,7 +78,7 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     include = tuple('*' + ext for ext, rs in RULES.items()
                     if rs in ('arxml', 'a2l')) if arxml_only else ()
     results = scan(old_root, new_root, progress=progress, exclude=exclude,
-                   include=include)
+                   include=include, user_rules=user_rules)
     counts = summarize(results)
     if arxml_only:
         # ALWAYS written: "no changes" must be an explicit statement, never
@@ -89,7 +89,7 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     else:
         page = build_report(results, old_root, new_root, reviews,
                             old_label=old_label, theme_name=theme_name,
-                            new_label=new_label)
+                            new_label=new_label, max_diff_lines=max_diff_lines)
     try:
         out.write_text(page, encoding='utf-8')
     except OSError as e:
@@ -186,6 +186,8 @@ def _parser():
                     '(comments, 1-1 renames, UUIDs, timestamps, whitespace). '
                     'With both folders given it writes a self-contained HTML '
                     'report; without them it opens the side-by-side viewer.')
+    ap.add_argument('--version', action='version',
+                    version='%(prog)s {}'.format(__version__))
     ap.add_argument('old_dir', nargs='?', default=None,
                     help='previous codegen output folder')
     ap.add_argument('new_dir', nargs='?', default=None,
@@ -234,6 +236,17 @@ def _parser():
                          'Reviewed badge that hides the changes already signed '
                          'off. Not loaded unless named: a report must not pick '
                          'up someone else\'s sign-off by accident')
+    ap.add_argument('--rules', metavar='RULES.json', default=None,
+                    help='extra noise patterns as a JSON file, applied ON TOP '
+                         'of the built-in Embedded Coder rules (they are never '
+                         'replaced). A team on TargetLink or DaVinci can teach '
+                         'the tool its own generated churn without editing the '
+                         'source. Each rule is {"name", "pattern" (regex), '
+                         'optional "replacement", optional "extensions"}; a '
+                         'rule that cannot compile, or that would change a '
+                         'file\'s line count, is skipped with a warning -- a '
+                         'filter can never hide a real change. Applies to both '
+                         'the report and the viewer')
     ap.add_argument('--json', metavar='OUT.json', default=None,
                     help='also write the full scan as schema-versioned JSON for '
                          'a pipeline to read -- per-file verdict, hunks, renames, '
@@ -243,6 +256,14 @@ def _parser():
                     help='also write a SARIF 2.1.0 log of the files that need '
                          'action (modified / added / deleted / error), so GitHub '
                          'or Azure DevOps code scanning can annotate them inline')
+    ap.add_argument('--max-diff-lines', metavar='N', type=int, default=0,
+                    help='cap the diff embedded PER FILE in the HTML report at '
+                         'about N lines (0 = no cap, the default). A regenerate '
+                         'that touched a whole tree can otherwise render one '
+                         'file into hundreds of MB and hang the browser opening '
+                         'the mailed report. A capped file keeps its verdict, '
+                         'its counts and the exit code -- the cut is loud in the '
+                         'report and points at the viewer for the full diff')
     ap.add_argument('--exit-zero', action='store_true',
                     help='always exit 0 even when real changes exist '
                          '(report-only mode for CI pipelines); compare '
@@ -312,14 +333,36 @@ def main(argv=None):
             shutil.rmtree(zip_temp[0], ignore_errors=True)
 
 
+def _load_user_rules(ap, args):
+    """Load --rules, or () when not given. A file that cannot be read or parsed
+    is fatal (exit 2): the user asked for these filters, so silently running
+    without them could show the wrong verdict. A single MALFORMED rule inside a
+    readable file is not fatal -- it is skipped and warned about, so one typo
+    does not throw the whole file away."""
+    if not args.rules:
+        return ()
+    try:
+        rules, warnings = userrules.load(args.rules)
+    except (OSError, ValueError) as e:
+        ap.error('--rules could not be read: {}'.format(e))
+    for w in warnings:
+        print('!! --rules: {}'.format(w), file=sys.stderr)
+    if not rules:
+        print('note: --rules loaded no usable rules from {}'.format(args.rules),
+              file=sys.stderr)
+    return tuple(rules)
+
+
 def _run(ap, args, zip_temp):
+    user_rules = _load_user_rules(ap, args)
     if _wants_viewer(args):
         from .qtviewer import run_viewer  # deferred: PySide6 may be absent
         old_dir = _viewer_source(ap, args.old_dir, zip_temp)
         new_dir = _viewer_source(ap, args.new_dir, zip_temp)
         try:
             return run_viewer(old_dir, new_dir, exclude=args.exclude,
-                              arxml_only=args.arxml_only, theme_name=args.theme)
+                              arxml_only=args.arxml_only, theme_name=args.theme,
+                              user_rules=user_rules)
         except ImportError as e:
             # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
             # Say so plainly instead of dumping a traceback.
@@ -366,7 +409,9 @@ def _run(ap, args, zip_temp):
                                       exclude=args.exclude, progress=progress,
                                       reviews=reviews, theme_name=args.theme,
                                       old_label=args.baseline_name or old_zip,
-                                      new_label=args.current_name or new_zip)
+                                      new_label=args.current_name or new_zip,
+                                      max_diff_lines=args.max_diff_lines,
+                                      user_rules=user_rules)
     except ReportWriteError as e:
         # what WAS scanned still goes to the terminal -- the compare itself may
         # have been fine, it is only the record that is missing

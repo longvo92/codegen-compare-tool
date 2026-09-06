@@ -93,7 +93,7 @@ class _NoteEdit(QPlainTextEdit):
 
 class MainWindow(QMainWindow):
     def __init__(self, old=None, new=None, exclude=(), arxml_only=False,
-                 theme_name=theme.DEFAULT):
+                 theme_name=theme.DEFAULT, user_rules=()):
         super().__init__()
         self._theme = theme.set_current(theme_name)
         self._state = ('idle', 'Ready')
@@ -102,6 +102,9 @@ class MainWindow(QMainWindow):
         self.exclude = tuple(exclude)
         self.include = _arxml_include() if arxml_only else ()
         self.arxml_only = arxml_only
+        # extra --rules noise patterns; the viewer and the CLI share the engine,
+        # so both must apply them or the same folders would read two ways
+        self.user_rules = tuple(user_rules)
         self._raw_results = {}  # verdicts straight from the scan
         self.results = {}       # ... after the current compare rules
         self.worker = None
@@ -984,7 +987,8 @@ class MainWindow(QMainWindow):
         self._set_state('busy', 'Scanning…')
         # the scan itself is rule-free; the rules are applied to its results,
         # so flipping a category never costs a second walk of the disk
-        self.worker = ScanWorker(self.old, self.new, self.exclude, self.include)
+        self.worker = ScanWorker(self.old, self.new, self.exclude, self.include,
+                                 self.user_rules)
         self.worker.progressed.connect(self._on_progress)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_fail)
@@ -1632,7 +1636,7 @@ def _taskbar_identity():
 
 
 def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
-               theme_name=theme.DEFAULT):
+               theme_name=theme.DEFAULT, user_rules=()):
     app = QApplication.instance()
     owns = app is None
     if owns:
@@ -1642,7 +1646,7 @@ def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
     apply_theme(app)
     app.setApplicationName('CodeGen Compare')
     app.setWindowIcon(app_icon())
-    win = MainWindow(old, new, exclude, arxml_only, theme_name)
+    win = MainWindow(old, new, exclude, arxml_only, theme_name, user_rules)
     win.show()
     return app.exec() if owns else 0
 

@@ -13,19 +13,23 @@ class ScanWorker(QThread):
     done = Signal(dict)                  # results
     failed = Signal(str)                 # loud failure -> red banner
 
-    def __init__(self, old, new, exclude=(), include=()):
+    def __init__(self, old, new, exclude=(), include=(), user_rules=()):
         super().__init__()
         self.old = old
         self.new = new
         self.exclude = tuple(exclude)
         self.include = tuple(include)
+        self.user_rules = tuple(user_rules)
 
     def run(self):
         try:
             # scanned rule-free on purpose: the window applies the category
-            # rules to these results, so toggling one never rescans the disk
+            # rules to these results, so toggling one never rescans the disk.
+            # --rules noise patterns are NOT a toggle -- they change the verdict
+            # like the built-in rules do, so they are baked into the scan here.
             results = scan(self.old, self.new, progress=self._progress,
-                           exclude=self.exclude, include=self.include)
+                           exclude=self.exclude, include=self.include,
+                           user_rules=self.user_rules)
             self.done.emit(results)
         except Exception as e:
             # scan is internally fail-safe, but a crash here must still be

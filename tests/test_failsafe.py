@@ -26,10 +26,10 @@ def _boom_on(rel_to_fail):
     """compare_file stand-in that fails for ONE path, real compare otherwise."""
     real = scanner.compare_file
 
-    def boom(old_root, new_root, rel):
+    def boom(old_root, new_root, rel, *args, **kwargs):
         if rel == rel_to_fail:
             raise OSError('locked by another process')
-        return real(old_root, new_root, rel)
+        return real(old_root, new_root, rel, *args, **kwargs)
 
     return boom
 
@@ -248,6 +248,52 @@ class TestReportNotWritten(_TreeCase):
             rc = main([str(self.old), str(self.new), '--exit-zero',
                        '--report', str(Path(self.tmp.name) / 'nodir' / 'r.html')])
         self.assertEqual(rc, 2)
+
+
+class TestEncoding(unittest.TestCase):
+    """Real ARXML/A2L is not all UTF-8: legacy exporters emit UTF-16 (with a
+    BOM) and single-byte code pages, and German tools write umlauts in a
+    <DESC>. A file that cannot be decoded at all must surface as a loud
+    'error', never a silently mangled or 'binary' diff."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old = Path(self.tmp.name) / 'old'
+        self.new = Path(self.tmp.name) / 'new'
+        self.old.mkdir()
+        self.new.mkdir()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _pair(self, rel, old_bytes, new_bytes):
+        (self.old / rel).write_bytes(old_bytes)
+        (self.new / rel).write_bytes(new_bytes)
+        return scan(self.old, self.new)[rel]
+
+    def test_utf16_arxml_is_compared_as_text_not_binary(self):
+        # a UTF-16 file carries NUL bytes; before the BOM check it read as
+        # 'binary' and its diff was never shown
+        old = '<SHORT-NAME>Alpha</SHORT-NAME>\n'.encode('utf-16')
+        new = '<SHORT-NAME>Beta</SHORT-NAME>\n'.encode('utf-16')
+        r = self._pair('swc.arxml', old, new)
+        self.assertEqual(r['status'], 'real-change')
+        self.assertNotIn('binary', r['notes'])
+        self.assertTrue(r['hunks'])
+
+    def test_cp1252_german_desc_round_trips(self):
+        # 'ä ö ü ß' written by a German tool as Windows-1252 must decode to the
+        # same characters, not turn into an undecodable error
+        text = '<DESC>Kühlmittel groß</DESC>\n'
+        p = self.old / 'd.arxml'
+        p.write_bytes(text.encode('cp1252'))
+        self.assertEqual(scanner.read_text(p), text)
+
+    def test_a_file_that_cannot_be_decoded_is_a_loud_error(self):
+        # a BOM promising UTF-16 followed by an odd trailing byte is corrupt;
+        # fail-safe: it becomes 'error' (exit 2), never a mangled diff
+        good = '<SHORT-NAME>Alpha</SHORT-NAME>\n'.encode('utf-16')
+        corrupt = b'\xff\xfe' + b'\x41\x00\x42'  # 'A' then a dangling byte
+        r = self._pair('bad.arxml', good, corrupt)
+        self.assertEqual(r['status'], 'error')
 
 
 if __name__ == '__main__':

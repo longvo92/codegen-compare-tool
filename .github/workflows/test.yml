@@ -14,11 +14,15 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - run: python -m pip install ruff
+      - run: python -m pip install ruff mypy
       # ruff takes its target version from requires-python, so this is the
       # 3.8 promise checked statically instead of by whichever leg happens
       # to execute the offending line
       - run: python -m ruff check .
+      # type-check the stdlib core (the viewer is ignored in pyproject: mypy
+      # cannot resolve PySide6's dynamic enums). No PySide6 install here --
+      # ignore_missing_imports handles its import in the ignored viewer modules
+      - run: python -m mypy compare_tool
 
   zipapp:
     # compare_tool.pyz is the documented fallback for the Windows boxes where
