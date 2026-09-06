@@ -1122,5 +1122,52 @@ class TestAutosarChips(unittest.TestCase):
         self.assertNotIn(' A2L', chips)
 
 
+class TestMaxDiffLines(unittest.TestCase):
+    """--max-diff-lines caps the diff embedded per file so a whole-tree
+    regenerate cannot render one file into hundreds of MB. The cut is loud and
+    never changes a verdict."""
+
+    def _big_file(self, n=300):
+        old = '\n'.join('int a{} = {};'.format(i, i) for i in range(n)) + '\n'
+        new = '\n'.join('int a{} = {};'.format(i, i + 1) for i in range(n)) + '\n'
+        return old, new
+
+    def test_uncapped_is_the_default_and_renders_everything(self):
+        old, new = self._big_file()
+        r = compare_pair(old, new, 'big.c')
+        html = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
+        self.assertNotIn('trunc-row', html)
+        self.assertNotIn('truncated', html)
+
+    def test_a_single_huge_hunk_is_cut_inside_the_table(self):
+        # one contiguous rewrite is a single group; the cap has to bite inside
+        # the table, not only at group boundaries
+        old, new = self._big_file()
+        r = compare_pair(old, new, 'big.c')
+        capped = _groups_html(old.split('\n'), new.split('\n'), r['hunks'],
+                              max_rows=40)
+        full = _groups_html(old.split('\n'), new.split('\n'), r['hunks'])
+        self.assertIn('trunc-row', capped)
+        self.assertIn('--max-diff-lines', capped)
+        self.assertLess(len(capped), len(full))
+
+    def test_truncation_does_not_change_the_verdict_or_the_report_shape(self):
+        import tempfile
+        old, new = self._big_file()
+        with tempfile.TemporaryDirectory() as tmp:
+            o = Path(tmp) / 'old'
+            n = Path(tmp) / 'new'
+            o.mkdir()
+            n.mkdir()
+            (o / 'big.c').write_text(old)
+            (n / 'big.c').write_text(new)
+            results = scan(o, n)
+            self.assertEqual(results['big.c']['status'], 'real-change')
+            page = build_report(results, o, n, max_diff_lines=40)
+        # the file is still Modified in the report, just cut short
+        self.assertIn('trunc', page)
+        self.assertIn('Modified', page)
+
+
 if __name__ == '__main__':
     unittest.main()

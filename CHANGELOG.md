@@ -5,6 +5,41 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-09-06
+
+### Added
+
+- **Add your own noise rules with `--rules`.** A team on TargetLink or DaVinci
+  can now teach the tool its own generated churn — a checksum element, a custom
+  banner — from a small JSON file, without editing the source. The rules run on
+  top of the built-in Embedded Coder filters, never in place of them, and apply
+  to both the report and the viewer. A rule can never hide a real change: text a
+  rule cannot fully explain stays a real change, and a broken rule is skipped
+  with a warning.
+- **Cap the diff written per file with `--max-diff-lines`.** A regenerate that
+  touched a whole tree could produce a single self-contained report hundreds of
+  MB large that hung the browser opening it. With this set, an over-long file's
+  diff is cut short with a loud note pointing at the viewer; the file keeps its
+  verdict and the exit code is unchanged.
+- Add `--version`.
+
+### Changed
+
+- **A reordered ARXML element or A2L block now reads as one blue `moved` note.**
+  When a regenerate emits an `APPLICATION-SW-COMPONENT-TYPE` or a
+  `CHARACTERISTIC` in a different order, you get the same moved-block note C
+  already had, instead of a wall of red and green you had to read twice to see
+  it was the same thing. A regenerated `UUID` on the moved element does not
+  stop it being recognised.
+
+### Fixed
+
+- **Read UTF-16 and legacy single-byte ARXML/A2L correctly.** Files a legacy
+  tool exported as UTF-16, or with German characters (`ä ö ü ß`) in a `<DESC>`,
+  were treated as binary or mangled; they now decode as text. A file that
+  genuinely cannot be decoded is reported as a loud `error` (exit code 2)
+  instead of a silently garbled diff.
+
 ## [1.12.0] — 2026-08-25
 
 ### Added

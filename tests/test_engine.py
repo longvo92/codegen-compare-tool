@@ -563,6 +563,66 @@ class TestMovedBlocks(unittest.TestCase):
         self.assertEqual(set(kinds(r)), {'moved'})
 
 
+class TestMovedBlocksArxmlA2l(unittest.TestCase):
+    """Move detection for the AUTOSAR file kinds. An ARXML/A2L element block
+    reordered by a regenerate reads as delete-plus-insert on the raw text; it
+    is the same 'moved' note as for C. ARXML is the hard case: its blanked
+    UUID lines and repeated closing tags make the differ frame the delete and
+    insert windows as rotations of each other (see _canonical_rotation)."""
+
+    AX_OLD = ("<AUTOSAR>\n"
+              "<APPLICATION-SW-COMPONENT-TYPE UUID=\"1111\">\n"
+              "<SHORT-NAME>Alpha</SHORT-NAME>\n"
+              "<PORTS><P-PORT><SHORT-NAME>pA</SHORT-NAME></P-PORT></PORTS>\n"
+              "</APPLICATION-SW-COMPONENT-TYPE>\n"
+              "<APPLICATION-SW-COMPONENT-TYPE UUID=\"2222\">\n"
+              "<SHORT-NAME>Beta</SHORT-NAME>\n"
+              "<PORTS><P-PORT><SHORT-NAME>pB</SHORT-NAME></P-PORT></PORTS>\n"
+              "</APPLICATION-SW-COMPONENT-TYPE>\n"
+              "</AUTOSAR>\n")
+    # blocks swapped AND every UUID regenerated -- the normal shape of a
+    # reordered regenerate; the shadow blanks the UUID so the move still pairs
+    AX_NEW = ("<AUTOSAR>\n"
+              "<APPLICATION-SW-COMPONENT-TYPE UUID=\"3333\">\n"
+              "<SHORT-NAME>Beta</SHORT-NAME>\n"
+              "<PORTS><P-PORT><SHORT-NAME>pB</SHORT-NAME></P-PORT></PORTS>\n"
+              "</APPLICATION-SW-COMPONENT-TYPE>\n"
+              "<APPLICATION-SW-COMPONENT-TYPE UUID=\"4444\">\n"
+              "<SHORT-NAME>Alpha</SHORT-NAME>\n"
+              "<PORTS><P-PORT><SHORT-NAME>pA</SHORT-NAME></P-PORT></PORTS>\n"
+              "</APPLICATION-SW-COMPONENT-TYPE>\n"
+              "</AUTOSAR>\n")
+
+    def test_reordered_arxml_components_marked_moved(self):
+        r = compare_pair(self.AX_OLD, self.AX_NEW, 'f.arxml')
+        # fail-safe: a moved-only file is still a real change (reordering
+        # AUTOSAR elements can move an init order), only the label improves
+        self.assertEqual(r['status'], 'real-change')
+        self.assertEqual(set(kinds(r)), {'moved'})
+
+    def test_arxml_edit_in_place_never_reads_as_moved(self):
+        # the rotation-invariant key must not invent a move: a genuine content
+        # change with no reorder stays a plain real change
+        edited = self.AX_OLD.replace('pA', 'pRENAMED')
+        r = compare_pair(self.AX_OLD, edited, 'f.arxml')
+        self.assertEqual(r['status'], 'real-change')
+        self.assertNotIn('moved', kinds(r))
+
+    A2L_OLD = ("/begin CHARACTERISTIC Alpha\n  a_min 0\n  a_max 10\n"
+               "/end CHARACTERISTIC\n"
+               "/begin CHARACTERISTIC Beta\n  b_min 1\n  b_max 5\n"
+               "/end CHARACTERISTIC\n")
+    A2L_NEW = ("/begin CHARACTERISTIC Beta\n  b_min 1\n  b_max 5\n"
+               "/end CHARACTERISTIC\n"
+               "/begin CHARACTERISTIC Alpha\n  a_min 0\n  a_max 10\n"
+               "/end CHARACTERISTIC\n")
+
+    def test_reordered_a2l_characteristics_marked_moved(self):
+        r = compare_pair(self.A2L_OLD, self.A2L_NEW, 'f.a2l')
+        self.assertEqual(r['status'], 'real-change')
+        self.assertEqual(set(kinds(r)), {'moved'})
+
+
 class TestFixtureTree(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

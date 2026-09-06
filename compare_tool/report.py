@@ -184,6 +184,13 @@ body.hide-ign tr.minorph { display: table-row; }
 tr.commentph { display: table-row; }
 tr.minorph td, tr.commentph td { color: var(--st-cmt); }
 .filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
+/* a diff cut short by --max-diff-lines: loud, because a silently truncated
+   record is the failure this tool exists to prevent. Reuses the error roles. */
+.filenote.trunc { color: var(--err-fg); background: var(--err-bg);
+    border: 1px solid var(--err-border); border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; font-weight: 600; }
+.diff tr.trunc-row td { color: var(--err-fg); background: var(--err-bg);
+    border-top: 1px solid var(--err-border); font-weight: 600; padding: 8px 12px; }
 .iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
           border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
           margin: 0 0 20px; }
@@ -488,7 +495,7 @@ def _focus_runs(hunks):
 
 
 def _group_table(old_lines, new_lines, group, language=None, old_states=None,
-                 new_states=None, lean=False, limits=None):
+                 new_states=None, lean=False, limits=None, max_rows=0):
     """One continuous side-by-side table for a run of nearby hunks: leading /
     trailing CONTEXT lines, the equal lines between hunks shown once, real
     hunks in red/green, noise hunks in the same pair, dimmer.
@@ -578,6 +585,14 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
         o, n = i2 + k, j2 + k
         rows.append(_row(o + 1, old_lines[o], n + 1, new_lines[n], 'ctx',
                          language, _state_at(old_states, o), _state_at(new_states, n)))
+    # one hunk can be an entire rewritten file, so the per-file cap has to bite
+    # inside a single table too, not only between groups (see _groups_html).
+    if max_rows and len(rows) > max_rows:
+        rows = rows[:max_rows]
+        rows.append('<tr class="trunc-row"><td colspan="4">&#9888; diff '
+                    'truncated at {} lines by --max-diff-lines &mdash; the file '
+                    'is still counted as changed; open the desktop viewer for '
+                    'the full diff</td></tr>'.format(max_rows))
     return '<table class="diff">' + ''.join(rows) + '</table>'
 
 
@@ -599,8 +614,21 @@ def _group_notes(group, notes):
     return html, done
 
 
+def _trunc_note(shown_rows, omitted_groups):
+    """Loud placeholder for a file whose diff was cut off by --max-diff-lines.
+
+    Truncation is a rendering limit, never a verdict: the file keeps its
+    real-change status, its counts and the exit code. The note says so and
+    points at the viewer, which streams the diff instead of embedding it, so
+    the reviewer is never left thinking a cut-off file was fully shown."""
+    return ('<div class="filenote trunc">&#9888; Diff truncated at ~{} lines '
+            'by --max-diff-lines: {} more change region(s) not shown. The '
+            'file is still counted as changed &mdash; open it in the desktop '
+            'viewer for the complete diff.</div>'.format(shown_rows, omitted_groups))
+
+
 def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
-                 labels=None):
+                 labels=None, max_rows=0):
     """All hunk groups of one file. Comment and Unimportant rows hide behind
     their own badge individually (``tr.comment`` / ``tr.minor`` in the CSS) --
     a group used to be wrapped whole and hidden together when every hunk in it
@@ -631,7 +659,17 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
     old_labels, new_labels = labels or (funcname.enclosing(old_lines, language),
                                         funcname.enclosing(new_lines, language))
     out = []
-    for i, j, lean in _focus_runs(hunks):
+    rows_so_far = 0
+    runs = _focus_runs(hunks)
+    for idx, (i, j, lean) in enumerate(runs):
+        # --max-diff-lines caps the diff embedded per file: a regenerate that
+        # touched a whole tree could otherwise render one file into hundreds of
+        # MB and hang the browser opening the mailed report. Cut at a group
+        # boundary once the cap is passed, and say so loudly (see _trunc_note).
+        # 0 means no cap -- the historical behaviour, and still the default.
+        if max_rows and rows_so_far >= max_rows:
+            out.append(_trunc_note(rows_so_far, len(runs) - idx))
+            break
         g = hunks[i:j]
         before = hunks[i - 1] if i else None
         after = hunks[j] if j < len(hunks) else None
@@ -641,16 +679,24 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
                   after['new_range'][0] if after else len(new_lines))
         notes_html, done = _group_notes(g, notes)
         cls = ' grp-rev' if done else ''
-        out.append('<div class="grp{}{}">'.format(' lean' if lean else '', cls))
+        block = ['<div class="grp{}{}">'.format(' lean' if lean else '', cls)]
         # a lean group is a collapsed noise placeholder with no code window, so
         # a caption over it would point at rows that are not shown
         label = None if lean else funcname.hunk_label(old_labels, new_labels, g[0])
         if label:
-            out.append('<div class="fnhdr">ƒ {}</div>'.format(_esc(label)))
-        out.append(notes_html)
-        out.append(_group_table(old_lines, new_lines, g, language, old_states,
-                                new_states, lean, limits))
-        out.append('</div>')
+            block.append('<div class="fnhdr">ƒ {}</div>'.format(_esc(label)))
+        block.append(notes_html)
+        budget = (max_rows - rows_so_far) if max_rows else 0
+        block.append(_group_table(old_lines, new_lines, g, language, old_states,
+                                  new_states, lean, limits, budget))
+        block.append('</div>')
+        gh = ''.join(block)
+        rows_so_far += gh.count('<tr')
+        out.append(gh)
+        # a single group big enough to exhaust the budget truncated itself; its
+        # in-table note is the notice, so stop here rather than adding a second
+        if max_rows and 'trunc-row' in gh:
+            break
     return ''.join(out)
 
 
@@ -1296,7 +1342,7 @@ def _error_banner(results):
             'does not cover them.</div></div>'.format(len(errs), ''.join(lines)))
 
 
-def _file_section(rel, results, old_root, new_root, anchors, rv):
+def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
     """One collapsible detail section for a non-identical file.
 
     ``rv`` is the :class:`_Review` context: it turns the file's content into
@@ -1338,7 +1384,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             parts.append('<div class="filenote">Binary file differs.</div>')
         else:
             parts.append(_groups_html(old_lines, new_lines, hunks, notes,
-                                      lang, labels))
+                                      lang, labels, max_rows))
     elif status in ('comment-only', 'ignorable-only'):
         parts.append(_file_open(anchors[rel], rel, status, _esc(_kinds_of(r))))
         if not r['hunks']:
@@ -1348,7 +1394,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
             parts.append(_groups_html(old_lines, new_lines, r['hunks'], None,
-                                      syntax.language_for(rel)))
+                                      syntax.language_for(rel), max_rows=max_rows))
     elif status in ('added', 'deleted'):
         side = 'add' if status == 'added' else 'del'
         path = Path(new_root if status == 'added' else old_root) / rel
@@ -1376,7 +1422,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv):
                 parts.append(_note_html(*whole))
             parts.append(_notes(r))
             parts.append(_groups_html(old_lines, new_lines, r['hunks'], notes,
-                                      syntax.language_for(rel)))
+                                      syntax.language_for(rel), max_rows=max_rows))
         elif status == 'deleted' and r.get('moved_to') in anchors:
             # its content is on screen already, as the OLD side of the paired
             # file's diff. Printing the file again here would be the same bytes
@@ -1412,13 +1458,13 @@ def _move_note(r):
     return '({})'.format(_esc(text)) if text else ''
 
 
-def _safe_file_section(rel, results, old_root, new_root, anchors, rv):
+def _safe_file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
     """Fail-safe wrapper: rendering one file (which re-reads it from disk)
     must not kill the whole report -- e.g. the file was deleted or locked
     between scan and render. The failure stays loud: an error section takes
     the file's place."""
     try:
-        return _file_section(rel, results, old_root, new_root, anchors, rv)
+        return _file_section(rel, results, old_root, new_root, anchors, rv, max_rows)
     except Exception as e:
         return (_file_open(anchors[rel], rel, 'error', expanded=True)
                 + '<div class="filenote">Rendering failed &mdash; file NOT '
@@ -1532,7 +1578,7 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
 
 
 def build_report(results, old_root, new_root, reviews=None, old_label=None,
-                 theme_name=theme.DEFAULT, new_label=None):
+                 theme_name=theme.DEFAULT, new_label=None, max_diff_lines=0):
     """Full self-contained HTML report.
 
     ``old_label`` / ``new_label`` name a side when its folder does not:
@@ -1589,12 +1635,12 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                                                        opn, _esc(m), counts_html))
             for rel in drels:
                 detail.append(_safe_file_section(rel, results, old_root, new_root,
-                                                 anchors, rv))
+                                                 anchors, rv, max_diff_lines))
             detail.append('</div></details>')
     else:
         for rel in detail_files:
             detail.append(_safe_file_section(rel, results, old_root, new_root,
-                                             anchors, rv))
+                                             anchors, rv, max_diff_lines))
 
     parts = []
     parts.append(_head('AUTOSAR Code Generation Report', theme_name,

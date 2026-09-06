@@ -16,20 +16,66 @@ SKIP_DIRS = {'.git', '__pycache__', '.svn'}
 FOLDABLE = ('comment-only', 'ignorable-only')
 
 
+# byte-order marks, longest first so UTF-32 LE is not mis-read as UTF-16 LE
+# (its BOM ff fe is the two-byte UTF-16 LE mark followed by 00 00). A file that
+# opens with one of these is text in that encoding even though its bytes carry
+# the NULs that would otherwise read as binary.
+_BOMS = (
+    (b'\x00\x00\xfe\xff', 'utf-32'),
+    (b'\xff\xfe\x00\x00', 'utf-32'),
+    (b'\xef\xbb\xbf', 'utf-8-sig'),
+    (b'\xff\xfe', 'utf-16'),
+    (b'\xfe\xff', 'utf-16'),
+)
+
+
+def _bom_encoding(data):
+    """The encoding a leading BOM promises, or None. The BOM-aware codecs
+    (`utf-16`, `utf-32`, `utf-8-sig`) strip the mark themselves."""
+    for bom, enc in _BOMS:
+        if data.startswith(bom):
+            return enc
+    return None
+
+
 def read_text(path):
-    """Read file as text: UTF-8 (BOM tolerated) with latin-1 fallback,
-    line endings normalized to \\n."""
+    """Decode a file to text, line endings normalized to ``\\n``.
+
+    AUTOSAR and A2L exporters are not all UTF-8: legacy tools still emit
+    UTF-16 (with a BOM) and single-byte code pages, and a ``<DESC>`` written by
+    a German tool carries ``ä ö ü ß`` as ISO-8859-1 or Windows-1252 bytes.
+    A BOM is honoured first; without one the bytes are tried as UTF-8, then
+    cp1252 (a superset of ISO-8859-1 that also covers the punctuation Windows
+    tools add), and finally latin-1, which can decode any byte at all.
+
+    Raises :class:`UnicodeDecodeError` only when a BOM promises an encoding the
+    bytes do not actually honour -- a corrupt or truncated file. The scanner
+    turns that into a loud ``error`` verdict rather than a silently mangled
+    diff."""
     data = Path(path).read_bytes()
-    try:
-        text = data.decode('utf-8-sig')
-    except UnicodeDecodeError:
-        text = data.decode('latin-1')
+    enc = _bom_encoding(data)
+    if enc is not None:
+        text = data.decode(enc)  # a bad BOM'd file raises -> error verdict
+    else:
+        for fallback in ('utf-8', 'cp1252', 'latin-1'):
+            try:
+                text = data.decode(fallback)
+                break
+            except UnicodeDecodeError:
+                continue
     return text.replace('\r\n', '\n').replace('\r', '\n')
 
 
 def looks_binary(path):
+    """True for a file that is not decodable text. A UTF-16/UTF-32 BOM'd file
+    carries NUL bytes but is text, so the BOM is checked before the NUL scan
+    that flags binaries -- without this a UTF-16 ARXML read as 'binary' and its
+    diff was never shown."""
     with open(path, 'rb') as f:
-        return b'\0' in f.read(8192)
+        head = f.read(8192)
+    if _bom_encoding(head) is not None:
+        return False
+    return b'\0' in head
 
 
 def list_files(root, errors=None):
@@ -61,7 +107,7 @@ def list_files(root, errors=None):
     return out
 
 
-def compare_file(old_root, new_root, rel):
+def compare_file(old_root, new_root, rel, user_rules=()):
     """Full comparison result for one relative path present in both trees."""
     old_p = Path(old_root) / rel
     new_p = Path(new_root) / rel
@@ -75,7 +121,7 @@ def compare_file(old_root, new_root, rel):
         # bytes differed but normalized text equal: EOL style or BOM only
         return {'status': 'ignorable-only', 'hunks': [], 'renames': {},
                 'notes': ['line-endings'], 'binary': False}
-    result = compare_pair(old_text, new_text, rel)
+    result = compare_pair(old_text, new_text, rel, user_rules)
     result['binary'] = False
     # semantic summaries: only real changes can move the AUTOSAR surface
     # (ignorable-only means the shadows are equal, hence same content)
@@ -196,7 +242,7 @@ def _candidate(root, rel):
     return filepair.Candidate(rel, ext, digest, lines)
 
 
-def _link_moves(results, old_root, new_root):
+def _link_moves(results, old_root, new_root, user_rules=()):
     """Cross-reference added files with the deleted ones they came from.
 
     The two entries KEEP their `added` / `deleted` verdicts and their place in
@@ -213,7 +259,7 @@ def _link_moves(results, old_root, new_root):
     for a_rel, (d_rel, sim) in filepair.find_moves(added, deleted).items():
         try:
             pair = compare_pair(read_text(Path(old_root) / d_rel),
-                                read_text(Path(new_root) / a_rel), a_rel)
+                                read_text(Path(new_root) / a_rel), a_rel, user_rules)
         except (OSError, UnicodeError):
             continue
         results[a_rel]['moved_from'] = d_rel
@@ -226,7 +272,8 @@ def _link_moves(results, old_root, new_root):
         results[d_rel]['move_status'] = pair['status']
 
 
-def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
+def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
+         user_rules=()):
     """Compare two trees. Returns {rel_path: result} sorted by path.
     result: {status, hunks, renames, notes, binary[, ifaces]}.
     status 'error' = the path could not be listed or compared (see notes).
@@ -234,7 +281,9 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
     include: when non-empty, only paths matching one of these globs are
     compared (exclude still applies on top).
     fold: noise statuses that should not be reported separately -- those files
-    come back as 'identical' (see fold_status)."""
+    come back as 'identical' (see fold_status).
+    user_rules: extra noise patterns from a --rules file, applied on top of the
+    built-in ones (see compare_tool.userrules)."""
     fold = tuple(fold)
     old_errors, new_errors = [], []
     old_files = list_files(old_root, old_errors)
@@ -262,7 +311,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
     for idx, rel in enumerate(all_paths):
         try:
             if rel in old_files and rel in new_files:
-                results[rel] = compare_file(old_root, new_root, rel)
+                results[rel] = compare_file(old_root, new_root, rel, user_rules)
             elif rel in new_files:
                 if under_failed(rel, old_errors):
                     results[rel] = _error_result(
@@ -292,7 +341,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=()):
     # after every verdict is settled: folding cannot reach 'added'/'deleted',
     # so the candidate set is the same either way, and pairing must never be
     # what decides a verdict
-    _link_moves(results, old_root, new_root)
+    _link_moves(results, old_root, new_root, user_rules)
     return results
 
 

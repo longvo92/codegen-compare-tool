@@ -17,7 +17,7 @@ a moved-only file still counts as real-change (statement reordering can be a
 semantic change).
 """
 
-from . import a2l_rules, arxml_rules, c_rules, langspec, linediff
+from . import a2l_rules, arxml_rules, c_rules, langspec, linediff, userrules
 
 # a block must have at least this many non-blank shadow lines to qualify as
 # moved; single lines (`break;`, `}`) reappear by coincidence far too often
@@ -57,10 +57,13 @@ RULES = {
 _GENERIC_COMMENT_RULES = ('python', 'yaml', 'cpp')
 
 
-def ruleset_for(path):
+def _ext_of(path):
     dot = path.rfind('.')
-    ext = path[dot:].lower() if dot >= 0 else ''
-    return RULES.get(ext, 'plain')
+    return path[dot:].lower() if dot >= 0 else ''
+
+
+def ruleset_for(path):
+    return RULES.get(_ext_of(path), 'plain')
 
 
 def _lines(text):
@@ -116,6 +119,26 @@ def _slide_down(lines, a, b):
     return a, b
 
 
+def _canonical_rotation(key):
+    """Lexicographically-smallest rotation of a line tuple.
+
+    A moved block whose window is framed by a line that repeats at the block
+    boundary (a C `}`, an ARXML `</...>` closing tag, the blanked `UUID=""`
+    line) is placed ambiguously by the differ: the delete side and the insert
+    side can absorb that boundary line at opposite ends, so the two windows come
+    out as rotations of the *same* lines rather than as identical tuples, and
+    `_slide_down` alone cannot line them up when the neighbours on each side
+    differ. Keying on the canonical rotation pairs them anyway.
+
+    Safe by construction: a spurious match here only ever relabels one
+    `real-change` block as `moved`, and `moved` is itself a real change (never
+    folded, exit code unmoved) -- rotation-invariance cannot hide a difference.
+    """
+    if not key:
+        return key
+    return min(key[i:] + key[:i] for i in range(len(key)))
+
+
 def _move_key(lines, ruleset):
     """Content key for move matching.
 
@@ -124,9 +147,11 @@ def _move_key(lines, ruleset):
     raw text that reads as an unrelated delete plus insert -- two walls of red
     and green where one blue "moved" note is the truth.
     """
-    if ruleset != 'c':
-        return tuple(lines)
-    return tuple(c_rules.canonical_generated(l) for l in lines)
+    if ruleset == 'c':
+        base = tuple(c_rules.canonical_generated(l) for l in lines)
+    else:
+        base = tuple(lines)
+    return _canonical_rotation(base)
 
 
 def _detect_moves(candidates, old_sh_lines, new_sh_lines, ruleset='plain'):
@@ -217,10 +242,15 @@ def _slices_equal(h, old_variant_lines, new_variant_lines):
     return _nonblank(old_variant_lines[i1:i2]) == _nonblank(new_variant_lines[j1:j2])
 
 
-def _build_variants(old_text, new_text, ruleset, rename_map):
+def _build_variants(old_text, new_text, ruleset, rename_map, ext='', user_rules=()):
     """Ordered list of (kind, old_variant_lines, new_variant_lines) used to
     label ignorable hunks. Each variant applies ONE rule (plus whitespace
-    collapse, which alone is the weakest rule and is tested first)."""
+    collapse, which alone is the weakest rule and is tested first).
+
+    User rules (from ``--rules``) become variants too, tried LAST so a built-in
+    kind wins the label when both explain a hunk. A hunk only a user rule
+    explains is labelled with that rule's name and is ignorable-only, never
+    comment-only -- comment is a built-in category with its own report rules."""
     cw = c_rules.collapse_ws
     variants = [('whitespace', _lines(cw(old_text)), _lines(cw(new_text)))]
     if ruleset == 'c':
@@ -266,19 +296,30 @@ def _build_variants(old_text, new_text, ruleset, rename_map):
         variants.append(('comment',
                          _lines(cw(langspec.strip_comments(old_text, spec))),
                          _lines(cw(langspec.strip_comments(new_text, spec)))))
+    # user rules last: a hunk a built-in kind already explains keeps that kind
+    for r in user_rules:
+        if r.applies_to(ext):
+            variants.append((r.name,
+                             _lines(cw(userrules.apply(old_text, ext, [r]))),
+                             _lines(cw(userrules.apply(new_text, ext, [r])))))
     return variants
 
 
-def compare_pair(old_text, new_text, path):
+def compare_pair(old_text, new_text, path, user_rules=()):
     """Compare two file contents. Returns dict:
     {status, hunks, renames, notes}
     status in {identical, comment-only, ignorable-only, real-change}
-    """
+
+    ``user_rules`` are extra noise patterns from a ``--rules`` file
+    (:mod:`compare_tool.userrules`). They run ON TOP of the built-in Embedded
+    Coder rules -- an empty tuple, the default, leaves every existing verdict
+    exactly as it was."""
     result = {'status': 'identical', 'hunks': [], 'renames': {}, 'notes': []}
     if old_text == new_text:
         return result
 
     ruleset = ruleset_for(path)
+    ext = _ext_of(path)
     old_lines = _lines(old_text)
     new_lines = _lines(new_text)
 
@@ -290,22 +331,29 @@ def compare_pair(old_text, new_text, path):
         return result
 
     # --- pass 2 inputs: full shadows ---
+    # user rules are applied to the raw text BEFORE the built-in shadow, so a
+    # team's own churn (TargetLink/DaVinci ids, custom banners) is blanked the
+    # same way UUIDs are. Line count is preserved (userrules.apply guarantees
+    # it), so the two passes still line up. Pass 1 below keeps the ORIGINAL
+    # lines, so the reviewer still sees the real text.
+    u_old = userrules.apply(old_text, ext, user_rules)
+    u_new = userrules.apply(new_text, ext, user_rules)
     if ruleset == 'c':
-        old_shadow = c_rules.c_shadow(old_text)
-        new_shadow = c_rules.c_shadow(new_text)
+        old_shadow = c_rules.c_shadow(u_old)
+        new_shadow = c_rules.c_shadow(u_new)
     elif ruleset == 'arxml':
-        old_shadow = arxml_rules.arxml_shadow(old_text)
-        new_shadow = arxml_rules.arxml_shadow(new_text)
+        old_shadow = arxml_rules.arxml_shadow(u_old)
+        new_shadow = arxml_rules.arxml_shadow(u_new)
     elif ruleset == 'a2l':
-        old_shadow = a2l_rules.a2l_shadow(old_text)
-        new_shadow = a2l_rules.a2l_shadow(new_text)
+        old_shadow = a2l_rules.a2l_shadow(u_old)
+        new_shadow = a2l_rules.a2l_shadow(u_new)
     elif ruleset in _GENERIC_COMMENT_RULES:
         spec = langspec.SPECS[ruleset]
-        old_shadow = langspec.shadow(old_text, spec)
-        new_shadow = langspec.shadow(new_text, spec)
+        old_shadow = langspec.shadow(u_old, spec)
+        new_shadow = langspec.shadow(u_new, spec)
     else:
-        old_shadow = c_rules.collapse_ws(old_text)
-        new_shadow = c_rules.collapse_ws(new_text)
+        old_shadow = c_rules.collapse_ws(u_old)
+        new_shadow = c_rules.collapse_ws(u_new)
 
     old_shadow_lines = _lines(old_shadow)
     new_shadow_lines = _lines(new_shadow)
@@ -379,7 +427,8 @@ def compare_pair(old_text, new_text, path):
     raw_hunks = []
     for h in _diff_hunks(old_lines, new_lines):
         raw_hunks.extend(_split_balanced(h))
-    variants = _build_variants(old_text, new_text, ruleset, rename_map)
+    variants = _build_variants(old_text, new_text, ruleset, rename_map, ext,
+                               user_rules)
 
     hunks = []
     for h in raw_hunks:

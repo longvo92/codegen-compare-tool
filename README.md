@@ -28,12 +28,32 @@ The compare itself — scanning, the noise rules, the diff, the HTML report — 
 
 🏗 **[Architecture](docs/architecture.md)** — how the pieces fit together and why.
 
+## Why not Beyond Compare, WinMerge or `diff`?
+
+Those are excellent general-purpose diff tools. The difference is that they diff
+*text*, and this tool diffs *AUTOSAR codegen* — it knows what a regenerate does
+to a file and what it means.
+
+| | Beyond Compare / WinMerge / `diff` | This tool |
+|---|---|---|
+| Timestamp / UUID / version-stamp churn | shown as changes — you filter it by eye or by hand-written rules | classified as noise automatically; a file whose only differences are noise reads as such |
+| Renamed generated identifiers (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`) | a change on every line that uses the name | recognised as a 1-to-1 rename and folded — but only when the whole file's mapping is consistent, so a real rename stays a real change |
+| "What changed in the model?" | not answered — it is a text tool | an AUTOSAR summary: which ports, runnables, events, RTE access points and A2L objects changed, per model |
+| Stale or partial regenerate (the ARXML changed but the C did not follow) | invisible — each file looks fine on its own | flagged: the two files no longer agree |
+| A build gate | none — it is interactive | an exit code (`0` / `1` / `2`) a pipeline can gate on, plus JSON and SARIF output |
+| Your team's own generator churn (TargetLink, DaVinci) | hand-written per-tool rules | built-in Embedded Coder rules, extensible with `--rules` (see [usage.md](docs/usage.md#custom-noise-rules)) |
+
+The honest short version: for reading any two text files side by side, a general
+diff tool is fine. This one earns its place when the two folders are AUTOSAR
+codegen and most of the diff is the generator repeating itself.
+
 ## Getting it
 
 You can run it straight out of a clone, nothing to install:
 
 ```bash
 git clone https://github.com/longvo92/codegen-compare-tool.git
+cd codegen-compare-tool
 python -m compare_tool --help
 ```
 
@@ -79,6 +99,7 @@ Exit `2` is loud on purpose: `!!` in the terminal, a red banner in the report, a
 |---|---|---|
 | `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML) | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | A consistent 1-to-1 rename of generator-owned names — anything the mapping can't fully explain is still a real change | .c .h |
+| `reorder` | Independent statements the codegen emitted in a different order — folded only when the block is straight-line scalar assignments and the new order preserves every data dependence, else it stays a real change | .c .h |
 | `uuid` | `UUID="..."` attributes | .arxml .xml |
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
 | `sw-version` | `<SW-VERSION>` stamps, which bump on every regenerate | .arxml .xml |
@@ -109,7 +130,7 @@ It also checks across models: if model A's code gains a new `Rte_*` call while m
 ## The desktop viewer
 
 ```bash
-pip install "codegen-compare-tool[viewer]"
+pip install "codegen-compare-tool[viewer] @ git+https://github.com/longvo92/codegen-compare-tool.git"
 python -m compare_tool
 ```
 
@@ -134,6 +155,8 @@ python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
 ```
 
 `--exit-zero` keeps the build green even when the only thing that happened was a regenerate; `--exclude` stops the previous run's own report from being counted as part of the diff. Publish `compare_report.html` as a build artifact and you've got a clickable record of every run. [azure-pipelines.yml](azure-pipelines.yml) has a working example if you want to see it end to end.
+
+Need the result as data instead of a page? `--json out.json` writes the full scan — per-file verdict, hunks, renames, the run summary, the consistency advisories and the exit code. `--sarif out.sarif` writes a SARIF 2.1.0 log of just the files that need action (modified / added / deleted / error), so GitHub or Azure DevOps code scanning annotates them inline.
 
 → [flags, exit codes, and packaging for locked-down build machines](docs/usage.md#ci-integration)
 

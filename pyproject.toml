@@ -57,3 +57,17 @@ select = ["E4", "E7", "E9", "F", "B", "FA"]
 # diff hot paths. Renaming 9 call sites to satisfy a legibility rule that
 # nobody here has been confused by is churn, not a fix.
 ignore = ["E741"]
+
+# Type-check the stdlib core -- what ships in compare_tool.pyz, where a type
+# error would break the fallback build on a locked-down machine. Run in CI with
+# `python -m mypy compare_tool`; the same command works locally.
+[tool.mypy]
+ignore_missing_imports = true
+
+# The Qt viewer is built on PySide6's dynamic enums (`Qt.UserRole` and the
+# like) that a static checker cannot resolve, so mypy fights the framework
+# rather than the code there. The core is the part that matters and stays
+# clean; the viewer is exercised by the headless Qt tests instead.
+[[tool.mypy.overrides]]
+module = "compare_tool.qtviewer.*"
+ignore_errors = true

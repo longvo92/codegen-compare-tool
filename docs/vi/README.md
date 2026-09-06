@@ -34,12 +34,32 @@ noise chính xác, cách report dựng trang, CI và đóng gói.
 
 🏗 **[Kiến trúc](architecture.md)** — các mảnh ghép với nhau ra sao và tại sao.
 
+## Tại sao không dùng Beyond Compare, WinMerge hay `diff`?
+
+Đó đều là các tool diff tổng quát rất tốt. Khác biệt là chúng diff *text*, còn
+tool này diff *AUTOSAR codegen* — nó biết một lần regenerate làm gì với file và
+điều đó nghĩa là gì.
+
+| | Beyond Compare / WinMerge / `diff` | Tool này |
+|---|---|---|
+| Churn timestamp / UUID / version stamp | hiện ra như thay đổi — bạn tự lọc bằng mắt hoặc bằng rule viết tay | tự phân loại là noise; file chỉ khác nhau ở noise được báo đúng như vậy |
+| Tên định danh do generator đổi (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`) | thành thay đổi ở mọi dòng dùng tên đó | nhận ra là rename 1-1 và gộp lại — nhưng chỉ khi mapping toàn file nhất quán, nên một rename thật vẫn là thay đổi thật |
+| "Model đã đổi gì?" | không trả lời được — nó là tool text | summary AUTOSAR: port, runnable, event, RTE access point, đối tượng A2L nào đã đổi, theo từng model |
+| Regenerate dở dang (ARXML đổi nhưng C không theo) | không thấy được — từng file nhìn riêng đều ổn | được cảnh báo: hai file không còn khớp nhau |
+| Gate cho build | không có — nó là tool tương tác | exit code (`0` / `1` / `2`) để pipeline gate, kèm output JSON và SARIF |
+| Churn của generator riêng nhóm bạn (TargetLink, DaVinci) | rule viết tay theo từng tool | rule Embedded Coder sẵn có, mở rộng được bằng `--rules` (xem [usage.md](usage.md#custom-noise-rules)) |
+
+Nói thẳng: để đọc hai file text cạnh nhau thì tool diff tổng quát là đủ. Tool
+này đáng dùng khi hai thư mục là AUTOSAR codegen và phần lớn diff chỉ là
+generator tự lặp lại.
+
 ## Lấy tool
 
 Chạy thẳng từ clone, không cần cài gì:
 
 ```bash
 git clone https://github.com/longvo92/codegen-compare-tool.git
+cd codegen-compare-tool
 python -m compare_tool --help
 ```
 
@@ -92,6 +112,7 @@ thì không được phép trông giống một lần chạy sạch.
 |---|---|---|
 | `comment` | Comment C/C++/A2L (`//`, `/* */`), comment XML (`<!-- -->`), comment dòng `#` (Python, YAML) | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
 | `rename` | Đổi tên 1-1 nhất quán các tên do generator sở hữu — cái gì mapping không giải thích trọn vẹn thì vẫn là thay đổi thật | .c .h |
+| `reorder` | Các câu lệnh độc lập bị codegen emit theo thứ tự khác — chỉ gộp khi block là các phép gán scalar straight-line và thứ tự mới giữ nguyên mọi data dependence, không thì vẫn là thay đổi thật | .c .h |
 | `uuid` | Attribute `UUID="..."` | .arxml .xml |
 | `timestamp` | Block `<ADMIN-DATA>`, `<DATE>` | .arxml .xml |
 | `sw-version` | Version stamp `<SW-VERSION>`, tăng mỗi lần regenerate | .arxml .xml |
@@ -147,7 +168,7 @@ file nào, cũng không đổi exit code.
 ## Viewer desktop
 
 ```bash
-pip install "codegen-compare-tool[viewer]"
+pip install "codegen-compare-tool[viewer] @ git+https://github.com/longvo92/codegen-compare-tool.git"
 python -m compare_tool
 ```
 
@@ -191,6 +212,12 @@ python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
 `compare_report.html` như một build artifact là có luôn bản ghi có thể bấm vào
 cho từng lần chạy. [azure-pipelines.yml](../../azure-pipelines.yml) có ví dụ
 chạy được từ đầu đến cuối nếu bạn muốn xem.
+
+Cần kết quả ở dạng dữ liệu thay vì một trang? `--json out.json` ghi toàn bộ
+scan — verdict từng file, hunk, rename, summary của lần chạy, các advisory
+consistency và exit code. `--sarif out.sarif` ghi một log SARIF 2.1.0 chỉ gồm
+các file cần xử lý (modified / added / deleted / error), để code scanning của
+GitHub hay Azure DevOps chú thích chúng inline.
 
 → [flag, exit code, và đóng gói cho máy bị khoá chặt](usage.md#tích-hợp-ci)
 
