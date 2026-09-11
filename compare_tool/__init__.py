@@ -1,3 +1,3 @@
 """CodeGen Compare Tool - AUTOSAR MATLAB codegen diff with noise filtering."""
 
-__version__ = "1.13.0"
+__version__ = "1.14.0"

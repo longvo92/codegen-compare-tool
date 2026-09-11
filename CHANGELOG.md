@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-09-11
+
 ### Added
 
 - **Skip variable renames with `--skip-var-renames`.** Hides the changes that
