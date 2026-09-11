@@ -44,6 +44,7 @@ giờ âm thầm rơi xuống so sánh một thư mục rỗng.
 | `--current-name NAME` | Tương tự cho phía CURRENT. Cả hai cờ chỉ đổi chữ trên header — đường dẫn thư mục vẫn nằm ở tooltip, nên vẫn truy được file đã đọc từ đâu |
 | `--theme dark\|light` | Bảng màu lúc mở của report và viewer (mặc định `dark`). Report mang sẵn **cả hai** và có nút đổi riêng, nên cờ này chỉ quyết định người đọc thấy màu nào trước |
 | `--rules RULES.json` | Thêm pattern noise chạy trên nền các rule sẵn có — xem [Custom noise rules](#custom-noise-rules) |
+| `--skip-var-renames` | **Quick check, không an toàn.** Gộp các hunk C/C++ chỉ đổi tên biến mà *không* chứng minh được đó là noise — xem [Quick check: bỏ qua đổi tên biến](#quick-check-bỏ-qua-đổi-tên-biến) |
 | `--max-diff-lines N` | Giới hạn diff nhúng mỗi file khoảng N dòng (0 = không giới hạn, mặc định). Chặn một lần regenerate cả cây render một file thành report to đến mức treo browser; file bị cắt vẫn giữ verdict và exit code, và chỗ cắt được báo rõ |
 | `--qt`, `--viewer` | Mở viewer trên hai thư mục truyền ở command line, thay vì so sánh trong terminal. Cần extra `viewer` |
 | `--version` | In phiên bản rồi thoát |
@@ -177,6 +178,7 @@ trên cây vẫn nằm trong file export với verdict thật của nó.
 | `timestamp` | Block `<ADMIN-DATA>`, `<DATE>` | .arxml .xml |
 | `sw-version` | Version stamp `<SW-VERSION>` (tăng mỗi lần regenerate). Regex có anchor, nên `<SW-MAJOR-VERSION>` và các thẻ tương tự không bị đụng | .arxml .xml |
 | `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — các thẻ chứa mô tả bằng chữ, không ảnh hưởng hành vi (áp dụng cho cả schema 4.2 và 4.4). `<CATEGORY>` và `<ANNOTATIONS>` **không** được lọc: `<CATEGORY>` ảnh hưởng cách phần tử được hiểu, còn `<ANNOTATIONS>` có thể chứa dữ liệu do tool khác ghi vào | .arxml .xml |
+| `assumed-rename` | Lệnh gán và khai báo chỉ khác nhau ở tên biến, gộp **không kèm chứng minh** — chỉ xuất hiện khi bật `--skip-var-renames`, mặc định không bao giờ | .c .h .cpp .hpp |
 | `whitespace` | Thụt đầu dòng, khoảng trắng cuối dòng, dòng trống | tất cả |
 | `line-endings` | CRLF vs LF, BOM | tất cả |
 
@@ -227,6 +229,62 @@ thay đổi nào. Nếu một trong ba điều kiện trên không thoả — c�
 vào giữa, vế phải của một phép gán thật sự đổi, hay một cặp lệnh phụ thuộc bị
 đảo thứ tự — thì cả block vẫn tính là thay đổi thật. Khi không chắc, tool luôn
 chọn hiện diff ra chứ không giấu đi.
+
+### Quick check: bỏ qua đổi tên biến
+
+Mọi rule ở trên đều chứng minh được trước khi gộp một khác biệt đi.
+`--skip-var-renames` thì không, và đây là phần duy nhất của tool làm vậy — nên
+nó mặc định tắt và phải gọi đích danh mới chạy.
+
+Nó phục vụ đúng một việc: quét nhanh một bản regenerate để tìm những gì **không
+phải** đổi tên, khi bạn đã biết trước sẽ có một loạt biến bị đổi tên và chỉ muốn
+xem phần còn lại. Nó không dùng để ký duyệt review.
+
+Khi bật cờ, một hunk C/C++ được gộp thành `assumed-rename` nếu mọi dòng ở cả hai
+phía đều là **binding** — một câu lệnh chỉ gọi tên một object và nhiều nhất là
+chép một object hoặc literal khác vào đó — hai phía ghép được 1-1 theo dòng,
+chỉ khác nhau ở tên định danh, và kiểu khai báo không đổi.
+
+Binding không bao giờ *tính toán*. Hai vế của dấu `=` đều được phép là lvalue
+path thuần — một cái tên, `.field`, `->field`, `[index]` — đúng cách Embedded
+Coder truy cập port, DWork state và buffer:
+
+```c
+a = b;                     →  x = b;
+acc_cmd = rtU.Pedal;       →  drv_cmd = rtU.Pedal;
+rtY.Out = filt_in;         →  rtY.Out = filt_val;
+buf[2] = rtDW->State;      →  buf[2] = rtDW->Level;
+real_T filt_in;            →  real_T filt_val;
+boolean_T flag = FALSE;    →  boolean_T other = FALSE;
+```
+
+**Cái giá phải trả.** Một thay đổi đấu nối lại (rewiring) có đúng hình dạng đó,
+nên cũng bị gộp luôn. `a = speed;` đổi thành `a = torque;` là thay đổi tín hiệu
+thật, và chế độ này sẽ không báo. Đó chính là sự đánh đổi mà cờ này sinh ra để
+chấp nhận: một lần chạy có dùng cờ có thể đang thiếu một thay đổi thật.
+
+**Cái gì vẫn tính là thay đổi thật, kể cả khi bật cờ:**
+
+- literal đổi giá trị — `a = 0;` → `x = 1;`;
+- kiểu dữ liệu đổi — `sint32 a = 0;` → `uint8 x = 0;`;
+- macro hoặc enum constant viết hoa toàn bộ ở một trong hai phía — `flag = FALSE;`
+  → `flag = TRUE;`, `mode = IDLE;` → `mode = DRIVE;`. C dành tên viết hoa cho
+  hằng khai báo ở chỗ khác, nên tráo một cái là đổi giá trị chứ không phải đổi tên;
+- hoán đổi hai biến — `a`↔`b` — dù trông nhất quán đến đâu vẫn là thay đổi thật;
+- bất kỳ hunk nào có một dòng không phải binding: biểu thức (`a = b + c;`), lời
+  gọi hàm, ép kiểu, lấy địa chỉ hay dereference, khai báo prototype, khai báo
+  nhiều biến trên một dòng. Chỉ một dòng như vậy là **cả hunk** giữ nguyên trạng
+  thái thật, nên một chỗ đổi tên nằm cạnh một sửa đổi thật vẫn được hiện ra.
+
+**Cách nó tự báo.** Gộp mà không chứng minh chỉ chấp nhận được nếu không thể bỏ sót:
+
+- summary trên terminal in cảnh báo `QUICK CHECK` ngay phía trên phần đếm;
+- HTML report có một dòng note ở cuối trang, và dòng placeholder của hunk bị
+  gộp ghi đúng kind `assumed-rename` chứ không gọi nó là rename đã chứng minh;
+- output JSON mang thêm `"quick_check": "skip-var-renames"`;
+- thanh tiêu đề của viewer ghi `QUICK CHECK: variable renames skipped`.
+
+Cờ này chỉ đụng tới binding C/C++, nên đi kèm `--arxml-only` thì không có tác dụng gì.
 
 ### Comment là hạng mục riêng
 

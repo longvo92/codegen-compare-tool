@@ -34,6 +34,7 @@ Either side can be a `.zip` instead of a folder — an Azure DevOps build artifa
 | `--current-name NAME` | Same for the CURRENT side. Either flag only changes the header text — the folder path stays in the tooltip, so a compare is still traceable to where the files were read from |
 | `--theme dark\|light` | Colour scheme the report and the viewer open with (default `dark`). The report carries **both** and has its own switch, so this only sets what the reader sees first |
 | `--rules RULES.json` | Extra noise patterns applied on top of the built-in rules — see [Custom noise rules](#custom-noise-rules) |
+| `--skip-var-renames` | **Quick check, unsafe.** Fold away C/C++ hunks that are only variable renames, without proving they are noise — see [Quick check: skipping variable renames](#quick-check-skipping-variable-renames) |
 | `--max-diff-lines N` | Cap the diff embedded per file at about N lines (0 = no cap, the default). Stops a whole-tree regenerate from rendering one file into a report so large the browser hangs; a capped file keeps its verdict and the exit code, and the cut is loud |
 | `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra |
 | `--version` | Print the version and exit |
@@ -128,6 +129,7 @@ Turning on `Review mode` adds a note box and a `Review` column to the tree — g
 | `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
 | `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
 | `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — the prose an Identifiable carries (schema 4.2 and 4.4 alike). `<CATEGORY>` and `<ANNOTATIONS>` are **not** included: the first is semantic, the second can carry tool payload | .arxml .xml |
+| `assumed-rename` | Assignments and declarations differing only by variable names, folded **without proof** — only with `--skip-var-renames`, never by default | .c .h .cpp .hpp |
 | `whitespace` | Indentation, trailing spaces, blank lines | all |
 | `line-endings` | CRLF vs LF, BOM | all |
 
@@ -148,6 +150,44 @@ Regenerating a model routinely emits the same independent assignments — output
 - the new order preserves **every data dependence** — whenever two statements share a variable and one of them writes it, their relative order hasn't changed.
 
 Two straight-line schedules that agree on the order of every dependent pair are guaranteed to compute the same result, so folding the reorder is behaviour-preserving, not a guess. If any of those three conditions fails — a call sneaks in between the lines, a right-hand side actually changed, a dependent pair got flipped — the whole block stays a real change. The rule errs toward calling a block real rather than toward hiding one; when in doubt, it shows you the diff.
+
+### Quick check: skipping variable renames
+
+Every rule above proves its case before folding anything away. `--skip-var-renames` does not, and it is the only part of the tool that works this way — so it is off by default and has to be asked for by name.
+
+It is for one job: sweeping a fresh regenerate for what is **not** a rename, when you already expect a wave of renaming and want to see the rest. It is not for signing a review off.
+
+With the flag on, a C/C++ hunk is folded as `assumed-rename` when every line on both sides is a **binding** — one statement that names an object and at most copies a single other object or literal into it — and the two sides pair up line for line, differing only by identifier names, with the declared type unchanged.
+
+A binding never *computes*. Either side of the `=` may be a plain lvalue path — a name, a `.field`, a `->field`, a `[index]` — which is how Embedded Coder reaches its ports, DWork state and buffers:
+
+```c
+a = b;                     →  x = b;
+acc_cmd = rtU.Pedal;       →  drv_cmd = rtU.Pedal;
+rtY.Out = filt_in;         →  rtY.Out = filt_val;
+buf[2] = rtDW->State;      →  buf[2] = rtDW->Level;
+real_T filt_in;            →  real_T filt_val;
+boolean_T flag = FALSE;    →  boolean_T other = FALSE;
+```
+
+**What it costs you.** A rewiring has exactly the same shape as a rename, so it is folded too. `a = speed;` becoming `a = torque;` is a genuine signal change, and this mode will not report it. That is the trade the flag exists to make; a run that used it can be missing a real change.
+
+**What still counts as real, even here:**
+
+- a changed literal — `a = 0;` → `x = 1;`;
+- a changed type — `sint32 a = 0;` → `uint8 x = 0;`;
+- an ALL_CAPS macro or enum constant on either side — `flag = FALSE;` → `flag = TRUE;`, `mode = IDLE;` → `mode = DRIVE;`. C reserves all-caps for constants declared elsewhere, so swapping one is a value change, not a rename;
+- a variable swap — `a`↔`b` — which is a real change however consistent it looks;
+- any hunk holding a line that is not a binding: an expression (`a = b + c;`), a call, a cast, an address-of or a dereference, a prototype, a multi-declarator list. One such line leaves the **whole** hunk real, so a rename sitting next to a real edit is still shown.
+
+**How it announces itself.** Folding without proof is only acceptable if it is impossible to miss:
+
+- the terminal summary prints a `QUICK CHECK` warning above the counts;
+- the HTML report carries a one-line note at its foot, and a revealed hunk's placeholder row names the kind (`assumed-rename`) rather than calling it a proven rename;
+- the JSON output carries `"quick_check": "skip-var-renames"`;
+- the viewer's title bar says `QUICK CHECK: variable renames skipped`.
+
+The flag only ever touches C/C++ bindings, so it does nothing at all with `--arxml-only`.
 
 ### Comment is its own category
 

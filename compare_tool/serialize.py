@@ -98,6 +98,13 @@ def build(results, counts, old_root, new_root, exit_code,
         'files': [_file_entry(rel, results[rel]) for rel in sorted(results)],
         'consistency': [{'model': m, 'message': msg} for m, msg in advisories],
     }
+    # a run made with --skip-var-renames folded differences it could not prove
+    # were noise, so its summary and exit code are weaker than they look. A
+    # consumer gating on this file has to be able to see that without walking
+    # every hunk.
+    if any(h['kind'] == 'assumed-rename'
+           for r in results.values() for h in (r.get('hunks') or [])):
+        doc['quick_check'] = 'skip-var-renames'
     if old_label:
         doc['baseline_label'] = old_label
     if new_label:

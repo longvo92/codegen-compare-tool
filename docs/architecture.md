@@ -114,6 +114,11 @@ decides what you see, and three peeling steps (rename, autogen-name, reorder)
 each remove only what they can justify. ARXML and A2L take the same two passes;
 only the *shadow* — what each strips — differs.
 
+There is one opt-in exception to "prove it is noise", drawn dashed below:
+`--skip-var-renames` peels hunks that are only variable-name swaps in bindings,
+without a proof that the swap preserves behaviour. It is off unless asked for,
+and what it peels is labelled `assumed-rename`, never `rename`.
+
 ```mermaid
 flowchart TD
     START["scanner pairs a file by path"]:::io --> DISP{"present on…"}
@@ -130,6 +135,8 @@ flowchart TD
     SHA --> P2["PASS 2 · diff the shadows<br/>patience matcher (linediff.hunks)<br/>→ candidate real hunks"]:::pass
     P2 --> F1["peel · 1-to-1 rename map<br/>verified by re-diff"]:::filter
     F1 --> F2["peel · autogen-name noise<br/>rtb_ · _DSTATE · tmp_N swaps"]:::filter
+    F2 -. "--skip-var-renames only" .-> FQ["peel · assumed rename<br/>bindings differing by name<br/>NOT proven"]:::filter
+    FQ -.-> F3
     F2 --> F3["peel · safe reorder<br/>dependence-preserving permutation"]:::filter
     F3 --> REM{"candidate hunks<br/>still left?"}
 
@@ -276,8 +283,19 @@ consumes one dict per compared path:
 ```
 
 Ranges are 0-based, end-exclusive, into the **raw** lines of each side.
-`kind` is one of `real`, `moved`, `comment`, `rename`, `reorder`, `uuid`,
-`timestamp`, `sw-version`, `description`, `whitespace`, `mixed`.
+`kind` is one of `real`, `moved`, `comment`, `rename`, `assumed-rename`,
+`reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`,
+`mixed`.
+
+`assumed-rename` is the only kind applied **without** proof, and it appears
+only when the caller passed `skip_var_renames` (`--skip-var-renames`). It folds
+a hunk whose every line is a binding — a statement that names one object and
+at most copies another into it (`a = b;`, `rtY.Out = rtU.Pedal;`, `real_T x;`,
+`boolean_T f = FALSE;`) — differing only by identifier names, which a rewiring
+also looks like. It is
+therefore a deliberate false-negative mode: it keeps its own kind so no surface
+can spell it `rename`, and the report, the terminal summary, the JSON and the
+viewer title each say the run used it.
 
 `reorder` is the one ignorable kind decided on *meaning* rather than spelling:
 when the whole surviving change set is a dependence-preserving permutation of a

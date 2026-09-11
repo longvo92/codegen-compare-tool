@@ -52,6 +52,7 @@ h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--f
 .errbox div { padding: 1px 0; }
 .errbox code { background: var(--err-code-bg); color: var(--err-fg); }
 .hint { color: var(--fg-faint); font-size: 11px; margin: -14px 0 18px; }
+.qcnote { color: var(--fg-faint); font-size: 11px; margin: 26px 0 6px; }
 body.hide-real .sec-real, body.hide-ign .sec-ign, body.hide-add .sec-add,
 body.hide-del .sec-del { display: none; }
 ul.files { margin: 4px 0 14px; padding-left: 22px; font-size: 13px; }
@@ -1152,24 +1153,12 @@ def _content_table(lines, cls, language=None):
 # Anything not listed here still shows, with its first letter raised: a kind
 # added to a rules module may look plain, it may never go missing.
 _KIND_LABEL = {'uuid': 'UUID', 'sw-version': 'SW version',
-               'line-endings': 'Line endings'}
+               'line-endings': 'Line endings',
+               'assumed-rename': 'Assumed rename'}
 
 
 def _kind_label(kind):
     return _KIND_LABEL.get(kind, kind[:1].upper() + kind[1:])
-
-
-def _kinds_of(r):
-    """Short ignorable-kind summary for a file, e.g. 'Comment, Rename ×3'."""
-    kinds = {h['kind'] for h in r['hunks'] if h['kind'] != 'real'} | set(r['notes'])
-    labels = set()
-    # only the counted spelling replaces the plain one -- a rename hunk with no
-    # pair recorded still has to say 'Rename'
-    if r['renames']:
-        kinds.discard('rename')
-        labels.add('Rename ×{}'.format(len(r['renames'])))
-    labels |= {_kind_label(k) for k in kinds}
-    return ', '.join(sorted(labels))
 
 
 def _autosar_section(results, anchors):
@@ -1296,20 +1285,6 @@ def _notes(r):
     return _iface_note(r) + _swc_note(r) + _rte_note(r) + _a2l_note(r)
 
 
-def _affected_extra(names, limit=3):
-    """The functions/blocks a file's real changes land in, for its header --
-    the seed of an Impact Analysis "Affected Module" column. Capped so a
-    heavily churned file does not spill its whole symbol table into the
-    summary line; the diff below still names every one."""
-    if not names:
-        return ''
-    shown = [_esc(n) for n in names[:limit]]
-    text = 'Affected: ' + ', '.join(shown)
-    if len(names) > limit:
-        text += ' (+{})'.format(len(names) - limit)
-    return text
-
-
 def _file_open(anchor, rel, status, extra='', expanded=False, reviewed=False):
     label, tag = _LABEL[status]
     sec = _TREE[status][2]
@@ -1342,6 +1317,22 @@ def _error_banner(results):
             'does not cover them.</div></div>'.format(len(errs), ''.join(lines)))
 
 
+def _quick_check_note(results):
+    """One line recording that this run ran with ``--skip-var-renames``.
+
+    Sits between the folder tree and the detailed changes: the mode is the
+    reader's own choice, not a failure, so it reads as a caption rather than a
+    banner -- but it is never absent, and it is the last thing read before the
+    diffs, because what it folded is not provably noise and never appears in
+    them. Empty string when the mode folded nothing."""
+    n = sum(1 for r in results.values()
+            if any(h['kind'] == 'assumed-rename' for h in r.get('hunks', [])))
+    if not n:
+        return ''
+    return ('<div class="qcnote">&#9888; Variable renames ignored in {} file(s) '
+            '(<code>--skip-var-renames</code>).</div>'.format(n))
+
+
 def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
     """One collapsible detail section for a non-identical file.
 
@@ -1369,12 +1360,13 @@ def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
             notes = rv.annotate(rel, r, old_lines, new_lines)
         lang = syntax.language_for(rel)
         labels = None
-        extra = ''
         if not r['binary']:
             labels = (funcname.enclosing(old_lines, lang),
                       funcname.enclosing(new_lines, lang))
-            extra = _affected_extra(funcname.affected(labels[0], labels[1], hunks))
-        parts.append(_file_open(anchors[rel], rel, 'real-change', extra,
+        # only the verdict badge: the header answers "must I read this file",
+        # and which symbols / which noise kinds are in it is what the diff
+        # below is for
+        parts.append(_file_open(anchors[rel], rel, 'real-change',
                                 expanded=True, reviewed=rel in rv.files))
         parts.append(_notes(r))
         if r['binary']:
@@ -1386,7 +1378,7 @@ def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
             parts.append(_groups_html(old_lines, new_lines, hunks, notes,
                                       lang, labels, max_rows))
     elif status in ('comment-only', 'ignorable-only'):
-        parts.append(_file_open(anchors[rel], rel, status, _esc(_kinds_of(r))))
+        parts.append(_file_open(anchors[rel], rel, status))
         if not r['hunks']:
             parts.append('<div class="filenote">Line endings / BOM only; '
                          'no content difference.</div>')
@@ -1702,6 +1694,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
         parts.append('<p>No real changes. All differences are ignorable '
                      '(comments / renames / UUIDs / timestamps / whitespace).</p>')
 
+    parts.append(_quick_check_note(results))
     if detail_files:
         parts.append('<h2>Detailed changes</h2>')
         parts.append('<div class="legend">'

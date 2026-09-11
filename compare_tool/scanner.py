@@ -107,7 +107,8 @@ def list_files(root, errors=None):
     return out
 
 
-def compare_file(old_root, new_root, rel, user_rules=()):
+def compare_file(old_root, new_root, rel, user_rules=(),
+                 skip_var_renames=False):
     """Full comparison result for one relative path present in both trees."""
     old_p = Path(old_root) / rel
     new_p = Path(new_root) / rel
@@ -121,7 +122,7 @@ def compare_file(old_root, new_root, rel, user_rules=()):
         # bytes differed but normalized text equal: EOL style or BOM only
         return {'status': 'ignorable-only', 'hunks': [], 'renames': {},
                 'notes': ['line-endings'], 'binary': False}
-    result = compare_pair(old_text, new_text, rel, user_rules)
+    result = compare_pair(old_text, new_text, rel, user_rules, skip_var_renames)
     result['binary'] = False
     # semantic summaries: only real changes can move the AUTOSAR surface
     # (ignorable-only means the shadows are equal, hence same content)
@@ -242,7 +243,8 @@ def _candidate(root, rel):
     return filepair.Candidate(rel, ext, digest, lines)
 
 
-def _link_moves(results, old_root, new_root, user_rules=()):
+def _link_moves(results, old_root, new_root, user_rules=(),
+                skip_var_renames=False):
     """Cross-reference added files with the deleted ones they came from.
 
     The two entries KEEP their `added` / `deleted` verdicts and their place in
@@ -259,7 +261,8 @@ def _link_moves(results, old_root, new_root, user_rules=()):
     for a_rel, (d_rel, sim) in filepair.find_moves(added, deleted).items():
         try:
             pair = compare_pair(read_text(Path(old_root) / d_rel),
-                                read_text(Path(new_root) / a_rel), a_rel, user_rules)
+                                read_text(Path(new_root) / a_rel), a_rel, user_rules,
+                                skip_var_renames)
         except (OSError, UnicodeError):
             continue
         results[a_rel]['moved_from'] = d_rel
@@ -273,7 +276,7 @@ def _link_moves(results, old_root, new_root, user_rules=()):
 
 
 def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
-         user_rules=()):
+         user_rules=(), skip_var_renames=False):
     """Compare two trees. Returns {rel_path: result} sorted by path.
     result: {status, hunks, renames, notes, binary[, ifaces]}.
     status 'error' = the path could not be listed or compared (see notes).
@@ -283,7 +286,10 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
     fold: noise statuses that should not be reported separately -- those files
     come back as 'identical' (see fold_status).
     user_rules: extra noise patterns from a --rules file, applied on top of the
-    built-in ones (see compare_tool.userrules)."""
+    built-in ones (see compare_tool.userrules).
+    skip_var_renames: the opt-in --skip-var-renames quick check -- C/C++ hunks
+    that are only bindings differing by variable names become 'assumed-rename'
+    instead of real, WITHOUT proof (see compare_tool.diff_engine)."""
     fold = tuple(fold)
     old_errors, new_errors = [], []
     old_files = list_files(old_root, old_errors)
@@ -311,7 +317,8 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
     for idx, rel in enumerate(all_paths):
         try:
             if rel in old_files and rel in new_files:
-                results[rel] = compare_file(old_root, new_root, rel, user_rules)
+                results[rel] = compare_file(old_root, new_root, rel, user_rules,
+                                            skip_var_renames)
             elif rel in new_files:
                 if under_failed(rel, old_errors):
                     results[rel] = _error_result(
@@ -341,7 +348,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
     # after every verdict is settled: folding cannot reach 'added'/'deleted',
     # so the candidate set is the same either way, and pairing must never be
     # what decides a verdict
-    _link_moves(results, old_root, new_root, user_rules)
+    _link_moves(results, old_root, new_root, user_rules, skip_var_renames)
     return results
 
 

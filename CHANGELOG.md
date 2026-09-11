@@ -5,6 +5,17 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Skip variable renames with `--skip-var-renames`.** Hides the changes that
+  are only a variable name swap, so a regenerate full of renames shows you what
+  else moved. A quick check, not a review: a rewired signal has the same shape
+  and is hidden too, and the report says when the flag was used.
+
+### Changed
+
+- Simplify the report layout.
+
 ## [1.13.0] — 2026-09-06
 
 ### Added

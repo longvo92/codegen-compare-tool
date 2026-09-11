@@ -122,6 +122,11 @@ Tự động nhận diện các thay đổi phổ biến do code generator tạo
 
 Những thay đổi không thể giải thích một cách an toàn vẫn được giữ lại như **real changes**.
 
+Có đúng một ngoại lệ phải tự bật: `--skip-var-renames` gộp các chỗ đổi tên biến
+mà tool không chứng minh được là noise, để quét nhanh một bản regenerate xem có
+gì *không phải* đổi tên. Đổi lại, nó bỏ sót những thay đổi thật có cùng hình
+dạng; mọi bề mặt đều báo rõ lần chạy có bật cờ, và mặc định cờ luôn tắt.
+
 Xem [What Counts as Noise](usage.md#cái-gì-bị-tính-là-noise).
 
 ---
