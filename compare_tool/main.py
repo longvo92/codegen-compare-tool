@@ -55,7 +55,8 @@ def default_report_name(arxml_only):
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                 progress=None, reviews=None, theme_name=theme.DEFAULT,
-                old_label=None, new_label=None, max_diff_lines=0, user_rules=()):
+                old_label=None, new_label=None, max_diff_lines=0, user_rules=(),
+                skip_var_renames=False):
     """Scan two trees and write the HTML report.
 
     ``old_label`` / ``new_label`` name the two sides in the report header when
@@ -78,7 +79,8 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     include = tuple('*' + ext for ext, rs in RULES.items()
                     if rs in ('arxml', 'a2l')) if arxml_only else ()
     results = scan(old_root, new_root, progress=progress, exclude=exclude,
-                   include=include, user_rules=user_rules)
+                   include=include, user_rules=user_rules,
+                   skip_var_renames=skip_var_renames)
     counts = summarize(results)
     if arxml_only:
         # ALWAYS written: "no changes" must be an explicit statement, never
@@ -104,6 +106,14 @@ def summary_lines(results, counts):
     lines.append('Summary: {real-change} modified, {comment-only} comment-only, '
                  '{ignorable-only} unimportant, {added} added, {deleted} deleted, '
                  '{identical} identical, {error} error(s)'.format(**counts))
+    n_assumed = sum(1 for r in results.values()
+                    if any(h['kind'] == 'assumed-rename' for h in r['hunks']))
+    if n_assumed:
+        lines.append('!! QUICK CHECK (--skip-var-renames): variable renames were '
+                     'SKIPPED in {} file(s) without proof that they are noise. A '
+                     'rewiring has the same shape, so a real change can be '
+                     'missing from the counts above -- re-run without the flag '
+                     'before signing anything off.'.format(n_assumed))
     if counts['error']:
         lines.append('!! COMPARE INCOMPLETE: {} path(s) could NOT be compared -- '
                      'treat them as potentially changed:'.format(counts['error']))
@@ -247,6 +257,21 @@ def _parser():
                          'file\'s line count, is skipped with a warning -- a '
                          'filter can never hide a real change. Applies to both '
                          'the report and the viewer')
+    ap.add_argument('--skip-var-renames', action='store_true',
+                    help='QUICK CHECK, UNSAFE: fold away any C/C++ hunk that is '
+                         'only bindings differing by variable names -- an '
+                         'assignment or a declaration that names one object and '
+                         'at most copies one into it (a = b, rtY.Out = rtU.In, '
+                         'real_T x, boolean_T a = FALSE) -- WITHOUT proving '
+                         'the swap is noise. Built for one job -- sweeping a '
+                         'regenerate for what is NOT a rename -- and it pays '
+                         'for that with false negatives: a rewiring '
+                         '(a = speed becoming a = torque) has exactly the same '
+                         'shape and is folded too. Changed literals, ALL_CAPS '
+                         'macro/enum constants and variable swaps still count '
+                         'as real. Everything folded is labelled Assumed rename '
+                         'and the report and the terminal both carry a warning; '
+                         'do not sign a review off on a run that used this')
     ap.add_argument('--json', metavar='OUT.json', default=None,
                     help='also write the full scan as schema-versioned JSON for '
                          'a pipeline to read -- per-file verdict, hunks, renames, '
@@ -362,7 +387,8 @@ def _run(ap, args, zip_temp):
         try:
             return run_viewer(old_dir, new_dir, exclude=args.exclude,
                               arxml_only=args.arxml_only, theme_name=args.theme,
-                              user_rules=user_rules)
+                              user_rules=user_rules,
+                              skip_var_renames=args.skip_var_renames)
         except ImportError as e:
             # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
             # Say so plainly instead of dumping a traceback.
@@ -396,6 +422,9 @@ def _run(ap, args, zip_temp):
         if args.arxml_only:
             print('note: --review has no effect with --arxml-only (that report '
                   'lists files, not individual changes)', file=sys.stderr)
+    if args.skip_var_renames and args.arxml_only:
+        print('note: --skip-var-renames has no effect with --arxml-only (it '
+              'only ever folds C/C++ bindings)', file=sys.stderr)
 
     out = Path(args.report)
     print('Scanning...')
@@ -411,7 +440,8 @@ def _run(ap, args, zip_temp):
                                       old_label=args.baseline_name or old_zip,
                                       new_label=args.current_name or new_zip,
                                       max_diff_lines=args.max_diff_lines,
-                                      user_rules=user_rules)
+                                      user_rules=user_rules,
+                                      skip_var_renames=args.skip_var_renames)
     except ReportWriteError as e:
         # what WAS scanned still goes to the terminal -- the compare itself may
         # have been fine, it is only the record that is missing

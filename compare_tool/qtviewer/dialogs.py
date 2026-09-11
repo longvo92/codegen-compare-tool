@@ -74,6 +74,11 @@ to read this". The Status word says which kind of nothing it is.
   the tree, and still appears as Comment in an exported report
 - Tick back on to bring the colour back
 - Real changes can never be quietened
+- If the title bar says **QUICK CHECK: variable renames skipped**, this window
+  was started with `--skip-var-renames`: that scan folded variable renames it
+  could not prove were noise, so a rewired signal can be sitting under
+  Unimportant. It is a sweep, not a review -- re-run without the flag before
+  signing anything off
 
 ## 5. Read the diff
 

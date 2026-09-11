@@ -436,6 +436,152 @@ def autogen_noise_map(old_lines, new_lines, old_ids=None, new_ids=None):
     return mapping
 
 
+# --- assumed variable renames (--skip-var-renames quick check) ---
+#
+# Every other rule in this module proves its case before folding a difference
+# away. This one does not, and says so: `a = b;` becoming `x = y;` is equally
+# consistent with "two signals were renamed" and with "the block was rewired",
+# and nothing in the file says which. It exists for the one job where that
+# trade pays -- sweeping a regenerate for what is NOT a rename -- so it is
+# opt-in, off by default, and everything it folds is labelled `assumed-rename`
+# rather than `rename` on every surface.
+#
+# The shape is kept narrow: a whole hunk of bindings, paired 1-1, differing
+# only by names, with the declared type unchanged. A binding names objects and
+# copies one into another; it never computes. Anything with an operator, a
+# call, a cast or a changed literal is not a binding and stays a real change.
+
+
+def _path_len(toks):
+    """Length of the plain lvalue path starting at ``toks[0]``, else 0.
+
+    A path is an identifier followed by any number of ``.field``, ``->field``
+    and ``[index]`` steps, the index itself a name or an integer. That is the
+    shape Embedded Coder writes its ports and state through -- ``rtU.Pedal``,
+    ``rtDW->Filter_DSTATE``, ``buf[2]`` -- and it still only *names* one object:
+    no operator, no call, so nothing is computed on the way.
+    """
+    if not toks or not is_identifier(toks[0]):
+        return 0
+    i = 1
+    while i < len(toks):
+        if toks[i] == '.' and i + 1 < len(toks) and is_identifier(toks[i + 1]):
+            i += 2
+        elif (toks[i] == '-' and i + 2 < len(toks) and toks[i + 1] == '>'
+                and is_identifier(toks[i + 2])):
+            i += 3  # '->' tokenizes as two single characters
+        elif (toks[i] == '[' and i + 2 < len(toks) and toks[i + 2] == ']'
+                and (is_identifier(toks[i + 1]) or toks[i + 1].isdigit())):
+            i += 3
+        else:
+            break
+    return i
+
+
+# Keywords that may precede a declared name. Deliberately a whitelist rather
+# than "any keyword": `return a;` is `return` followed by a name and would
+# otherwise parse as a declaration of `a`, and so would `else x;`.
+DECL_KEYWORDS = frozenset("""
+    auto char const double enum extern float inline int long register restrict
+    short signed static struct union unsigned void volatile _Bool _Complex
+""".split())
+
+
+def _is_decl_token(tok):
+    """True for a token that may sit in front of a declared name: a type name,
+    a qualifier (``static``, ``const``, ``unsigned``) or a pointer star."""
+    return tok == '*' or is_identifier(tok) or tok in DECL_KEYWORDS
+
+
+def binding_parts(line):
+    """``(declaration_tokens, target_tokens, value_tokens)`` for a binding, or
+    ``None`` for anything else.
+
+    A binding is one statement that names an object and, optionally, copies a
+    single named object or literal into it:
+
+    - ``a = b;`` / ``rtY.Out = rtU.Pedal;`` / ``buf[2] = rtDW->State;``
+    - ``real_T x;`` -- a bare declaration, which carries a name and a type and
+      no value at all
+    - ``boolean_T flag = FALSE;`` / ``sint32 n = -1;``
+
+    Not a binding: an expression, a call, a cast, two statements on a line, a
+    multi-declarator list, a comparison. Those carry meaning a name swap cannot
+    account for.
+    """
+    toks = tokenize(line.strip())
+    if len(toks) < 2 or toks[-1] != ';':
+        return None
+    body = toks[:-1]
+    if body.count('=') > 1:
+        return None  # '==' tokenizes as two '=', so a comparison is out
+    if '=' in body:
+        cut = body.index('=')
+        lhs, rhs = body[:cut], body[cut + 1:]
+    else:
+        lhs, rhs = body, []
+
+    if lhs and _path_len(lhs) == len(lhs):
+        decl, target = (), tuple(lhs)    # a store into something declared already
+    elif lhs and is_identifier(lhs[-1]) and all(_is_decl_token(t) for t in lhs[:-1]):
+        # a declaration introduces a BARE name; `real_T a.b;` is not C, so a
+        # path target always means the object was declared somewhere else
+        decl, target = tuple(lhs[:-1]), (lhs[-1],)
+    else:
+        return None
+
+    if not rhs:
+        # no value: only a declaration can say nothing. A bare `a;` is a
+        # statement whose point is elsewhere (a macro, a volatile read).
+        return (decl, target, ()) if decl else None
+    v = rhs[1:] if rhs[0] in ('-', '+') else rhs
+    if not v:
+        return None
+    if _path_len(v) != len(v) and len(v) != 1:
+        return None  # one named object, or one literal -- never an expression
+    return decl, target, tuple(rhs)
+
+
+def _is_assumed_rename_pair(a, b):
+    """A name swap the quick check is willing to take for a rename.
+
+    ALL_CAPS is refused on both sides: C reserves it for macros and enum
+    constants, so ``mode = IDLE;`` becoming ``mode = DRIVE;`` is a value change
+    wearing the shape of a rename, and ``flag = FALSE;`` -> ``flag = TRUE;`` is
+    the same thing on a declaration. A changed numeric literal never reaches
+    here at all -- it is not an identifier, so the line pair is rejected.
+    """
+    if a == b or not (is_identifier(a) and is_identifier(b)):
+        return False
+    return not (ALL_CAPS_RE.match(a) or ALL_CAPS_RE.match(b))
+
+
+def assumed_rename_map(old_lines, new_lines):
+    """Name map for a hunk that is nothing but bindings differing by names, or
+    None.
+
+    Unlike :func:`autogen_noise_map` the names do not have to look generated --
+    that is what makes this the unproven quick check. It still refuses a hunk
+    whose sides do not pair 1-1, one that holds a line which is not a binding,
+    one whose declared type or literal changed, and one whose map contains a
+    cycle (an ``a`` <-> ``b`` swap is a real change, never a rename).
+    """
+    if not old_lines or len(old_lines) != len(new_lines):
+        return None
+    mapping = {}
+    for la, lb in zip(old_lines, new_lines):
+        pa, pb = binding_parts(la), binding_parts(lb)
+        if pa is None or pb is None:
+            return None
+        if pa[0] != pb[0]:
+            return None  # the declared TYPE changed -- sint32 -> uint8 truncates
+        if not _collect_line_pair_renames(la, lb, mapping, _is_assumed_rename_pair):
+            return None
+    if not mapping or _map_has_cycle(mapping):
+        return None
+    return mapping
+
+
 # --- straight-line reorder (Embedded Coder reschedules independent stmts) ---
 #
 # Regenerating a model routinely emits the same independent assignments in a

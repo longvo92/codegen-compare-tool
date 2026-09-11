@@ -222,8 +222,18 @@ Mọi thứ ở phía sau — summary của CLI, HTML report, cây của viewer,
 ```
 
 Range đánh số từ 0, hở đầu cuối (end-exclusive), tính trên dòng **thô** của mỗi bên.
-`kind` là một trong `real`, `moved`, `comment`, `rename`, `uuid`, `timestamp`,
-`sw-version`, `description`, `whitespace`, `mixed`.
+`kind` là một trong `real`, `moved`, `comment`, `rename`, `assumed-rename`,
+`reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`,
+`mixed`.
+
+`assumed-rename` là kind duy nhất được gán **không kèm chứng minh**, và chỉ
+xuất hiện khi caller truyền `skip_var_renames` (`--skip-var-renames`). Nó gộp
+một hunk mà mọi dòng đều là binding — câu lệnh chỉ gọi tên một object và
+nhiều nhất là chép một object khác vào đó (`a = b;`, `rtY.Out = rtU.Pedal;`,
+`real_T x;`, `boolean_T f = FALSE;`) — chỉ khác nhau ở tên định danh, mà một
+thay đổi đấu nối lại cũng trông y hệt vậy. Nói cách khác đây là chế độ cố ý chấp nhận báo thiếu: nó giữ kind riêng để
+không bề mặt nào đọc thành `rename`, và report, summary trên terminal, JSON lẫn
+tiêu đề viewer đều nói rõ lần chạy đó có bật cờ.
 
 Phần ngữ nghĩa chỉ được tính ở chỗ nó có thể có nghĩa: file có shadow bằng nhau thì
 nội dung như nhau, nên không thể làm xê dịch bề mặt AUTOSAR.

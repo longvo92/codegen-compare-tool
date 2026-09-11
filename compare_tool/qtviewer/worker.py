@@ -13,13 +13,15 @@ class ScanWorker(QThread):
     done = Signal(dict)                  # results
     failed = Signal(str)                 # loud failure -> red banner
 
-    def __init__(self, old, new, exclude=(), include=(), user_rules=()):
+    def __init__(self, old, new, exclude=(), include=(), user_rules=(),
+                 skip_var_renames=False):
         super().__init__()
         self.old = old
         self.new = new
         self.exclude = tuple(exclude)
         self.include = tuple(include)
         self.user_rules = tuple(user_rules)
+        self.skip_var_renames = bool(skip_var_renames)
 
     def run(self):
         try:
@@ -29,7 +31,8 @@ class ScanWorker(QThread):
             # like the built-in rules do, so they are baked into the scan here.
             results = scan(self.old, self.new, progress=self._progress,
                            exclude=self.exclude, include=self.include,
-                           user_rules=self.user_rules)
+                           user_rules=self.user_rules,
+                           skip_var_renames=self.skip_var_renames)
             self.done.emit(results)
         except Exception as e:
             # scan is internally fail-safe, but a crash here must still be

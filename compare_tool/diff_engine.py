@@ -6,8 +6,12 @@ A raw hunk that does not intersect any real hunk is ignorable; it is labeled
 by testing single normalization rules one at a time.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
-kind in {real, moved, comment, rename, reorder, uuid, timestamp, sw-version,
-         description, whitespace, mixed}
+kind in {real, moved, comment, rename, assumed-rename, reorder, uuid,
+         timestamp, sw-version, description, whitespace, mixed}
+
+'assumed-rename' only ever appears when the caller asked for it
+(``skip_var_renames``): it is the one label this engine applies WITHOUT
+proving the difference is noise. See c_rules.assumed_rename_map.
 
 Moved blocks: a pure-delete hunk whose non-blank shadow content reappears
 verbatim as exactly one pure-insert hunk (and vice versa) is labeled 'moved'
@@ -235,6 +239,16 @@ def _is_autogen_hunk(h, old_sh_lines, new_sh_lines, old_ids, new_ids):
     return c_rules.autogen_noise_map(a, b, old_ids, new_ids) is not None
 
 
+def _is_assumed_rename_hunk(h, old_sh_lines, new_sh_lines):
+    """True when a shadow hunk is only bindings whose lines differ by variable
+    names -- the ``--skip-var-renames`` quick check. Unproven by
+    design (see :func:`compare_tool.c_rules.assumed_rename_map`); reached only
+    when the caller opted in."""
+    i1, i2, j1, j2 = h
+    return c_rules.assumed_rename_map(_nonblank(old_sh_lines[i1:i2]),
+                                      _nonblank(new_sh_lines[j1:j2])) is not None
+
+
 def _slices_equal(h, old_variant_lines, new_variant_lines):
     """Compare a hunk's line slices under some normalization variant,
     ignoring blank lines (handles pure insert/delete of comment lines)."""
@@ -305,7 +319,8 @@ def _build_variants(old_text, new_text, ruleset, rename_map, ext='', user_rules=
     return variants
 
 
-def compare_pair(old_text, new_text, path, user_rules=()):
+def compare_pair(old_text, new_text, path, user_rules=(),
+                 skip_var_renames=False):
     """Compare two file contents. Returns dict:
     {status, hunks, renames, notes}
     status in {identical, comment-only, ignorable-only, real-change}
@@ -313,7 +328,13 @@ def compare_pair(old_text, new_text, path, user_rules=()):
     ``user_rules`` are extra noise patterns from a ``--rules`` file
     (:mod:`compare_tool.userrules`). They run ON TOP of the built-in Embedded
     Coder rules -- an empty tuple, the default, leaves every existing verdict
-    exactly as it was."""
+    exactly as it was.
+
+    ``skip_var_renames`` is the opt-in quick check (``--skip-var-renames``): a
+    C/C++ hunk that is nothing but bindings differing by variable names is
+    labelled ``assumed-rename`` instead of ``real``, WITHOUT proof that the
+    swap preserves behaviour. It can therefore hide a rewiring, which is why it
+    is off by default and why every hunk it folds keeps a label of its own."""
     result = {'status': 'identical', 'hunks': [], 'renames': {}, 'notes': []}
     if old_text == new_text:
         return result
@@ -403,6 +424,21 @@ def compare_pair(old_text, new_text, path, user_rules=()):
                 kept.append(h)
         candidates = kept
 
+    # Opt-in quick check (--skip-var-renames): hunks that are only bindings
+    # differing by variable names. NOT proven noise -- a rewiring has
+    # the same shape -- so it runs last among the name rules, after the proven
+    # ones have taken what they can explain, and what it takes keeps its own
+    # 'assumed-rename' label everywhere it is shown or counted.
+    assumed_rename_hunks = []
+    if skip_var_renames and ruleset in ('c', 'cpp') and candidates:
+        kept = []
+        for h in candidates:
+            if _is_assumed_rename_hunk(h, final_old_shadow_lines, new_shadow_lines):
+                assumed_rename_hunks.append(h)
+            else:
+                kept.append(h)
+        candidates = kept
+
     # MATLAB codegen reschedules independent statements (output assignments,
     # temporaries): the raw and shadow text both read as a change, but the block
     # computes the same values. When the whole surviving change set is one
@@ -454,6 +490,9 @@ def compare_pair(old_text, new_text, path, user_rules=()):
                 kind = 'rename'  # autogen-name swap (rtb_/mangle/temp)
             if kind is None and reorder_hunks and _overlaps(h, reorder_hunks):
                 kind = 'reorder'  # independent statements rescheduled
+            if (kind is None and assumed_rename_hunks
+                    and _overlaps(h, assumed_rename_hunks)):
+                kind = 'assumed-rename'  # --skip-var-renames: assumed, not proven
         if kind is None:
             kind = 'mixed'  # ignorable but caused by >1 rule combined
             for name, ov, nv in variants:

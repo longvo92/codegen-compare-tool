@@ -125,6 +125,11 @@ Automatically identifies common code-generation churn:
 
 Changes that cannot be safely explained remain visible as real changes.
 
+One opt-in exception: `--skip-var-renames` folds variable renames it cannot
+prove are noise, so a fresh regenerate can be swept for what is *not* a rename.
+It trades away real changes that look the same, announces itself everywhere it
+was used, and is never on by default.
+
 See [What Counts as Noise](docs/usage.md#what-counts-as-noise).
 
 ---

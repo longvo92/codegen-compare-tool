@@ -104,26 +104,25 @@ class TestRealPlusMinor(unittest.TestCase):
         sect = next(s for s in page.split('<details class="file')
                     if s.startswith(' sec-real" id="f') and
                     'data-p="NoiseDemo_autosar_rtw/NoiseDemo.c"' in s).split('</details>')[0]
-        # the header may now carry an "Affected: <fn>" hint (which functions
-        # changed -- not a recount of the rows), so the check is on the
-        # composition wording itself, not the hcount span it once rode in on
         header = sect.split('<div class="body">')[0]
         self.assertNotIn('hunk', header)
         self.assertNotIn('hunklabel', sect)
         self.assertNotIn('comment + real', sect)
 
     def test_report_captions_the_enclosing_function(self):
-        # the real hunk in NoiseDemo.c sits inside Calc_step; the group gets
-        # a caption naming it, and the file header lists it as Affected
+        # the real hunk in NoiseDemo.c sits inside Calc_step, and the group
+        # gets a caption naming it. The file header does NOT repeat it: a
+        # header answers "must I read this file", and the answer is the verdict
         results = scan(DEMO / 'old', DEMO / 'new')
         page = build_report(results, DEMO / 'old', DEMO / 'new')
         sect = next(s for s in page.split('<details class="file')
                     if s.startswith(' sec-real" id="f') and
                     'data-p="NoiseDemo_autosar_rtw/NoiseDemo.c"' in s).split('</details>')[0]
         header = sect.split('<div class="body">')[0]
-        self.assertIn('Affected: Calc_step', header)
-        self.assertIn('class="fnhdr"', sect)
-        self.assertIn('Calc_step', sect.split('<table')[0].rsplit('fnhdr', 1)[-1])
+        self.assertNotIn('Affected', header)
+        self.assertNotIn('hcount', header)
+        captions = [p.split('</div>')[0] for p in sect.split('class="fnhdr"')[1:]]
+        self.assertTrue(any('Calc_step' in c for c in captions), captions)
 
     def test_report_shows_minor_hunks_in_modified_files(self):
         results = scan(DEMO / 'old', DEMO / 'new')
