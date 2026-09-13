@@ -137,6 +137,21 @@ For a normal release:
 
 ---
 
+## Changelog
+
+`CHANGELOG.md` is written for end users: say what they get, not what changed in the code.
+
+* Start every line with a verb: `Add`, `Improve`, `Fix`, `Optimize`, `Remove`.
+* **Minor changes stay general.** Group related ones into one line; a single one is still written at that level.
+  * "Move Report button to top" + "hide About button" → `Improve UI layout`
+  * "Show a function name once per run of changes" → `Improve report readability`
+* **Major changes get their own bullet:** a new feature, a breaking change, or a bug that affected the output. Lead with the outcome in one bold sentence, then when it matters. A few lines at most, no justification.
+* Leave out what users cannot see: refactors, renames, comments, internal cleanup, tests.
+* No file names, function names, commit hashes or branch names.
+* Sections: `### Added`, `### Changed`, `### Fixed`, `### Removed`.
+
+---
+
 ## Documentation
 
 The English documentation is the source of truth.
