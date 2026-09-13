@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-09-13
+
+### Changed
+
+- Improve report readability.
+
 ## [1.14.0] — 2026-09-11
 
 ### Added

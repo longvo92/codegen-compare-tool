@@ -287,10 +287,10 @@ khớp nhau hoàn hảo cho tới lúc ai đó thêm một kind mới vào một
   làm chúng rớt ra ở lần scan sau.
 - **`funcname.enclosing`** — tên scope của mỗi dòng (hàm C/C++, class/method
   Python, SHORT-NAME AUTOSAR, block A2L), một list mà cả report và viewer cùng
-  đọc. Report chú thích mỗi nhóm
-  hunk và liệt kê danh sách `Affected` của file từ đó; viewer bám theo "hàm hiện
-  tại" khi pane cuộn. Nó không bao giờ quyết định verdict — tên sai chỉ tốn một
-  caption — nên heuristic thà trả `None` còn hơn đoán.
+  đọc. Report hiện tên này phía trên mỗi nhóm thay đổi (chỉ một lần nếu các nhóm
+  liền nhau cùng scope); viewer bám theo "hàm hiện tại" khi pane cuộn. Nó không
+  bao giờ quyết định verdict — tên sai chỉ tốn một caption — nên heuristic thà
+  trả `None` còn hơn đoán.
 - **`langspec.SPECS`** — một bảng duy nhất mô tả ngữ pháp comment/string của mỗi
   ngôn ngữ (cái gì mở một comment, string escape ra sao). Hai surface rất khác
   nhau cùng đọc nó: `syntax.py` tô màu comment, còn shadow của diff

@@ -169,6 +169,11 @@ tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2)
    caption on the diff, not as a diff row. */
 .fnhdr { font-family: Consolas, monospace; font-size: 11px; color: var(--fg-muted);
          padding: 3px 8px 1px; }
+/* groups inside one scope share the first group's caption (see _groups_html).
+   Which caption comes first depends on the Reviewed badge folding signed-off
+   groups away: .dup repeats the one above while every group shows, .dup-unrev
+   while reviewed groups are hidden. */
+body:not(.hide-rev) .fnhdr.dup, body.hide-rev .fnhdr.dup-unrev { display: none; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
 /* Unimportant rows hide per ROW, not per group: a group used to be wrapped
@@ -661,6 +666,9 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
                                         funcname.enclosing(new_lines, language))
     out = []
     rows_so_far = 0
+    # the scope named by the nearest code group above: once with every group
+    # on screen, once with signed-off groups folded away by the Reviewed badge
+    above = above_unrev = None
     runs = _focus_runs(hunks)
     for idx, (i, j, lean) in enumerate(runs):
         # --max-diff-lines caps the diff embedded per file: a regenerate that
@@ -682,10 +690,24 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
         cls = ' grp-rev' if done else ''
         block = ['<div class="grp{}{}">'.format(' lean' if lean else '', cls)]
         # a lean group is a collapsed noise placeholder with no code window, so
-        # a caption over it would point at rows that are not shown
-        label = None if lean else funcname.hunk_label(old_labels, new_labels, g[0])
-        if label:
-            block.append('<div class="fnhdr">ƒ {}</div>'.format(_esc(label)))
+        # a caption over it would point at rows that are not shown; naming no
+        # scope, it does not break a run of groups inside one either
+        if not lean:
+            label = funcname.hunk_label(old_labels, new_labels, g[0])
+            # a caption only where the scope changes, not over every table of
+            # one function. The Reviewed badge can fold the group carrying it
+            # away, so a caption that repeats in only one badge state is still
+            # emitted, marked for the CSS to hide in that state. A signed-off
+            # group is itself hidden once reviewed groups are, so only the
+            # every-group-shown state decides its own caption.
+            dup = label == above
+            dup_unrev = dup if done else label == above_unrev
+            if label and not (dup and dup_unrev):
+                mark = ' dup' if dup else ' dup-unrev' if dup_unrev else ''
+                block.append('<div class="fnhdr{}">ƒ {}</div>'.format(mark, _esc(label)))
+            above = label
+            if not done:
+                above_unrev = label
         block.append(notes_html)
         budget = (max_rows - rows_so_far) if max_rows else 0
         block.append(_group_table(old_lines, new_lines, g, language, old_states,

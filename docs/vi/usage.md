@@ -451,6 +451,10 @@ khác biệt *chỉ* là comment thì không có mục chi tiết riêng; nó ch
 không rộng hơn:
 [architecture.md](architecture.md#những-quyết-định-nên-biết-trước-khi-sửa).)
 
+Mỗi change được ghi tên hàm chứa nó (với ARXML là SHORT-NAME, với A2L là
+block). Nhiều change cùng nằm trong một hàm thì tên hàm chỉ hiện một lần, ở trên
+change đầu tiên.
+
 `Focus on changes`, cạnh cây thư mục, thu cây lại còn đúng các file thật sự có
 thay đổi — dòng identical, comment-only và Unimportant biến mất, thư mục nào
 chỉ còn lại toàn những loại đó thì biến theo luôn. Giống `Hide identical` bên
