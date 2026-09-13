@@ -131,6 +131,89 @@ class TestRealPlusMinor(unittest.TestCase):
         self.assertIn('delm', page)  # NoiseDemo.c has comment hunks too
 
 
+_CAPTION_RE = re.compile(r'<div class="(fnhdr[^"]*)">ƒ ([^<]*)</div>')
+
+
+def _scoped_c(scopes):
+    """C source with one function per ``(name, x, y)``, the ``x`` and ``y``
+    statements padded far enough apart -- and from the next function -- that
+    a change to either renders as its own group."""
+    lines = []
+    for name, x, y in scopes:
+        lines += ['void {}(void)'.format(name), '{']
+        for stmt in ('x = {};'.format(x), 'y = {};'.format(y), None):
+            # unique filler, so the line matcher has nothing to mis-anchor on
+            lines += ['  pad{} = 0;'.format(len(lines) + k) for k in range(8)]
+            if stmt:
+                lines.append('  ' + stmt)
+        lines += ['}', '']
+    return '\n'.join(lines)
+
+
+class TestFunctionCaption(unittest.TestCase):
+    """The ``ƒ scope`` caption is printed where the scope changes, not over
+    every group: consecutive groups inside one function share the first one's.
+    The Reviewed badge can fold that first group away, so a repeat is marked
+    per badge state instead of being dropped."""
+
+    OLD = _scoped_c([('step_a', 1, 2), ('step_b', 3, 4)])
+
+    @staticmethod
+    def _render(old, new, rel, language, signed_off=()):
+        r = compare_pair(old, new, rel)
+        real = [h for h in r['hunks'] if h['kind'] == 'real']
+        # signed_off: indices into the real hunks
+        notes = {tuple(real[k]['old_range']) + tuple(real[k]['new_range']):
+                 ('ok', True, '') for k in signed_off}
+        out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'], notes,
+                           language)
+        return real, out, _CAPTION_RE.findall(out)
+
+    def test_groups_inside_one_function_name_it_once(self):
+        new = _scoped_c([('step_a', 10, 20), ('step_b', 3, 4)])
+        real, out, caps = self._render(self.OLD, new, 'f.c', 'c')
+        self.assertEqual(len(real), 2)
+        self.assertEqual(out.count('<div class="grp'), 2)
+        self.assertEqual(caps, [('fnhdr', 'step_a')])
+
+    def test_the_next_function_gets_its_own_caption(self):
+        new = _scoped_c([('step_a', 10, 20), ('step_b', 30, 4)])
+        _real, out, caps = self._render(self.OLD, new, 'f.c', 'c')
+        self.assertEqual(out.count('<div class="grp'), 3)
+        self.assertEqual(caps, [('fnhdr', 'step_a'), ('fnhdr', 'step_b')])
+
+    def test_a_signed_off_first_group_leaves_the_name_to_the_next(self):
+        # hiding reviewed groups takes the first caption with them, so the
+        # second keeps its own -- hidden by the CSS only while every group shows
+        new = _scoped_c([('step_a', 10, 20), ('step_b', 3, 4)])
+        _real, out, caps = self._render(self.OLD, new, 'f.c', 'c', signed_off=(0,))
+        self.assertIn('<div class="grp grp-rev">', out)
+        self.assertEqual(caps, [('fnhdr', 'step_a'), ('fnhdr dup', 'step_a')])
+        self.assertIn('body:not(.hide-rev) .fnhdr.dup, '
+                      'body.hide-rev .fnhdr.dup-unrev { display: none; }', _CSS)
+
+    def test_a_scope_resumed_below_a_signed_off_one_is_marked_for_that_state(self):
+        # Pkg / Comp, its nested Comp / Port (signed off), then Comp again.
+        # With every group shown the third caption follows Port, a different
+        # scope; with Port folded away it would repeat the first
+        def pad(tag):
+            return ['<{}{}/>'.format(tag, k) for k in range(8)]
+
+        def arxml(v):
+            return '\n'.join(
+                ['<AR-PACKAGE>', '<SHORT-NAME>Pkg</SHORT-NAME>', '<COMP>',
+                 '<SHORT-NAME>Comp</SHORT-NAME>', '<A v="{}"/>'.format(v)]
+                + pad('P') + ['<PORT>', '<SHORT-NAME>Port</SHORT-NAME>'] + pad('Q')
+                + ['<B v="{}"/>'.format(v)] + pad('R') + ['</PORT>'] + pad('S')
+                + ['<C v="{}"/>'.format(v), '</COMP>', '</AR-PACKAGE>', ''])
+
+        real, _out, caps = self._render(arxml(1), arxml(2), 'f.arxml', 'arxml',
+                                        signed_off=(1,))
+        self.assertEqual(len(real), 3)
+        self.assertEqual(caps, [('fnhdr', 'Pkg / Comp'), ('fnhdr', 'Comp / Port'),
+                                ('fnhdr dup-unrev', 'Pkg / Comp')])
+
+
 class TestUnimportantToggle(unittest.TestCase):
     """Comment and Unimportant each hide behind their own badge -- per ROW, not
     per group -- but ONLY when the hunk stands in a group with no real/moved

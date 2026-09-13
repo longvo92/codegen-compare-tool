@@ -360,11 +360,10 @@ until someone adds a new kind to one of them.
   detach them on the next scan.
 - **`funcname.enclosing`** — the scope name for each line (C/C++ function,
   Python class/method, AUTOSAR SHORT-NAME, A2L block), one list the report and
-  the viewer both read. The
-  report captions each hunk group and lists a file's `Affected` functions from
-  it; the viewer tracks a "current function" as the pane scrolls. It never
-  decides a verdict — a wrong name costs a caption, so the heuristics say
-  `None` rather than guess.
+  the viewer both read. The report shows it above each change group (once,
+  when consecutive groups share it); the viewer tracks a "current function" as
+  the pane scrolls. It never decides a verdict — a wrong name costs a caption,
+  so the heuristics say `None` rather than guess.
 - **`langspec.SPECS`** — one table of each language's comment/string grammar
   (what opens a comment, how a string escapes). Two very different surfaces read
   it: `syntax.py` colours a comment, and the diff shadow (`langspec.shadow` for
