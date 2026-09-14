@@ -126,10 +126,15 @@ quy vào khoảng giữa, nên các đoạn còn lại đủ nhỏ để giao ch
 đường nhanh mà heuristic kia đánh đổi để có được là không cần thiết.
 
 - **Lượt 2 quyết định sự thật.** Mỗi bên được rút gọn thành một *shadow*: bóc
-  comment, gộp whitespace, bỏ UUID, ngày tháng, version stamp, và với C thì áp một
+  comment, chuẩn hoá whitespace định dạng ngoài literal, bỏ UUID, ngày tháng, version stamp, và với C thì áp một
   rename map đã được kiểm chứng. Cái gì còn khác nhau giữa hai shadow là thay đổi
   thật. Rename map chỉ là best-effort rồi *bị kiểm lại* — nó được áp lên shadow cũ
   và diff lại, dòng nào nó không giải thích trọn vẹn thì vẫn là real.
+  `langspec.normalize_ws` giữ nội dung literal và indentation Python/YAML.
+  Các dòng tiếp theo trong literal có marker không rỗng trong shadow để bước lọc
+  hunk trắng không bỏ mất dòng trống được thêm bên trong string. Text gốc và vị trí
+  dòng gốc không đổi. Đổi tên hàm được gọi chỉ vào rename map khi chung gốc checksum
+  do generator sinh; biểu thức RHS ghi vào biến khiến block không được gộp reorder.
 - **Lượt 1 quyết định cái bạn nhìn thấy.** Diff dòng thô giữ lại mọi khác biệt về
   text, nhờ vậy viewer hiện được đống rác thay vì giả vờ hai file y hệt nhau. Hunk
   thô nào không giao với hunk real nào thì là ignorable, và được *gán nhãn* bởi
@@ -312,7 +317,7 @@ thư mục được nêu trên command line; còn lại đều mở viewer.
 
 ### CLI
 
-`run_compare` xoá report cũ sót lại *trước khi* scan — nếu lần chạy này chết giữa
+Khi có đường dẫn output, `run_compare` xoá report cũ sót lại *trước khi* scan — nếu lần chạy này chết giữa
 chừng, file cũ của lần trước không được phép bị hiểu thành kết quả của lần này.
 Đường dẫn report không ghi được sẽ ném `ReportWriteError` mang theo lần scan mà nó
 không ghi nổi, nên terminal vẫn in ra những gì tìm được, và lần chạy exit `2`:
@@ -325,6 +330,12 @@ không ghi nổi, nên terminal vẫn in ra những gì tìm được, và lần
 
 Exit code là contract với pipeline của ai đó. `--exit-zero` dập được `1`, không bao
 giờ dập `2` — một lần compare không trọn vẹn không được phép trông xanh.
+
+`--no-report` truyền `out=None` vào cùng hàm `run_compare`. Hàm trả về sau khi
+scan và đếm verdict, trước khi render HTML hay ghi file. `summary_lines(...,
+tree=True)` in mọi đường dẫn đã scan, dùng lại summary ngữ nghĩa và consistency
+advisory hiện có; không fold kết quả hoặc in code hunk. Report cũ được giữ nguyên
+trong chế độ này.
 
 ### Viewer
 

@@ -7,8 +7,12 @@ it is tested once, here.
 """
 
 import io
+import json
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from unittest import mock
 
 from compare_tool.main import main, viewer_requested
 
@@ -159,6 +163,172 @@ class TestZipArguments(unittest.TestCase):
             pass
         with self.assertRaises(SystemExit):
             quiet(main, [str(empty), str(tmp), '--report', str(tmp / 'o.html')])
+
+
+class TestNoReport(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.old = self.root / 'old'
+        self.new = self.root / 'new'
+        self.old.mkdir()
+        self.new.mkdir()
+
+    def _file(self, root, rel, text):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding='utf-8')
+
+    def _run(self, *flags):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main([str(self.old), str(self.new), '--no-report', *flags])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_no_report_generation_or_existing_report_changes(self):
+        stale = self.root / 'compare_report.html'
+        stale.write_text('existing report', encoding='utf-8')
+        for side in (self.old, self.new):
+            self._file(side, 'same.c', 'int value = 1;\n')
+        before = sorted(self.root.rglob('*'))
+        with mock.patch('compare_tool.main.default_report_name', return_value=str(stale)), \
+                mock.patch('compare_tool.main.build_report') as report, \
+                mock.patch('compare_tool.main.build_arxml_report') as arxml_report:
+            code, output, errors = self._run()
+        self.assertEqual(code, 0)
+        self.assertEqual(errors, '')
+        self.assertIn('same.c [identical]', output)
+        self.assertIn('No extracted AUTOSAR/A2L changes.', output)
+        self.assertNotIn('Report written:', output)
+        self.assertEqual(stale.read_text(encoding='utf-8'), 'existing report')
+        self.assertEqual(sorted(self.root.rglob('*')), before)
+        report.assert_not_called()
+        arxml_report.assert_not_called()
+
+    def test_tree_includes_every_verdict_without_code_or_hunk_details(self):
+        pairs = {
+            'model/changed.c': ('int value = 1;\n', 'int value = 2;\n'),
+            'model/same.h': ('int same;\n', 'int same;\n'),
+            'comment.c': ('int c; // old\n', 'int c; // new\n'),
+            'noise.c': ('int n;\n', 'int  n;\n'),
+        }
+        for rel, (old, new) in pairs.items():
+            self._file(self.old, rel, old)
+            self._file(self.new, rel, new)
+        self._file(self.old, 'removed.txt', 'removed')
+        self._file(self.new, 'added.txt', 'new')
+        (self.new / 'bad.txt').write_bytes(b'\xff\xfe\x41')
+        code, output, _ = self._run()
+        self.assertEqual(code, 2)
+        for name, status in (('changed.c', 'modified'), ('same.h', 'identical'),
+                             ('comment.c', 'comment-only'), ('noise.c', 'ignorable-only'),
+                             ('removed.txt', 'deleted'), ('added.txt', 'added'),
+                             ('bad.txt', 'error')):
+            self.assertIn('{} [{}]'.format(name, status), output)
+        self.assertIn('|-- model/\n|   |-- changed.c [modified]', output)
+        self.assertIn('COMPARE INCOMPLETE', output)
+        self.assertNotIn('int value', output)
+        self.assertNotIn('hunk(s)', output)
+
+    def test_autosar_and_a2l_summaries_use_the_scan(self):
+        from compare_tool.main import summary_lines
+        from compare_tool.scanner import scan, summarize
+        fixture = Path(__file__).parent / 'fixtures' / 'demo'
+        self.old, self.new = fixture / 'old', fixture / 'new'
+        results = scan(self.old, self.new)
+        code, output, _ = self._run()
+        self.assertEqual(code, 1)
+        for heading in ('ARXML interfaces:', 'AUTOSAR behavior:',
+                        'RTE access points:', 'A2L objects:'):
+            self.assertIn(heading, output)
+        for line in summary_lines(results, summarize(results)):
+            if not line.startswith('  MODIFIED'):
+                self.assertIn(line, output)
+
+    def test_report_consistency_warnings_remain_visible_with_exit_zero(self):
+        from compare_tool.report import consistency_advisories
+        from compare_tool.scanner import scan
+        fixture = Path(__file__).parent / 'fixtures' / 'demo'
+        self.old, self.new = fixture / 'old', fixture / 'new'
+        advisories = consistency_advisories(scan(self.old, self.new))
+        code, output, _ = self._run('--exit-zero')
+        self.assertEqual(code, 0)
+        self.assertTrue(any('generated C did not' in msg for _, msg in advisories))
+        self.assertTrue(any('regenerate the architecture' in msg for _, msg in advisories))
+        for model, message in advisories:
+            self.assertIn('!! {}: {}'.format(model, message), output)
+
+    def test_filters_and_no_report_work_together(self):
+        self._file(self.old, 'model.c', 'int value = 1;\n')
+        self._file(self.new, 'model.c', 'int value = 2;\n')
+        self._file(self.new, 'model.arxml', '<AUTOSAR/>\n')
+        self._file(self.new, 'skip.a2l', '/begin PROJECT P ""\n/end PROJECT\n')
+        code, output, _ = self._run('--arxml-only', '--exclude', 'skip.a2l')
+        self.assertEqual(code, 1)
+        self.assertIn('model.arxml [added]', output)
+        self.assertNotIn('model.c', output)
+        self.assertNotIn('skip.a2l', output)
+        self.assertNotIn('report written', output)
+
+    def test_exit_zero_only_suppresses_real_changes(self):
+        self._file(self.new, 'added.txt', 'new')
+        self.assertEqual(self._run()[0], 1)
+        self.assertEqual(self._run('--exit-zero')[0], 0)
+        (self.new / 'bad.txt').write_bytes(b'\xff\xfe\x41')
+        self.assertEqual(self._run('--exit-zero')[0], 2)
+
+    def test_empty_filtered_tree_is_explicit(self):
+        code, output, _ = self._run()
+        self.assertEqual(code, 0)
+        self.assertIn('(no files matched)', output)
+        self.assertIn('Summary: 0 modified', output)
+
+    def test_json_and_sarif_remain_opt_in(self):
+        self._file(self.new, 'added.txt', 'new')
+        json_path, sarif_path = self.root / 'scan.json', self.root / 'scan.sarif'
+        code, _, _ = self._run('--json', str(json_path), '--sarif', str(sarif_path))
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(json_path.read_text(encoding='utf-8'))['exit_code'], code)
+        self.assertEqual(json.loads(sarif_path.read_text(encoding='utf-8'))['version'], '2.1.0')
+        self.assertEqual(list(self.root.glob('*.html')), [])
+
+    def test_rules_and_quick_check_are_still_applied(self):
+        self._file(self.old, 'model.cpp', 'out = input_a;\n')
+        self._file(self.new, 'model.cpp', 'out = input_b;\n')
+        code, output, _ = self._run('--skip-var-renames')
+        self.assertEqual(code, 0)
+        self.assertIn('QUICK CHECK', output)
+        self.assertIn('model.cpp [ignorable-only]', output)
+        self._file(self.old, 'stamp.txt', 'Build 100\n')
+        self._file(self.new, 'stamp.txt', 'Build 101\n')
+        rules = self.root / 'rules.json'
+        rules.write_text(json.dumps([{'name': 'build-stamp', 'pattern': r'Build \d+',
+                                      'extensions': ['.txt']}]), encoding='utf-8')
+        code, output, _ = self._run('--rules', str(rules))
+        self.assertIn('stamp.txt [ignorable-only]', output)
+
+    def test_invalid_combinations_keep_console_and_raise_usage_error(self):
+        for argv in (['--no-report'], ['old', '--no-report'],
+                     ['old', 'new', '--no-report', '--qt'],
+                     ['old', 'new', '--no-report', '--report', 'out.html']):
+            with self.subTest(argv=argv):
+                self.assertFalse(quiet(viewer_requested, argv))
+                with self.assertRaises(SystemExit) as raised:
+                    quiet(main, argv)
+                self.assertEqual(raised.exception.code, 2)
+
+    def test_zip_sources_and_side_labels(self):
+        import zipfile
+        for name in ('baseline.zip', 'current.zip'):
+            with zipfile.ZipFile(self.root / name, 'w') as archive:
+                archive.writestr('gen/same.c', 'int same;\n')
+        self.old, self.new = self.root / 'baseline.zip', self.root / 'current.zip'
+        code, output, _ = self._run('--baseline-name', 'build 100', '--current-name', 'build 101')
+        self.assertEqual(code, 0)
+        self.assertIn('BASELINE: build 100', output)
+        self.assertIn('CURRENT:  build 101', output)
+        self.assertIn('same.c [identical]', output)
 
 
 class TestVersionFlag(unittest.TestCase):

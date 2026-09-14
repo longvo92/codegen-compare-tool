@@ -25,6 +25,29 @@ sao* thay vì chạy nó thế nào, phần đó nằm ở [architecture.md](arc
 python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> [--report out.html]
 ```
 
+Để chỉ in summary trên terminal, không tạo HTML:
+
+```bash
+python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> --no-report
+```
+
+Lệnh in số đếm, folder tree chứa **mọi file đã scan**, và summary AUTOSAR/A2L hiện
+có: interface, SWC, port, runnable, event, RTE access point và calibration object.
+Mỗi file có nhãn `modified`, `identical`, `added`, `deleted`, `comment-only`,
+`ignorable-only` hoặc `error`. Không in code diff hay chi tiết hunk. Các folder
+dùng để nhóm đường dẫn; verdict được ghi ở từng file.
+
+Các cảnh báo consistency giống report cũng được in: ARXML/A2L thay đổi nhưng
+generated C không đổi, hoặc thêm RTE access trong khi model khác vẫn identical.
+Lỗi compare và cảnh báo quick check không an toàn vẫn hiện đầy đủ. Advisory
+không làm đổi verdict hoặc exit code.
+
+Phải truyền đủ hai input; không dùng cùng `--report` hoặc `--qt`/`--viewer`.
+HTML report cũ được giữ nguyên. Filter, custom rule, input ZIP và exit code
+`0`/`1`/`2` vẫn như cũ; `--arxml-only` giới hạn tree và summary ở ARXML/XML/A2L.
+`--json` và `--sarif` vẫn ghi file nếu được chỉ định. `--review` không có tác dụng
+trong chế độ này.
+
 Mỗi vị trí có thể là một file `.zip` thay vì thư mục — ví dụ artifact build tải
 từ Azure DevOps. Tool giải nén nó read-only vào một thư mục tạm, so sánh như một
 thư mục bình thường, rồi xoá thư mục tạm đó khi thoát. Nếu archive chỉ có đúng
@@ -35,10 +58,11 @@ giờ âm thầm rơi xuống so sánh một thư mục rỗng.
 
 | Flag | Ý nghĩa |
 |---|---|
+| `--no-report` | In đầy đủ file tree, summary AUTOSAR/A2L và cảnh báo trên terminal; không tạo HTML hay in code diff |
 | `--report out.html` | Đường dẫn report (mặc định `compare_report.html`). File cũ ở đó bị xoá trước khi scan bắt đầu |
 | `--exclude PATTERN` | Bỏ qua file khớp glob (đường dẫn tương đối hoặc tên file trần), lặp lại được. Ví dụ: `--exclude compare_report.html` |
 | `--exit-zero` | Luôn exit 0 kể cả khi có thay đổi thật (chế độ chỉ ghi report cho pipeline). Lỗi compare vẫn exit 2 |
-| `--arxml-only` | Chỉ scan `.arxml`/`.xml`/`.a2l` và ghi report gọn theo từng loại file (mặc định `arxml_update.html`) — luôn được ghi, kể cả khi không có gì đổi |
+| `--arxml-only` | Chỉ scan `.arxml`/`.xml`/`.a2l`. Ghi report gọn theo từng loại file (mặc định `arxml_update.html`), kể cả khi không có gì đổi, trừ khi dùng `--no-report` |
 | `--review FILE` | Render note và sign-off từ review file (`codegen-review.json`, do viewer ghi) ngay cạnh change tương ứng, kèm badge `Reviewed` để ẩn các change đã ký duyệt. Phải chỉ tên tường minh — một report không được vô tình mang sign-off của người khác; không có tác dụng với `--arxml-only` |
 | `--baseline-name NAME` | Đặt tên phía BASELINE trên header report thay vì lấy tên thư mục. Dành cho pipeline luôn dựng bản codegen cũ vào một thư mục tạm cố định, chỗ mà `cg_temp` là tên của cơ chế chứ không phải của bản build. Ví dụ: `--baseline-name "build 4821"` |
 | `--current-name NAME` | Tương tự cho phía CURRENT. Cả hai cờ chỉ đổi chữ trên header — đường dẫn thư mục vẫn nằm ở tooltip, nên vẫn truy được file đã đọc từ đâu |
@@ -179,7 +203,7 @@ trên cây vẫn nằm trong file export với verdict thật của nó.
 | `sw-version` | Version stamp `<SW-VERSION>` (tăng mỗi lần regenerate). Regex có anchor, nên `<SW-MAJOR-VERSION>` và các thẻ tương tự không bị đụng | .arxml .xml |
 | `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — các thẻ chứa mô tả bằng chữ, không ảnh hưởng hành vi (áp dụng cho cả schema 4.2 và 4.4). `<CATEGORY>` và `<ANNOTATIONS>` **không** được lọc: `<CATEGORY>` ảnh hưởng cách phần tử được hiểu, còn `<ANNOTATIONS>` có thể chứa dữ liệu do tool khác ghi vào | .arxml .xml |
 | `assumed-rename` | Lệnh gán và khai báo chỉ khác nhau ở tên biến, gộp **không kèm chứng minh** — chỉ xuất hiện khi bật `--skip-var-renames`, mặc định không bao giờ | .c .h .cpp .hpp |
-| `whitespace` | Thụt đầu dòng, khoảng trắng cuối dòng, dòng trống | tất cả |
+| `whitespace` | Khoảng trắng định dạng ngoài string literal. Indentation Python/YAML và khoảng trắng trong literal vẫn có ý nghĩa | tất cả |
 | `line-endings` | CRLF vs LF, BOM | tất cả |
 
 ### Rename
@@ -212,6 +236,11 @@ các thay đổi thật, không phải rename:
 - `Sub_…_step` → `Sub_…_Init`: entry point khác hẳn.
 - `rtb_Switch1` → `rtb_Switch2`: chữ số dính liền tên block là một phần của tên, không phải đuôi mangling.
 
+Đổi hàm được gọi, chẳng hạn `getSpeed()` thành `getTorque()`, là thay đổi thật
+kể cả khi tên cũ biến mất hoàn toàn. Tên hàm chỉ được gộp khi thay checksum do
+generator sinh và phần tên còn lại giữ nguyên. Rename map không sửa nội dung
+string hoặc character literal.
+
 ### Reorder
 
 Regenerate một model thường xuyên sinh ra cùng những phép gán độc lập — output
@@ -219,7 +248,7 @@ port, biến tạm — theo thứ tự khác, thứ mà một text diff thuần 
 đổi dù block tính ra đúng y hệt giá trị cũ. Một lần gộp `reorder` nhận ra
 trường hợp này, nhưng chỉ khi có thể **chứng minh** được, không bao giờ đoán:
 
-- mọi dòng ở cả hai bên đều là phép gán scalar không side-effect (`ident = expr;` — không call, không ghi qua array/pointer/field, không control flow, không khai báo kèm kiểu);
+- mọi dòng ở cả hai bên đều là phép gán scalar không side-effect (`ident = expr;` — không call, tăng/giảm biến, phép gán lồng, ghi qua array/pointer/field, control flow hoặc khai báo kèm kiểu);
 - hai bên chứa đúng cùng các câu lệnh, chỉ đảo thứ tự;
 - thứ tự mới giữ nguyên **mọi phụ thuộc dữ liệu** — hễ hai câu lệnh chung một biến và một trong hai ghi vào biến đó, thứ tự tương đối của chúng không đổi.
 
@@ -229,6 +258,17 @@ thay đổi nào. Nếu một trong ba điều kiện trên không thoả — c�
 vào giữa, vế phải của một phép gán thật sự đổi, hay một cặp lệnh phụ thuộc bị
 đảo thứ tự — thì cả block vẫn tính là thay đổi thật. Khi không chắc, tool luôn
 chọn hiện diff ra chứ không giấu đi.
+
+### Khoảng trắng có ý nghĩa
+
+Nội dung string được so sánh chính xác, kể cả khoảng trắng và dòng trống trong
+triple-quoted string của Python. Indentation Python/YAML được giữ vì có thể đổi
+scope hoặc cấu trúc lồng nhau. Khoảng trắng trong plain scalar YAML cũng được giữ.
+Với file YAML chứa block scalar (`|` hoặc `>`), mọi thay đổi text đều hiện ra:
+tool không tự phân biệt nội dung block với comment.
+
+File text hỏng ở một phía, kể cả file added hoặc deleted, nhận verdict `error`.
+Các file khác vẫn được so sánh; CLI trả exit code `2` kể cả khi bật `--exit-zero`.
 
 ### Quick check: bỏ qua đổi tên biến
 

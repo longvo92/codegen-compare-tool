@@ -307,6 +307,95 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r2['status'], 'real-change')
 
 
+class TestCoreSafety(unittest.TestCase):
+    def test_literal_whitespace_is_real(self):
+        cases = [
+            ('f.c', 'const char *s = "a b";\n'),
+            ('f.cpp', 'const char *s = "a b";\n'),
+            ('f.json', '{"value": "a b"}\n'),
+            ('f.py', 'value = "a b"\n'),
+            ('f.yaml', 'value: "a b"\n'),
+            ('f.a2l', '/begin PROJECT P "a b"\n/end PROJECT\n'),
+        ]
+        for path, old in cases:
+            with self.subTest(path=path):
+                result = compare_pair(old, old.replace('a b', 'a  b'), path)
+                self.assertEqual(result['status'], 'real-change')
+                self.assertIn('real', kinds(result))
+
+    def test_layout_outside_literals_is_still_noise(self):
+        for path in ('f.c', 'f.cpp', 'f.json', 'f.a2l'):
+            with self.subTest(path=path):
+                result = compare_pair('value = "a  b";\n',
+                                      '  value  =  "a  b";   \n', path)
+                self.assertEqual(result['status'], 'ignorable-only')
+
+    def test_indentation_changes_scope(self):
+        cases = [
+            ('f.py', 'if enabled:\n    output = 1\n    counter = 2\n',
+             'if enabled:\n    output = 1\ncounter = 2\n'),
+            ('f.yaml', 'model:\n  enabled: true\n  gain: 2\n',
+             'model:\n  enabled: true\ngain: 2\n'),
+        ]
+        for path, old, new in cases:
+            with self.subTest(path=path):
+                self.assertEqual(compare_pair(old, new, path)['status'], 'real-change')
+
+    def test_multiline_literal_whitespace_and_blank_lines_are_real(self):
+        old = 'value = """first\n  second\nlast"""\n'
+        for new in (old.replace('  second', ' second'),
+                    old.replace('second\n', 'second\n\n'),
+                    old.replace('second\n', 'second\n   \n')):
+            with self.subTest(new=new):
+                self.assertEqual(compare_pair(old, new, 'f.py')['status'], 'real-change')
+
+    def test_yaml_plain_and_block_scalar_payload_is_real(self):
+        cases = [('value: a b\n', 'value: a  b\n'),
+                 ('value: |\n  a\n  # old\n', 'value: |\n  a\n  # new\n'),
+                 ('|\n  a\n  # old\n', '|\n  a\n  # new\n'),
+                 ('value: |\n  a\n  b\n', 'value: |\n  a\n\n  b\n')]
+        for old, new in cases:
+            with self.subTest(new=new):
+                self.assertEqual(compare_pair(old, new, 'f.yaml')['status'], 'real-change')
+
+    def test_comment_noise_beside_literal_change_stays_real(self):
+        result = compare_pair('// old\nconst char *s = "a b";\n',
+                              '// new\nconst char *s = "a  b";\n', 'f.c')
+        self.assertEqual(result['status'], 'real-change')
+        self.assertIn('comment', kinds(result))
+        self.assertIn('real', kinds(result))
+
+    def test_external_callee_change_is_real(self):
+        for old_name, new_name in (('getSpeed', 'getTorque'), ('get_x', 'get_y')):
+            with self.subTest(old=old_name, new=new_name):
+                template = '#include "inputs.h"\nvoid step(void) {{ output = {}(); }}\n'
+                result = compare_pair(template.format(old_name), template.format(new_name), 'f.c')
+                self.assertEqual(result['status'], 'real-change')
+                self.assertEqual(result['renames'], {})
+
+    def test_callee_change_beside_generated_rename_stays_real(self):
+        result = compare_pair('int rtb_A;\nrtb_A = getSpeed();\n',
+                              'int rtb_B;\nrtb_B = getTorque();\n', 'f.c')
+        self.assertEqual(result['status'], 'real-change')
+        self.assertEqual(result['renames'], {'rtb_A': 'rtb_B'})
+
+    def test_rename_never_rewrites_a_literal(self):
+        result = compare_pair('int rtb_A;\nlog("rtb_A");\n',
+                              'int rtb_B;\nlog("rtb_B");\n', 'f.c')
+        self.assertEqual(result['status'], 'real-change')
+        self.assertIn('real', kinds(result))
+
+    def test_rhs_writes_cannot_be_reordered(self):
+        for expr in ('i++', '--i', '(i = 1)', '(i += 1)', '(i <<= 1)', '(i >>= 1)'):
+            with self.subTest(expr=expr):
+                first, second = 'a = {};\n'.format(expr), 'b = i;\n'
+                before = 'int a, b, i;\nvoid step(void) {\n'
+                result = compare_pair(before + first + second + '}\n',
+                                      before + second + first + '}\n', 'f.c')
+                self.assertEqual(result['status'], 'real-change')
+                self.assertNotIn('reorder', kinds(result))
+
+
 class TestAutogenNoise(unittest.TestCase):
     # rtb_* suffix reshuffle across two functions: the strict 1-1 map is
     # rejected (names reused on both sides), the autogen rule catches it

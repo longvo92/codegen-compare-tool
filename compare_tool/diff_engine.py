@@ -265,7 +265,9 @@ def _build_variants(old_text, new_text, ruleset, rename_map, ext='', user_rules=
     kind wins the label when both explain a hunk. A hunk only a user rule
     explains is labelled with that rule's name and is ignorable-only, never
     comment-only -- comment is a built-in category with its own report rules."""
-    cw = c_rules.collapse_ws
+    def cw(text):
+        return langspec.normalize_ws(text, langspec.SPECS.get(ruleset,
+                                                             langspec.SPECS['c']))
     variants = [('whitespace', _lines(cw(old_text)), _lines(cw(new_text)))]
     if ruleset == 'c':
         old_nc = c_rules.strip_c_comments(old_text)
@@ -308,8 +310,8 @@ def _build_variants(old_text, new_text, ruleset, rename_map, ext='', user_rules=
         # the pass-2 diff runs on, so variant and shadow stay in sync.
         spec = langspec.SPECS[ruleset]
         variants.append(('comment',
-                         _lines(cw(langspec.strip_comments(old_text, spec))),
-                         _lines(cw(langspec.strip_comments(new_text, spec)))))
+                         _lines(langspec.shadow(old_text, spec)),
+                         _lines(langspec.shadow(new_text, spec))))
     # user rules last: a hunk a built-in kind already explains keeps that kind
     for r in user_rules:
         if r.applies_to(ext):
