@@ -14,7 +14,7 @@ IF_DATA change per build and are already covered by the text diff).
 
 import re
 
-from .c_rules import collapse_ws
+from .langspec import SPECS, normalize_ws
 
 # keywords are uppercase per the ASAM grammar, but /begin casing varies in
 # the wild, so matching is case-insensitive and the kind is normalized
@@ -86,7 +86,7 @@ def strip_a2l_comments(text):
 
 def a2l_shadow(text):
     """Normalized shadow for A2L: comments stripped + whitespace collapsed."""
-    return collapse_ws(strip_a2l_comments(text))
+    return normalize_ws(strip_a2l_comments(text), SPECS['a2l'])
 
 
 def extract_objects(text):

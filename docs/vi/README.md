@@ -64,6 +64,15 @@ Có thể so sánh trực tiếp hai file ZIP:
 python -m compare_tool baseline.zip current.zip --report report.html
 ```
 
+### In summary trên terminal, không tạo report
+
+```bash
+python -m compare_tool old_gen_folder new_gen_folder --no-report
+```
+
+In folder tree với verdict của mọi file, AUTOSAR/A2L changes và các cảnh báo
+consistency giống HTML report. Không in code diff và không tạo file HTML.
+
 ### Mở Desktop Viewer
 
 ```bash
@@ -102,7 +111,7 @@ Cả hai đều sử dụng **cùng một comparison engine**, vì vậy kết q
 | ----------- | ---------------- | ------------------- |
 | Phù hợp với | Review trực tiếp | CI / automation     |
 | Input       | Folder / ZIP     | Folder / ZIP        |
-| Output      | Interactive diff | HTML / JSON / SARIF |
+| Output      | Interactive diff | Terminal summary / HTML / JSON / SARIF |
 | Build gate  | —                | Exit code           |
 
 ---

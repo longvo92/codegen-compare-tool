@@ -152,8 +152,10 @@ def _single_info(root, rel, is_added):
     out = {}
     if looks_binary(path):
         return out
+    # Validate every one-sided text file, including formats without semantic
+    # extras, before move matching can attempt to decode it again.
+    text = read_text(path)
     if ruleset_for(rel) == 'arxml':
-        text = read_text(path)
         old_t, new_t = (None, text) if is_added else (text, None)
         d = arxml_rules.interface_diff(old_t, new_t)
         if d is not None:
@@ -162,12 +164,10 @@ def _single_info(root, rel, is_added):
         if s is not None and not arxml_rules.swc_diff_empty(s):
             out['swc'] = s
     elif ruleset_for(rel) == 'a2l':
-        text = read_text(path)
         d = a2l_rules.a2l_diff(None, text) if is_added else a2l_rules.a2l_diff(text, None)
         if d['added'] or d['removed']:
             out['a2l'] = d
     elif rel.endswith('.c'):
-        text = read_text(path)
         d = c_rules.rte_diff(None, text) if is_added else c_rules.rte_diff(text, None)
         if d['added'] or d['removed']:
             out['rte'] = d
@@ -227,19 +227,11 @@ def _shadow_lines(rel, text):
 
 
 def _candidate(root, rel):
-    """One side of a possible move, or None when the file cannot be read.
-
-    Unreadable is not an error here: the file already has its own `added` /
-    `deleted` entry and stays in the report either way. Failing to pair it
-    costs a convenience, not a change.
-    """
+    """Read one side of a possible move; the caller records read failures."""
     path = Path(root) / rel
     ext = rel[rel.rfind('.'):].lower() if '.' in rel.rsplit('/', 1)[-1] else ''
-    try:
-        digest = hashlib.sha1(path.read_bytes()).hexdigest()
-        lines = None if looks_binary(path) else _shadow_lines(rel, read_text(path))
-    except OSError:
-        return None
+    digest = hashlib.sha1(path.read_bytes()).hexdigest()
+    lines = None if looks_binary(path) else _shadow_lines(rel, read_text(path))
     return filepair.Candidate(rel, ext, digest, lines)
 
 
@@ -254,10 +246,18 @@ def _link_moves(results, old_root, new_root, user_rules=(),
     instead of leaving the reviewer to read both in full -- plus `move_status`,
     the verdict that pair WOULD have had if the path had not changed.
     """
-    added = [c for c in (_candidate(new_root, rel) for rel, r in results.items()
-                         if r['status'] == 'added') if c]
-    deleted = [c for c in (_candidate(old_root, rel) for rel, r in results.items()
-                           if r['status'] == 'deleted') if c]
+    added, deleted = [], []
+    for rel, result in results.items():
+        status = result['status']
+        if status not in ('added', 'deleted'):
+            continue
+        root, candidates = (new_root, added) if status == 'added' else (old_root, deleted)
+        try:
+            candidates.append(_candidate(root, rel))
+        except (OSError, UnicodeError) as exc:
+            # A file can become unreadable after its initial validation.
+            results[rel] = _error_result('move candidate read failed: {}: {}'.format(
+                type(exc).__name__, exc))
     for a_rel, (d_rel, sim) in filepair.find_moves(added, deleted).items():
         try:
             pair = compare_pair(read_text(Path(old_root) / d_rel),

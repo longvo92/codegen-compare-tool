@@ -24,7 +24,9 @@ No Qt, stdlib only: it ships in the zipapp and its tests run headless, same
 rule as the rest of the compare core.
 """
 
-from .c_rules import collapse_ws
+from __future__ import annotations
+
+import re
 
 
 class LangSpec:
@@ -204,8 +206,61 @@ def strip_comments(text, spec, blank_strings=False):
     return ''.join(out)
 
 
+def normalize_ws(text: str, spec: LangSpec) -> str:
+    """Normalize layout outside literals, preserving semantic indentation.
+
+    Literal placeholders keep whitespace normalization away from payload.
+    Continuation lines receive a nonblank marker so an empty string-content
+    line cannot be discarded later as a blank-only diff hunk.
+    """
+    marker = '\x00'
+    while marker in text:
+        marker += '\x00'
+    literals: dict[str, str] = {}
+    parts = []
+    i = 0
+    quotes = re.compile('[{}]'.format(re.escape(spec.quotes))) if spec.quotes else None
+    while i < len(text):
+        match = quotes.search(text, i) if quotes else None
+        if match is None:
+            parts.append(text[i:])
+            break
+        parts.append(text[i:match.start()])
+        i = match.start()
+        triple = next((t for t in spec.triples if text.startswith(t, i)), None)
+        if triple:
+            end = triple_close(text, i + len(triple), triple)
+            if end < 0:
+                end = len(text)
+        else:
+            end = string_end(text, i, text[i], spec.escape, spec.doubled_quote)
+        key = '{}{}{}'.format(marker, len(literals), marker)
+        literals[key] = text[i:end].replace('\n', '\n' + marker)
+        parts.append(key)
+        i = end
+
+    lines = []
+    for line in ''.join(parts).split('\n'):
+        if spec is SPECS['yaml']:
+            # Plain YAML scalars also carry significant internal whitespace.
+            normalized = line.rstrip() if line.strip() else ''
+        else:
+            normalized = ' '.join(line.split())
+            if spec is SPECS['python'] and normalized:
+                normalized = line[:len(line) - len(line.lstrip())] + normalized
+        lines.append(normalized)
+    out = '\n'.join(lines)
+    return re.sub(re.escape(marker) + r'\d+' + re.escape(marker),
+                  lambda m: literals[m.group(0)], out)
+
+
 def shadow(text, spec):
     """Normalized shadow for a generic language: comments blanked, whitespace
     collapsed. The same order `c_shadow` / `a2l_shadow` use, so the shadow a
     variant is tested under matches the shadow ``compare_pair`` diffs on."""
-    return collapse_ws(strip_comments(text, spec))
+    if spec is SPECS['yaml'] and re.search(r'(?:^|[ \t])[|>][+\-0-9]*[ \t]*(?:#.*)?$',
+                                         text, re.M):
+        # Without parsing block-scalar boundaries, a '#' or blank line may
+        # be payload. Keep this file verbatim rather than erase its content.
+        return '\n'.join('\x00' + line for line in text.split('\n'))
+    return normalize_ws(strip_comments(text, spec), spec)

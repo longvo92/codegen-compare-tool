@@ -1,0 +1,262 @@
+<!DOCTYPE html><html data-theme="dark"><head><meta charset="utf-8"><title>AUTOSAR Code Generation Report</title><style>:root{--accent:#dcdcaa;--accent-2:#7c8cf8;--add-bg:#244528;--add-bg-dim:#1e3a22;--bg:#1e1f22;--border:#34363c;--border-soft:#2c2d31;--border-strong:#43454c;--btn-bg:#2b2c30;--btn-border:#444444;--btn-fg:#d4d4d4;--btn-focus:#6a6a6a;--btn-hover:#35363b;--chrome-bar-bg:#212226;--chrome-bg:#25262a;--chrome-checked-bg:#343a63;--chrome-checked-fg:#e8e8ff;--chrome-checked-hover:#454c80;--chrome-disabled-bg:#2b2d33;--chrome-disabled-fg:#6a6a6a;--chrome-hover:#34363c;--chrome-pressed:#3d404a;--code-bg:#20201f;--code-fg:#e1e4e8;--cur-marker:#e8e8e8;--del-bg:#4d232a;--del-bg-dim:#3d1e23;--err-bg:#4a1d1d;--err-border:#b04a4a;--err-code-bg:#5c2626;--err-fg:#ffd6d6;--fg:#d4d4d4;--fg-dim:#9a9a9a;--fg-faint:#7a7a7a;--fg-muted:#8a8a8a;--fg-strong:#e8e8e8;--filler-bg:#26272b;--find-bg:#5a4715;--find-cur-bg:#8f7220;--gap-fg:#666666;--gutter-add-bg:#255329;--gutter-bg:#1e1f22;--gutter-del-bg:#5e232e;--gutter-fg:#6a6a6a;--gutter-line:#3d4046;--header-bg:#2a2c31;--header-fg:#b9b9b9;--icon-tint:#d7d7d7;--link-hover:#ffffff;--link-underline:#666666;--ln-bg:#232427;--ln-fg:#6a6a6a;--map-bg:#202124;--map-ctx:#565b62;--map-moved:#7fb0d9;--map-muted:#3f4348;--map-noise:#9a7f7e;--map-real:#d59d9b;--muted-bg:#2c2e33;--muted-fg:#6c7178;--mv-bg:#1d2f3e;--mv-fg:#7fb3d9;--note-bg:#22302e;--note-border:#3f8f7a;--note-check:#5f9e8b;--note-fg:#cfe6df;--note-pending-bg:#2d2b21;--note-pending-border:#8a7a3f;--note-pending-fg:#e6dcc0;--note-pending-tag:#d8c07a;--note-tag:#7fd3ba;--note-where:#7d8f8b;--pane-banner-bg:#2a2c31;--pane-new-accent:#98bfa2;--pane-old-accent:#bf9797;--panel:#232427;--panel-2:#26272b;--panel-3:#2b2c30;--panel-alt:#202124;--panel-hover:#2a2b2f;--progress-chunk:#4f46e5;--review-done:#7bd88a;--review-none:#8a8f98;--review-partial:#e2c16b;--scroll-thumb:#4b4e57;--scroll-thumb-hover:#5f636e;--seg-add-bg:#26612f;--seg-add-dim-bg:#1e4e28;--seg-add-dim-fg:#c1e0c8;--seg-add-fg:#e1e4e8;--seg-del-bg:#702433;--seg-del-dim-bg:#5e1e2a;--seg-del-dim-fg:#e8c4c4;--seg-del-fg:#e1e4e8;--seg-mv-bg:#2f5a7a;--split-line:#5a5d66;--st-add:#8cc998;--st-cmt:#8f96a2;--st-cmt-text:#b9bec6;--st-del:#c88ad8;--st-err:#ff5c5c;--st-id:#8a8a8a;--st-ign:#9aa1ad;--st-real:#e39494;--state-busy:#e2c16b;--state-error:#ff7b7b;--state-idle:#8a8f98;--state-ready:#7bd88a;--status-fg:#b0b0b0;--sticky-bg:#26272b;--sticky-border:#3a3d44;--syn-attr:#57b6a9;--syn-call:#d8c99a;--syn-comment:#8f96a2;--syn-keyword:#7aa2e3;--syn-number:#c5a3e8;--syn-preproc:#b58ac4;--syn-string:#e0a860;--syn-tag:#7aa2e3;--syn-type:#57b6a9;--tag-add-bg:#33513a;--tag-add-fg:#b6dcbc;--tag-cmt-bg:#33353a;--tag-cmt-fg:#b9bec6;--tag-del-bg:#4a2b52;--tag-del-fg:#d9a8e6;--tag-err-bg:#7a1f1f;--tag-err-fg:#ffc2c2;--tag-id-bg:#333333;--tag-id-fg:#aaaaaa;--tag-ign-bg:#3a3b40;--tag-ign-fg:#c3c7cd;--tag-real-bg:#5e3232;--tag-real-fg:#eec2c2;--tag-rev-bg:#274a45;--tag-rev-fg:#9fe0cf;--tree-selected:#3a4a7a;}html[data-theme="light"]{--accent:#6f42c1;--accent-2:#4f46e5;--add-bg:#e6ffec;--add-bg-dim:#f4fbf6;--bg:#ffffff;--border:#d0d7de;--border-soft:#e4e8ed;--border-strong:#c2c8d0;--btn-bg:#f6f8fa;--btn-border:#d0d7de;--btn-fg:#24292f;--btn-focus:#8c959f;--btn-hover:#eaeef2;--chrome-bar-bg:#f2f4f7;--chrome-bg:#f0f2f5;--chrome-checked-bg:#dde3ff;--chrome-checked-fg:#24306b;--chrome-checked-hover:#ccd5ff;--chrome-disabled-bg:#e6e9ee;--chrome-disabled-fg:#a0a6ae;--chrome-hover:#e2e6eb;--chrome-pressed:#d5dae0;--code-bg:#ffffff;--code-fg:#1f2328;--cur-marker:#0d1117;--del-bg:#ffebe9;--del-bg-dim:#fdf5f4;--err-bg:#fff5f5;--err-border:#e0989b;--err-code-bg:#ffe0e0;--err-fg:#a40e26;--fg:#1f2328;--fg-dim:#57606a;--fg-faint:#8c959f;--fg-muted:#6e7781;--fg-strong:#0d1117;--filler-bg:#f1f2f4;--find-bg:#fff0b3;--find-cur-bg:#ffd633;--gap-fg:#8c959f;--gutter-add-bg:#ccffd8;--gutter-bg:#f6f8fa;--gutter-del-bg:#ffd7d5;--gutter-fg:#8c959f;--gutter-line:#d3d9e0;--header-bg:#eaeef2;--header-fg:#4a525c;--icon-tint:#3d414a;--link-hover:#0550ae;--link-underline:#b8c0c8;--ln-bg:#edf0f4;--ln-fg:#8c959f;--map-bg:#f0f2f5;--map-ctx:#c2c8d0;--map-moved:#5b9bd5;--map-muted:#dfe3e8;--map-noise:#e3bcbc;--map-real:#d1686c;--muted-bg:#eaecef;--muted-fg:#9aa1a9;--mv-bg:#ddf4ff;--mv-fg:#0969da;--note-bg:#eafaf4;--note-border:#3f8f7a;--note-check:#1b7f6a;--note-fg:#12463c;--note-pending-bg:#fdf6e3;--note-pending-border:#b8a04f;--note-pending-fg:#5c4c10;--note-pending-tag:#8a6d0a;--note-tag:#0f6d5b;--note-where:#6a7d78;--pane-banner-bg:#eef1f4;--pane-new-accent:#357f4b;--pane-old-accent:#a8555a;--panel:#f6f8fa;--panel-2:#eef1f4;--panel-3:#eff2f5;--panel-alt:#f0f3f6;--panel-hover:#eaeef2;--progress-chunk:#4f46e5;--review-done:#1a7f37;--review-none:#8c959f;--review-partial:#b58900;--scroll-thumb:#c2c8d0;--scroll-thumb-hover:#a8b0ba;--seg-add-bg:#abf2bc;--seg-add-dim-bg:#dcefe2;--seg-add-dim-fg:#2b5b3c;--seg-add-fg:#1f2328;--seg-del-bg:#ffc1c0;--seg-del-dim-bg:#fae8e6;--seg-del-dim-fg:#8a4141;--seg-del-fg:#1f2328;--seg-mv-bg:#b6e3ff;--split-line:#b6bcc4;--st-add:#357f4b;--st-cmt:#7d848d;--st-cmt-text:#57606a;--st-del:#8250df;--st-err:#d1242f;--st-id:#8c959f;--st-ign:#6e7781;--st-real:#b8434b;--state-busy:#b58900;--state-error:#cf222e;--state-idle:#8c959f;--state-ready:#1a7f37;--status-fg:#57606a;--sticky-bg:#f2f4f7;--sticky-border:#d0d7de;--syn-attr:#0d7a86;--syn-call:#7a5c00;--syn-comment:#6a737d;--syn-keyword:#1c39bb;--syn-number:#6f42c1;--syn-preproc:#8250df;--syn-string:#a04a00;--syn-tag:#1c39bb;--syn-type:#0d7a86;--tag-add-bg:#e4f5e9;--tag-add-fg:#2b6440;--tag-cmt-bg:#eef1f4;--tag-cmt-fg:#57606a;--tag-del-bg:#f5eafd;--tag-del-fg:#6639ba;--tag-err-bg:#ffdcdc;--tag-err-fg:#a40e26;--tag-id-bg:#eaeef2;--tag-id-fg:#6e7781;--tag-ign-bg:#eaeef2;--tag-ign-fg:#4a525c;--tag-real-bg:#fbe9e9;--tag-real-fg:#93373f;--tag-rev-bg:#d7f5ec;--tag-rev-fg:#0f5d4e;--tree-selected:#cfe3ff;}
+body { font-family: Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--fg);
+       margin: 0; padding: 24px; }
+h1 { font-size: 20px; } h2 { font-size: 15px; margin: 28px 0 6px; color: var(--fg-strong); }
+.meta { color: var(--fg-dim); font-size: 13px; margin-bottom: 4px; }
+.summary { margin: 14px 0 22px; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px;
+         margin-right: 8px; cursor: pointer; user-select: none; border: 1px solid transparent; }
+.badge:hover { border-color: var(--fg-muted); }
+.badge.off { opacity: .35; text-decoration: line-through; }
+.b-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
+.b-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
+.b-id { background: var(--tag-id-bg); color: var(--tag-id-fg); }
+/* added and deleted get a badge each, in the colours the folder tree already
+   marks them with. They used to share one: "a whole file appeared or vanished"
+   sounded like one question, but a new file and a deleted one are not read the
+   same way, and neither is a count of "1 / 1" */
+.b-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
+.b-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
+.bgroup + .bgroup { border-left: 1px solid var(--border-strong); margin-left: 4px;
+                    padding-left: 18px; }
+.b-err { background: var(--tag-err-bg); color: var(--tag-err-fg);
+         border-color: var(--err-border); cursor: default; }
+.b-ok { background: var(--tag-add-bg); color: var(--tag-add-fg); cursor: default; }
+.errbox { background: var(--err-bg); border: 1px solid var(--err-border); border-radius: 6px;
+          padding: 10px 14px; margin: 14px 0 20px; color: var(--err-fg); font-size: 13px; }
+.errbox .errtitle { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.errbox div { padding: 1px 0; }
+.errbox code { background: var(--err-code-bg); color: var(--err-fg); }
+.hint { color: var(--fg-faint); font-size: 11px; margin: -14px 0 18px; }
+body.hide-real .sec-real, body.hide-ign .sec-ign, body.hide-add .sec-add,
+body.hide-del .sec-del { display: none; }
+ul.files { margin: 4px 0 14px; padding-left: 22px; font-size: 13px; }
+ul.files li { margin: 2px 0; }
+.kinds { color: var(--fg-muted); font-size: 12px; }
+.tree { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; margin: 0 0 20px; }
+.tree details.dir > summary { cursor: pointer; list-style: none; padding: 1px 0;
+        user-select: none; color: var(--accent); }
+.tree details.dir > summary::-webkit-details-marker { display: none; }
+.tree details.dir > summary::before { content: '▸ '; color: var(--fg-muted); }
+.tree details.dir[open] > summary::before { content: '▾ '; }
+.tree details.dir > *:not(summary) { margin-left: 18px; }
+.tf { padding: 1px 0; }
+.tf a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--link-underline);
+        cursor: pointer; }
+.tf a:hover { color: var(--link-hover); }
+.tmark { display: inline-block; width: 14px; font-weight: bold; }
+.t-real { color: var(--st-real); } .t-ign { color: var(--st-ign); }
+.t-add { color: var(--st-add); }
+.t-del { color: var(--st-del); } .t-id { color: var(--st-id); }
+.t-err { color: var(--st-err); }
+.t-cmt { color: var(--st-cmt); }
+.tf.tc-cmt { color: var(--st-cmt-text); }
+.tf.tc-real { color: var(--tag-real-fg); } .tf.tc-ign { color: var(--tag-ign-fg); }
+.tf.tc-add { color: var(--tag-add-fg); }
+.tf.tc-del { color: var(--tag-del-fg); text-decoration: line-through; }
+.tf.tc-id { color: var(--st-id); }
+.tf.tc-err { color: var(--tag-real-fg); font-weight: 700; }
+/* Focus button: narrows the tree to files with a reportable change --
+   real-change / added / deleted / error -- dropping identical, comment-only
+   and ignorable-only the same way the Qt viewer's Hide identical checkbox
+   drops identical. The report has no live rescan to redraw the tree from, so
+   a folder is dropped only when :has() finds it holds no surviving file, the
+   CSS mirror of qtviewer/tree.py's filter_nodes. */
+body.hide-noise .tf.tc-id, body.hide-noise .tf.tc-cmt, body.hide-noise .tf.tc-ign {
+    display: none; }
+body.hide-noise details.dir:not(:has(.tf:not(.tc-id):not(.tc-cmt):not(.tc-ign))) {
+    display: none; }
+.treehdr { display: flex; align-items: center; gap: 10px; }
+.treehdr h2 { margin: 0; }
+.focusbtn { background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border);
+    border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.focusbtn:hover { background: var(--btn-hover); }
+.focusbtn.off { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+.legend { color: var(--fg-muted); font-size: 12px; margin: 2px 0 8px; }
+table.diff { border-collapse: collapse; width: 100%; table-layout: fixed;
+             font-family: Consolas, monospace; font-size: 12px; margin: 6px 0 14px; }
+table.diff td { padding: 1px 6px; vertical-align: top; white-space: pre-wrap;
+                word-break: break-all; border: none; }
+td.ln { width: 44px; color: var(--ln-fg); text-align: right; user-select: none;
+        background: var(--ln-bg); border-right: 1px solid var(--gutter-line); }
+/* BASELINE and CURRENT share one table, so a rule down the middle is the only
+   thing marking where one side stops -- without it a one-sided file reads as a
+   band running the full width. The gutter rule beside every line number is
+   fainter on purpose: it separates a number from its own code, which is a
+   smaller claim than separating the two sides of the compare. */
+table.diff td:nth-child(3) { border-left: 1px solid var(--split-line); }
+/* the gutter's own tint follows the code cell it sits beside -- see _row's
+   ln-del/ln-add/ln-mut. Without this the number column stayed the plain
+   gutter colour while the code beside it changed, so a coloured row visibly
+   stopped short of its own line number. */
+td.ln-del { background: var(--gutter-del-bg); }
+td.ln-add { background: var(--gutter-add-bg); }
+td.ln-mut { background: var(--muted-bg); }
+/* the missing half of a one-sided file: the cell still has to be there for the
+   fixed column widths to line up with a real diff, but a rule beside line
+   numbers that do not exist is a divider with nothing to divide */
+td.ln-empty { background: none; border-right: none; }
+td.del { background: var(--del-bg); } td.add { background: var(--add-bg); }
+/* Unimportant hides behind its own badge, default OFF -- the report opens
+   on real changes, a click reveals the rest. Revealed rows are flat neutral
+   grey, not a dim red/green: a toggled-open noise section still has to read
+   as "off to the side", off the one-colour-language rule real changes and
+   moved blocks use, not a quieter member of it. No character-level highlight
+   either (see _row) -- marking what changed inside a line nobody was asked
+   to read closely would be noise on noise. Comment rows use the same grey
+   classes but never get a toggle: they stay hidden always (see the CSS
+   below), only counted in the placeholder, never rendered in the report. */
+td.delm, td.delc, td.addm, td.addc { background: var(--muted-bg); color: var(--muted-fg); }
+td.mvd, td.mva { background: var(--mv-bg); }
+td.ctx { color: var(--fg-dim); }
+td.del .chg-seg { background: var(--seg-del-bg); color: var(--seg-del-fg);
+                  border-radius: 2px; }
+td.add .chg-seg { background: var(--seg-add-bg); color: var(--seg-add-fg);
+                  border-radius: 2px; }
+/* Same low-saturation, no-red-no-green palette the Qt pane paints its code
+   with (qtviewer/highlight.py) -- foreground only, so a token colour sits on
+   top of the diff background instead of fighting it. Comment/minor rows are
+   never given these spans (see _row): a noise row goes flat grey, code
+   colour there would be noise on noise. */
+.syn-comment { color: var(--syn-comment); font-style: italic; }
+.syn-string  { color: var(--syn-string); }
+.syn-number  { color: var(--syn-number); }
+.syn-keyword { color: var(--syn-keyword); }
+.syn-type    { color: var(--syn-type); }
+.syn-preproc { color: var(--syn-preproc); }
+.syn-call    { color: var(--syn-call); }
+.syn-tag     { color: var(--syn-tag); }
+.syn-attr    { color: var(--syn-attr); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+      margin: 0 4px 0 2px; vertical-align: -1px; }
+.sw-del { background: var(--seg-del-bg); } .sw-add { background: var(--seg-add-bg); }
+.sw-mv { background: var(--seg-mv-bg); } .sw-mut { background: var(--muted-bg); }
+tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2);
+            font-size: 11px; }
+/* a context-less noise group (see _groups_html) has nothing visible in it
+   until the Unimportant badge reveals its rows -- so it must take up no
+   height at all until then, not a table's worth of margin */
+.grp.lean table.diff { margin: 0; }
+/* the enclosing function / SHORT-NAME / A2L block of a group's first hunk,
+   the way git writes it after every @@ header -- in a 4000-line generated
+   file "Change 3 of 7" says how many, this says where. Muted so it reads as a
+   caption on the diff, not as a diff row. */
+.fnhdr { font-family: Consolas, monospace; font-size: 11px; color: var(--fg-muted);
+         padding: 3px 8px 1px; }
+tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
+               font-size: 11px; }
+/* Unimportant rows hide per ROW, not per group: a group used to be wrapped
+   whole and hidden together, which took the placeholder below and the
+   ordinary context lines around it down with it -- a noise-only file opened
+   to an empty box under its own summary line. Comment rows are never shown
+   in the report -- unlike Unimportant they have no badge and no toggle, only
+   the placeholder below stating how many lines were hidden, so a comment
+   change is never silently dropped from the record, just never rendered. */
+body.hide-ign tr.minor { display: none; }
+tr.comment { display: none; }
+tr.minorph { display: none; }
+body.hide-ign tr.minorph { display: table-row; }
+tr.commentph { display: table-row; }
+tr.minorph td, tr.commentph td { color: var(--st-cmt); }
+.filenote { color: var(--fg-muted); font-size: 12px; margin: 2px 0 10px; }
+/* a diff cut short by --max-diff-lines: loud, because a silently truncated
+   record is the failure this tool exists to prevent. Reuses the error roles. */
+.filenote.trunc { color: var(--err-fg); background: var(--err-bg);
+    border: 1px solid var(--err-border); border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; font-weight: 600; }
+.diff tr.trunc-row td { color: var(--err-fg); background: var(--err-bg);
+    border-top: 1px solid var(--err-border); font-weight: 600; padding: 8px 12px; }
+.iflist { font-family: Consolas, monospace; font-size: 13px; background: var(--panel);
+          border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px;
+          margin: 0 0 20px; }
+.iflist div { padding: 1px 0; }
+.if-add { color: var(--st-add); } .if-del { color: var(--st-real); }
+.iflist a { color: var(--fg-dim); text-decoration: none;
+            border-bottom: 1px dotted var(--link-underline); cursor: pointer; }
+.iflist a:hover { color: var(--link-hover); }
+.ifnote { font-size: 12px; color: var(--mv-fg); margin: 2px 0 8px; }
+code { background: var(--panel-3); padding: 1px 5px; border-radius: 4px; }
+details.file { margin: 10px 0; border: 1px solid var(--border); border-radius: 6px;
+               background: var(--panel); }
+details.file > summary { list-style: none; cursor: pointer; padding: 10px 14px;
+    font-size: 15px; color: var(--fg-strong); display: flex; align-items: center; gap: 10px;
+    user-select: none; }
+details.file > summary::-webkit-details-marker { display: none; }
+details.file > summary::before { content: '▶'; font-size: 10px; color: var(--fg-muted);
+                                 transition: transform .15s; }
+details.file[open] > summary::before { transform: rotate(90deg); }
+details.file > summary:hover { background: var(--panel-hover); }
+details.file > .body { padding: 0 14px 12px; }
+summary .hcount { color: var(--fg-muted); font-size: 12px; font-weight: normal; }
+summary .tag { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 11px; }
+.tag-real { background: var(--tag-real-bg); color: var(--tag-real-fg); }
+.tag-ign { background: var(--tag-ign-bg); color: var(--tag-ign-fg); }
+.tag-cmt { background: var(--tag-cmt-bg); color: var(--tag-cmt-fg); }
+.tag-add { background: var(--tag-add-bg); color: var(--tag-add-fg); }
+.tag-del { background: var(--tag-del-bg); color: var(--tag-del-fg); }
+.tag-err { background: var(--tag-err-bg); color: var(--tag-err-fg); }
+.toolbar { margin: 4px 0 16px; }
+.toolbar button { background: var(--btn-bg); color: var(--btn-fg);
+    border: 1px solid var(--btn-border); border-radius: 4px;
+    padding: 4px 10px; font-size: 12px; cursor: pointer; margin-right: 6px; }
+.toolbar button:hover { background: var(--btn-hover); }
+#flt { background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border);
+       border-radius: 4px; padding: 4px 10px; font-size: 12px; width: 280px; margin-left: 10px; }
+#flt:focus { outline: none; border-color: var(--btn-focus); }
+/* the dark/light switch. Fixed, top right, out of the reading column: it is a
+   preference about the page, not a fact about the compare, so it must not sit
+   among the verdict badges where it would read as one. */
+#thm { position: fixed; top: 14px; right: 18px; z-index: 9; background: var(--btn-bg);
+       color: var(--btn-fg); border: 1px solid var(--btn-border); border-radius: 6px;
+       padding: 4px 10px; font-size: 12px; cursor: pointer;
+       font-family: Segoe UI, Arial, sans-serif; }
+#thm:hover { background: var(--btn-hover); }
+table.ov { border-collapse: collapse; font-size: 13px; margin: 4px 0 22px; }
+table.ov th { text-align: left; color: var(--fg-muted); font-weight: normal; font-size: 12px;
+              padding: 3px 18px 4px 0; border-bottom: 1px solid var(--border-strong); }
+table.ov td { padding: 5px 18px 5px 0; border-bottom: 1px solid var(--border-soft);
+              vertical-align: top; }
+table.ov a { color: var(--accent); text-decoration: none;
+             border-bottom: 1px dotted var(--link-underline); cursor: pointer; }
+table.ov a:hover { color: var(--link-hover); }
+.cnt { margin-right: 10px; white-space: nowrap; }
+.cnt-real { color: var(--tag-real-fg); } .cnt-add { color: var(--tag-add-fg); }
+.cnt-del { color: var(--tag-del-fg); }
+.cnt-ign { color: var(--tag-ign-fg); } .cnt-id { color: var(--st-id); }
+.cnt-err { color: var(--st-err); font-weight: 700; }
+.aut { color: var(--fg-dim); }
+.aut .a-add { color: var(--st-add); } .aut .a-del { color: var(--st-real); }
+.aut .a-chg { color: var(--mv-fg); }
+.ifgroup { color: var(--fg-muted); font-size: 11px; text-transform: uppercase;
+           letter-spacing: .5px; margin: 8px 0 2px; }
+.iflist .ifgroup:first-child { margin-top: 0; }
+.if-chg { color: var(--mv-fg); }
+details.model { margin: 16px 0; border: 1px solid var(--border-strong); border-radius: 8px;
+                background: var(--panel-alt); }
+details.model > summary { list-style: none; cursor: pointer; padding: 9px 14px;
+    font-size: 15px; color: var(--accent); user-select: none; display: flex;
+    align-items: center; gap: 10px; }
+details.model > summary::-webkit-details-marker { display: none; }
+details.model > summary::before { content: '▶'; font-size: 10px; color: var(--fg-muted);
+                                  transition: transform .15s; }
+details.model[open] > summary::before { transform: rotate(90deg); }
+details.model > summary:hover { background: var(--panel-2); }
+details.model > .mbody { padding: 0 12px 10px; }
+summary .mcounts { font-size: 12px; font-weight: normal; }
+.b-rev { background: var(--tag-rev-bg); color: var(--tag-rev-fg); }
+.rvnote { background: var(--note-bg); border-left: 3px solid var(--note-border);
+          border-radius: 4px; padding: 6px 10px; margin: 8px 0 2px; font-size: 12px;
+          color: var(--note-fg); white-space: pre-wrap; }
+.rvnote .rvtag { color: var(--note-tag); font-weight: 700; margin-right: 8px; }
+.rvnote .rvwhere { color: var(--note-where); margin-right: 8px;
+                   font-family: Consolas, monospace; }
+.rvnote.pending { background: var(--note-pending-bg);
+                  border-left-color: var(--note-pending-border); color: var(--note-pending-fg); }
+.rvnote.pending .rvtag { color: var(--note-pending-tag); }
+.rvcheck { color: var(--note-check); }
+/* the Reviewed badge hides what has already been signed off, so the next pass
+   shows only what is left. It starts SHOWN: the report is the record, and a
+   record that opens with real changes already hidden is not one. */
+body.hide-rev .grp-rev, body.hide-rev details.file.file-rev { display: none; }
+</style></head><body class="hide-ign"><button id="thm" type="button" onclick="tgtheme()" title="Switch this page between dark and light">&#9788; Light</button><h1>AUTOSAR Code Generation Report</h1><div class="meta">BASELINE <code title="C:\Users\LEGION\AppData\Local\Temp\claude\C--Users-LEGION-01-Project-workspace-code-review--claude-worktrees-skip-variable-rename-flag-4bdb90\e262817b-e830-4406-b981-254456ca2655\scratchpad\qc_demo\gen_old">gen_old</code> &rarr; CURRENT <code title="C:\Users\LEGION\AppData\Local\Temp\claude\C--Users-LEGION-01-Project-workspace-code-review--claude-worktrees-skip-variable-rename-flag-4bdb90\e262817b-e830-4406-b981-254456ca2655\scratchpad\qc_demo\gen_new">gen_new</code> &middot; 2026-09-11 21:54:52</div><div class="summary"><span class="bgroup"><span class="badge b-real" onclick="tg(this,'real')">1 Modified</span><span class="badge b-add" onclick="tg(this,'add')">0 Added</span><span class="badge b-del" onclick="tg(this,'del')">0 Deleted</span><span class="badge b-ign off" onclick="tg(this,'ign')">3 Unimportant</span></span></div><div class="hint">&#9888; QUICK CHECK (<code>--skip-var-renames</code>): variable renames folded without proof in 3 file(s), labelled <b>Assumed rename</b> &mdash; a rewiring has the same shape, so a real change can be missing.</div><h2>AUTOSAR changes</h2><div class="filenote">No AUTOSAR-level changes (interfaces, ports, runnables, events, RTE access points, A2L objects).</div><div class="treehdr"><h2>Folder tree</h2><button type="button" class="focusbtn" onclick="tg(this,'noise')" title="Hide identical, comment-only and Unimportant files, and any folder left holding none">Focus on changes</button></div><div class="tree"><details class="dir" open><summary><span class="tmark t-real" title="Modified">≠</span>swc_ctrl/</summary><div class="tf tc-ign" data-p="swc_ctrl/Ctrl_bindings.c"><span class="tmark t-ign" title="Unimportant (noise only)">≈</span><a onclick="go('f1')">Ctrl_bindings.c</a></div><div class="tf tc-ign" data-p="swc_ctrl/Ctrl_decl.c"><span class="tmark t-ign" title="Unimportant (noise only)">≈</span><a onclick="go('f2')">Ctrl_decl.c</a></div><div class="tf tc-ign" data-p="swc_ctrl/Ctrl_init.c"><span class="tmark t-ign" title="Unimportant (noise only)">≈</span><a onclick="go('f3')">Ctrl_init.c</a></div><div class="tf tc-real" data-p="swc_ctrl/Ctrl_real.c"><span class="tmark t-real" title="Modified">≠</span><a onclick="go('f0')">Ctrl_real.c</a></div></details></div><h2>Detailed changes</h2><div class="legend"><span class="sw sw-del"></span>/<span class="sw sw-add"></span>Removed / Added&emsp;<span class="sw sw-mv"></span>Moved, not changed&emsp;<span class="sw sw-mut"></span>Unimportant (revealed)</div><div class="toolbar"><button type="button" onclick="document.querySelectorAll('details.file,details.model').forEach(d=>d.open=true)">Expand all</button><button type="button" onclick="document.querySelectorAll('details.file,details.model').forEach(d=>d.open=false)">Collapse all</button><input id="flt" type="search" placeholder="Filter by file / model name&hellip;" oninput="flt(this.value)"></div><details class="file sec-real" id="f0" data-p="swc_ctrl/Ctrl_real.c" open><summary>swc_ctrl/Ctrl_real.c <span class="tag tag-real">Modified</span> <span class="hcount">Affected: Ctrl_out</span></summary><div class="body"><div class="grp"><div class="fnhdr">ƒ Ctrl_out</div><table class="diff"><tr><td class="ln">3</td><td class="ctx"></td><td class="ln">3</td><td class="ctx"></td></tr><tr><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_out</span>(<span class="syn-type">void</span>)</td><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_out</span>(<span class="syn-type">void</span>)</td></tr><tr><td class="ln">5</td><td class="ctx">{</td><td class="ln">5</td><td class="ctx">{</td></tr><tr><td class="ln ln-del">6</td><td class="del">  <span class="syn-type">boolean_T</span> armed = <span class="chg-seg">FALSE</span>;</td><td class="ln ln-add">6</td><td class="add">  <span class="syn-type">boolean_T</span> armed = <span class="chg-seg">TRUE</span>;</td></tr><tr><td class="ln ln-del">7</td><td class="del">  sint32 limit = <span class="chg-seg"><span class="syn-number">100</span></span>;</td><td class="ln ln-add">7</td><td class="add">  sint32 limit = <span class="chg-seg"><span class="syn-number">250</span></span>;</td></tr><tr><td class="ln">8</td><td class="ctx"></td><td class="ln">8</td><td class="ctx"></td></tr><tr><td class="ln ln-del">9</td><td class="del">  mode = <span class="chg-seg">IDLE</span>;</td><td class="ln ln-add">9</td><td class="add">  mode = <span class="chg-seg">DRIVE</span>;</td></tr><tr><td class="ln ln-del">10</td><td class="del">  gain = <span class="chg-seg">base</span>;</td><td class="ln ln-add">10</td><td class="add">  gain = <span class="chg-seg">limit</span>;</td></tr><tr><td class="ln ln-del">11</td><td class="del">  torque = gain * <span class="chg-seg"><span class="syn-number">2</span></span><span class="syn-number">.0</span>;</td><td class="ln ln-add">11</td><td class="add">  torque = gain * <span class="chg-seg"><span class="syn-number">3</span></span><span class="syn-number">.0</span>;</td></tr><tr><td class="ln">12</td><td class="ctx">}</td><td class="ln">12</td><td class="ctx">}</td></tr><tr><td class="ln">13</td><td class="ctx"></td><td class="ln">13</td><td class="ctx"></td></tr></table></div></div></details><details class="file sec-ign" id="f1" data-p="swc_ctrl/Ctrl_bindings.c"><summary>swc_ctrl/Ctrl_bindings.c <span class="tag tag-ign">Unimportant</span> <span class="hcount">Assumed rename</span></summary><div class="body"><div class="grp"><div class="fnhdr">ƒ Ctrl_step</div><table class="diff"><tr><td class="ln">3</td><td class="ctx"></td><td class="ln">3</td><td class="ctx"></td></tr><tr><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_step</span>(<span class="syn-type">void</span>)</td><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_step</span>(<span class="syn-type">void</span>)</td></tr><tr><td class="ln">5</td><td class="ctx">{</td><td class="ln">5</td><td class="ctx">{</td></tr><tr class="minor"><td class="ln ln-mut">6</td><td class="delm">  acc_cmd = rtU.Pedal;</td><td class="ln ln-mut">6</td><td class="addm">  drv_cmd = rtU.Pedal;</td></tr><tr class="minor"><td class="ln ln-mut">7</td><td class="delm">  brk_cmd = rtU.Brake;</td><td class="ln ln-mut">7</td><td class="addm">  dec_cmd = rtU.Brake;</td></tr><tr class="minor"><td class="ln ln-mut">8</td><td class="delm">  trq_out = acc_cmd;</td><td class="ln ln-mut">8</td><td class="addm">  trq_out = drv_cmd;</td></tr><tr class="gap minorph"><td colspan="4">⋯ 3 minor (assumed-rename) lines hidden</td></tr><tr><td class="ln">9</td><td class="ctx"></td><td class="ln">9</td><td class="ctx"></td></tr><tr><td class="ln">10</td><td class="ctx">  <span class="syn-call">Log</span>(acc_cmd);</td><td class="ln">10</td><td class="ctx">  <span class="syn-call">Log</span>(acc_cmd);</td></tr><tr><td class="ln">11</td><td class="ctx">  <span class="syn-call">Log</span>(brk_cmd);</td><td class="ln">11</td><td class="ctx">  <span class="syn-call">Log</span>(brk_cmd);</td></tr></table></div></div></details><details class="file sec-ign" id="f2" data-p="swc_ctrl/Ctrl_decl.c"><summary>swc_ctrl/Ctrl_decl.c <span class="tag tag-ign">Unimportant</span> <span class="hcount">Assumed rename</span></summary><div class="body"><div class="grp"><div class="fnhdr">ƒ Ctrl_calc</div><table class="diff"><tr><td class="ln">3</td><td class="ctx"></td><td class="ln">3</td><td class="ctx"></td></tr><tr><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_calc</span>(<span class="syn-type">void</span>)</td><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_calc</span>(<span class="syn-type">void</span>)</td></tr><tr><td class="ln">5</td><td class="ctx">{</td><td class="ln">5</td><td class="ctx">{</td></tr><tr class="minor"><td class="ln ln-mut">6</td><td class="delm">  real_T filt_in;</td><td class="ln ln-mut">6</td><td class="addm">  real_T filt_val;</td></tr><tr class="gap minorph"><td colspan="4">⋯ 1 minor (assumed-rename) line hidden</td></tr><tr><td class="ln">7</td><td class="ctx"></td><td class="ln">7</td><td class="ctx"></td></tr><tr class="minor"><td class="ln ln-mut">8</td><td class="delm">  filt_in = rtU.Raw;</td><td class="ln ln-mut">8</td><td class="addm">  filt_val = rtU.Raw;</td></tr><tr class="minor"><td class="ln ln-mut">9</td><td class="delm">  rtY.Out = filt_in;</td><td class="ln ln-mut">9</td><td class="addm">  rtY.Out = filt_val;</td></tr><tr class="gap minorph"><td colspan="4">⋯ 2 minor (assumed-rename) lines hidden</td></tr><tr><td class="ln">10</td><td class="ctx">  <span class="syn-call">Log</span>(filt_in);</td><td class="ln">10</td><td class="ctx">  <span class="syn-call">Log</span>(filt_in);</td></tr><tr><td class="ln">11</td><td class="ctx">}</td><td class="ln">11</td><td class="ctx">}</td></tr><tr><td class="ln">12</td><td class="ctx"></td><td class="ln">12</td><td class="ctx"></td></tr></table></div></div></details><details class="file sec-ign" id="f3" data-p="swc_ctrl/Ctrl_init.c"><summary>swc_ctrl/Ctrl_init.c <span class="tag tag-ign">Unimportant</span> <span class="hcount">Assumed rename, Rename ×2</span></summary><div class="body"><div class="grp"><div class="fnhdr">ƒ Ctrl_init</div><table class="diff"><tr><td class="ln">3</td><td class="ctx"></td><td class="ln">3</td><td class="ctx"></td></tr><tr><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_init</span>(<span class="syn-type">void</span>)</td><td class="ln">4</td><td class="ctx"><span class="syn-type">void</span> <span class="syn-call">Ctrl_init</span>(<span class="syn-type">void</span>)</td></tr><tr><td class="ln">5</td><td class="ctx">{</td><td class="ln">5</td><td class="ctx">{</td></tr><tr class="minor"><td class="ln ln-mut">6</td><td class="delm">  boolean_T enable_flag = FALSE;</td><td class="ln ln-mut">6</td><td class="addm">  boolean_T drive_ready = FALSE;</td></tr><tr class="minor"><td class="ln ln-mut">7</td><td class="delm">  sint32 retry_count = 0;</td><td class="ln ln-mut">7</td><td class="addm">  sint32 attempt_no = 0;</td></tr><tr class="gap minorph"><td colspan="4">⋯ 2 minor (rename) lines hidden</td></tr><tr class="minor"><td class="ln ln-mut">8</td><td class="delm">  real_T ramp_gain = 1.0;</td><td class="ln ln-mut">8</td><td class="addm">  real_T slope_gain = 1.0;</td></tr><tr class="gap minorph"><td colspan="4">⋯ 1 minor (assumed-rename) line hidden</td></tr><tr><td class="ln">9</td><td class="ctx"></td><td class="ln">9</td><td class="ctx"></td></tr><tr class="minor"><td class="ln ln-mut">10</td><td class="delm">  Use(enable_flag, retry_count, ramp_gain);</td><td class="ln ln-mut">10</td><td class="addm">  Use(drive_ready, attempt_no, ramp_gain);</td></tr><tr class="minor"><td class="ln ln-mut">11</td><td class="delm">  Use(enable_flag, retry_count, ramp_gain);</td><td class="ln ln-mut">11</td><td class="addm">  Use(drive_ready, attempt_no, ramp_gain);</td></tr><tr class="gap minorph"><td colspan="4">⋯ 2 minor (rename) lines hidden</td></tr><tr><td class="ln">12</td><td class="ctx">}</td><td class="ln">12</td><td class="ctx">}</td></tr><tr><td class="ln">13</td><td class="ctx"></td><td class="ln">13</td><td class="ctx"></td></tr></table></div></div></details><script>var HID=[["hide-real","sec-real"],["hide-ign","sec-ign"],["hide-add","sec-add"],["hide-del","sec-del"],["hide-rev","file-rev"]];function mv(){var b=document.body.classList;document.querySelectorAll("details.model").forEach(function(m){var any=false;m.querySelectorAll("details.file").forEach(function(f){if(f.style.display==="none")return;var c=f.classList;if(HID.some(function(p){return b.contains(p[0])&&c.contains(p[1]);}))return;any=true;});m.style.display=any?"":"none";});}function tg(el,k){document.body.classList.toggle("hide-"+k);el.classList.toggle("off");mv();}function go(id){var d=document.getElementById(id);if(!d)return;var m=d.closest("details.model");if(m)m.open=true;if(d.tagName==="DETAILS")d.open=true;d.scrollIntoView({behavior:"smooth"});}function flt(q){q=q.trim().toLowerCase();document.querySelectorAll("details.file[data-p]").forEach(function(d){var m=d.closest("details.model");var hit=!q||d.dataset.p.toLowerCase().indexOf(q)>=0||(m&&m.dataset.m.toLowerCase().indexOf(q)>=0);d.style.display=hit?"":"none";});document.querySelectorAll(".tf[data-p]").forEach(function(t){t.style.display=(!q||t.dataset.p.toLowerCase().indexOf(q)>=0)?"":"none";});mv();}mv();function sttheme(t,save){document.documentElement.setAttribute("data-theme",t);var b=document.getElementById("thm");if(b)b.innerHTML=(t==="dark"?"\u2600 Light":"\u263e Dark");if(save){try{localStorage.setItem("cgc-theme",t);}catch(e){}}}function tgtheme(){sttheme(document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark",true);}(function(){var t=null;try{t=localStorage.getItem("cgc-theme");}catch(e){}sttheme(t==="dark"||t==="light"?t:document.documentElement.getAttribute("data-theme"),false);})();</script></body></html>

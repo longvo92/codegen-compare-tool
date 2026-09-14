@@ -47,6 +47,37 @@ class _TreeCase(unittest.TestCase):
 
 
 class TestScanErrors(_TreeCase):
+    def test_corrupt_one_sided_text_is_error_and_other_files_are_compared(self):
+        for side in (self.old, self.new):
+            for name in ('bad.txt', 'bad.py', 'bad.h', 'bad.arxml'):
+                with self.subTest(side=side.name, name=name):
+                    path = side / name
+                    path.write_bytes(b'\xff\xfe\x41')
+                    try:
+                        results = scan(self.old, self.new)
+                        self.assertEqual(results[name]['status'], 'error')
+                        self.assertIn('UnicodeDecodeError', results[name]['notes'][0])
+                        self.assertEqual(results['a.c']['status'], 'real-change')
+                        self.assertEqual(results['b.c']['status'], 'identical')
+                    finally:
+                        path.unlink()
+
+    def test_corrupt_one_sided_text_keeps_exit_two_with_exit_zero(self):
+        (self.new / 'bad.txt').write_bytes(b'\xff\xfe\x41')
+        report = Path(self.tmp.name) / 'report.html'
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = main([str(self.old), str(self.new), '--report', str(report), '--exit-zero'])
+        self.assertEqual(code, 2)
+        self.assertIn('bad.txt', report.read_text(encoding='utf-8'))
+
+    def test_move_candidate_read_failure_is_error(self):
+        (self.new / 'added.txt').write_text('new file', encoding='utf-8')
+        with mock.patch.object(scanner, '_candidate', side_effect=OSError('read failed')):
+            results = scan(self.old, self.new)
+        self.assertEqual(results['added.txt']['status'], 'error')
+        self.assertIn('read failed', results['added.txt']['notes'][0])
+        self.assertEqual(results['a.c']['status'], 'real-change')
+
     def test_compare_error_recorded_other_files_still_compared(self):
         with mock.patch.object(scanner, 'compare_file', _boom_on('a.c')):
             results = scan(self.old, self.new)

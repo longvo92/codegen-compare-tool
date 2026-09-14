@@ -183,11 +183,17 @@ records the measurements, because the fast path the heuristic was bought with
 turns out not to be needed.
 
 - **Pass 2 decides the truth.** Each side is reduced to a *shadow*: comments
-  stripped, whitespace collapsed, UUIDs and dates and version stamps removed,
+  stripped, layout whitespace outside literals normalized, UUIDs and dates and version stamps removed,
   and for C a verified 1-to-1 rename map applied. Whatever still differs
   between the two shadows is a real change. The rename map is best-effort and
   then *checked* — it is applied to the old shadow and re-diffed, and any line
   it does not fully explain stays real.
+  `langspec.normalize_ws` preserves literal payload and Python/YAML indentation.
+  Literal continuation lines carry a nonblank shadow marker so blank-only hunk
+  filtering cannot erase an inserted empty line inside a string. The raw text
+  and raw line coordinates remain unchanged. Callee changes require matching
+  generated checksum roots before entering a rename map; RHS writes disqualify
+  a block from reorder folding.
 - **Pass 1 decides what you see.** The raw line diff keeps every textual
   difference, so the viewer can show the churn instead of pretending the files
   were identical. A raw hunk that intersects no real hunk is ignorable, and is
@@ -386,7 +392,7 @@ everything else opens the viewer.
 
 ### CLI
 
-`run_compare` deletes any leftover report *before* scanning — if this run dies,
+With an output path, `run_compare` deletes any leftover report *before* scanning — if this run dies,
 a stale file from the previous one must not pass for its result. A report path
 that cannot be written raises `ReportWriteError` carrying the scan it could not
 write, so the terminal still prints what was found, and the run exits `2`:
@@ -396,6 +402,12 @@ write, so the terminal still prints what was found, and the run exits `2`:
 | 0 | No real change |
 | 1 | Real changes found (the CI gate) |
 | 2 | Compare INCOMPLETE — a path could not be listed, read or compared, or the report could not be written |
+
+`--no-report` passes `out=None` to the same `run_compare` function. It returns
+immediately after scanning and counting, before any HTML rendering or file
+write. `summary_lines(..., tree=True)` prints all scanned paths and reuses the
+existing semantic summaries and consistency advisories; it does not fold the
+results or print source-code hunks. Old reports are untouched in this mode.
 
 The exit code is a contract with somebody's pipeline. `--exit-zero` suppresses
 `1`, never `2` — an incomplete compare must never look green.

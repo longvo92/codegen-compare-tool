@@ -3,7 +3,17 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.15.0]
+
+### Added
+
+- Add terminal-only comparisons with `--no-report`, including a complete file tree, AUTOSAR/A2L summaries and consistency warnings.
+
+### Fixed
+
+- Fix missed changes to string contents and Python/YAML indentation.
+- Fix external function changes and reordered assignments with side effects being reported as noise.
+- Fix incomplete comparisons when an added or deleted text file has invalid encoding.
 
 ## [1.14.1] — 2026-09-13
 

@@ -21,14 +21,38 @@ This is the long version of everything the [README](../README.md) points to: eve
 python -m compare_tool <old_gen_folder> <new_gen_folder> [--report out.html]
 ```
 
+For a terminal summary without generating HTML:
+
+```bash
+python -m compare_tool <old_gen_folder> <new_gen_folder> --no-report
+```
+
+This prints the counts, a folder tree including **every scanned file**, and the
+existing AUTOSAR/A2L summaries: interfaces, SWCs, ports, runnables, events, RTE
+access points and calibration objects. Files are labelled `modified`, `identical`,
+`added`, `deleted`, `comment-only`, `ignorable-only`, or `error`. There are no code
+diffs or hunk details. Folder entries organize the paths; verdicts belong to files.
+
+The report's consistency advisories are also printed: ARXML/A2L changes without
+corresponding generated C changes, and added RTE access while a peer model stayed
+identical. Compare failures and unsafe quick-check warnings remain visible.
+Advisories do not change verdicts or exit codes.
+
+Both inputs are required; `--no-report` cannot be combined with `--report` or
+`--qt`/`--viewer`. Existing HTML reports are left untouched. Filters, custom rules,
+ZIP inputs and exit codes `0`/`1`/`2` work as usual; `--arxml-only` restricts the
+tree and summaries to ARXML/XML/A2L. `--json` and `--sarif` still write files when
+explicitly requested. `--review` has no effect in this mode.
+
 Either side can be a `.zip` instead of a folder — an Azure DevOps build artifact, say. The tool unpacks it read-only into a temp directory, compares it like an ordinary folder, and deletes the temp copy on exit. If the archive has a single wrapper directory inside it, the tool descends into that automatically. The report header shows the zip's name rather than the temp path it was unpacked to (`--baseline-name` / `--current-name` still override that if you want something else). A zip that can't be read stops the run with a loud error — it never quietly falls through to comparing an empty folder.
 
 | Flag | Meaning |
 |---|---|
+| `--no-report` | Print a complete file tree, AUTOSAR/A2L summaries and warnings to the terminal without creating HTML or printing code diffs |
 | `--report out.html` | Report output path (default `compare_report.html`). An existing file there is deleted before the scan starts |
 | `--exclude PATTERN` | Skip files matching a glob (relative path or bare file name), repeatable. Example: `--exclude compare_report.html` |
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
-| `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l` and write a compact per-type report (default `arxml_update.html`) — always written, even when nothing changed |
+| `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l`. Writes a compact per-type report (default `arxml_update.html`), even when nothing changed, unless `--no-report` is used |
 | `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, plus a `Reviewed` badge that hides the changes already signed off. Must be named explicitly — a report must not pick up someone else's sign-off by accident; no effect with `--arxml-only` |
 | `--baseline-name NAME` | Name the BASELINE side in the report header instead of using its folder name. For a pipeline that stages the previous codegen into a fixed scratch directory, where `cg_temp` names the mechanism rather than the build. Example: `--baseline-name "build 4821"` |
 | `--current-name NAME` | Same for the CURRENT side. Either flag only changes the header text — the folder path stays in the tooltip, so a compare is still traceable to where the files were read from |
@@ -130,10 +154,15 @@ Turning on `Review mode` adds a note box and a `Review` column to the tree — g
 | `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
 | `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — the prose an Identifiable carries (schema 4.2 and 4.4 alike). `<CATEGORY>` and `<ANNOTATIONS>` are **not** included: the first is semantic, the second can carry tool payload | .arxml .xml |
 | `assumed-rename` | Assignments and declarations differing only by variable names, folded **without proof** — only with `--skip-var-renames`, never by default | .c .h .cpp .hpp |
-| `whitespace` | Indentation, trailing spaces, blank lines | all |
+| `whitespace` | Layout outside string literals. Python/YAML indentation and literal whitespace remain significant | all |
 | `line-endings` | CRLF vs LF, BOM | all |
 
 ### Renames
+
+Changing a called function, such as `getSpeed()` to `getTorque()`, is a real
+change even when the old name disappears entirely. Callee names are folded
+only for a regenerated embedded checksum with the same remaining name.
+Rename maps never rewrite string or character literal contents.
 
 Auto-generated name churn gets recognised as a `rename`, but only under a fairly strict test. Two identifiers count as the same name only when the code generator plausibly owns both of them — a generated prefix (`rtb_`, `rtu_`, `rty_`, `rtDW`, `rtP`, `rtC`, `rtZC`, `localB`, `localDW`, and so on), a DWork field (`_DSTATE`, `_PreviousInput`, `_MODE`, `_SubsysRanBC`, …), or an embedded block-path checksum (`Sub_c4nxjoom3d_step` → `Sub_j2kqp1wxab_step`) — **and** they still share a root once the generated part is stripped away. That generated part is either a mangling suffix (`_c`, `_o4`) or a checksum (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`); renumbered MATLAB Coder temporaries (`tmp`, `idx`, `loop_ub`, `i`) fall under the same rule.
 
@@ -145,11 +174,23 @@ Everything else keeps its suffix as meaning, which is the whole point of being t
 
 Regenerating a model routinely emits the same independent assignments — output ports, temporaries — in a different order, which a plain text diff reads as a change even though the block computes exactly the same values. A `reorder` fold recognises this case, but only where it can actually be **proven**, never guessed at:
 
-- every line on both sides is a side-effect-free scalar assignment (`ident = expr;` — no call, no store through an array/pointer/field, no control flow, no declaration with a type);
+- every line on both sides is a side-effect-free scalar assignment (`ident = expr;` — no call, increment/decrement, nested assignment, store through an array/pointer/field, control flow, or declaration with a type);
 - the two sides hold the same statements, just in a different order;
 - the new order preserves **every data dependence** — whenever two statements share a variable and one of them writes it, their relative order hasn't changed.
 
 Two straight-line schedules that agree on the order of every dependent pair are guaranteed to compute the same result, so folding the reorder is behaviour-preserving, not a guess. If any of those three conditions fails — a call sneaks in between the lines, a right-hand side actually changed, a dependent pair got flipped — the whole block stays a real change. The rule errs toward calling a block real rather than toward hiding one; when in doubt, it shows you the diff.
+
+### Significant whitespace
+
+String contents are compared exactly, including spaces and blank lines in
+Python triple-quoted strings. Python and YAML indentation stays visible because
+it can change scope or nesting. YAML plain scalar spacing also stays significant.
+For YAML files containing block scalars (`|` or `>`), all textual changes remain
+visible: the tool does not attempt to distinguish block content from comments.
+
+A corrupt text file on either side, including a file that was added or deleted,
+is reported as `error`. Other files are still compared, and the CLI exits `2`
+even with `--exit-zero`.
 
 ### Quick check: skipping variable renames
 

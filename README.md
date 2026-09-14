@@ -67,6 +67,15 @@ ZIP files can be compared directly:
 python -m compare_tool baseline.zip current.zip --report report.html
 ```
 
+### Print a terminal summary without a report
+
+```bash
+python -m compare_tool old_gen_folder new_gen_folder --no-report
+```
+
+Prints a folder tree with every file's verdict, AUTOSAR/A2L changes, and the same
+consistency warnings as the HTML report. No code diff or HTML file is generated.
+
 ### Open the desktop viewer
 
 ```bash
@@ -105,7 +114,7 @@ Both use the **same comparison engine**, so they always produce the same compari
 | ---------- | ------------------ | ------------------- |
 | Best for   | Interactive review | CI / automation     |
 | Input      | Folders / ZIP      | Folders / ZIP       |
-| Output     | Interactive diff   | HTML / JSON / SARIF |
+| Output     | Interactive diff   | Terminal summary / HTML / JSON / SARIF |
 | Build gate | —                  | Exit code           |
 
 ---

@@ -57,19 +57,20 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                 progress=None, reviews=None, theme_name=theme.DEFAULT,
                 old_label=None, new_label=None, max_diff_lines=0, user_rules=(),
                 skip_var_renames=False):
-    """Scan two trees and write the HTML report.
+    """Scan two trees and optionally write the HTML report.
+
+    ``out=None`` returns the raw scan without touching any report file.
 
     ``old_label`` / ``new_label`` name the two sides in the report header when
     their folder names do not (``--baseline-name`` / ``--current-name``).
 
-    Returns (results, counts). Raises :class:`ReportWriteError` when the report
-    could not be written -- a run whose record does not exist is not a run that
-    may report success."""
-    out = Path(out)
+    Returns (results, counts). Raises :class:`ReportWriteError` when a requested
+    report could not be written -- that failure must not look like success."""
+    out = Path(out) if out is not None else None
     # delete a leftover report from an earlier run BEFORE scanning: if this
     # run dies, a stale report must not pass for this run's result
     try:
-        if out.exists():
+        if out is not None and out.exists():
             out.unlink()
     # `from None` here and below: _write_hint already folds the OSError into a
     # sentence, and the caller prints that sentence and exits 2 -- the chained
@@ -82,6 +83,8 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                    include=include, user_rules=user_rules,
                    skip_var_renames=skip_var_renames)
     counts = summarize(results)
+    if out is None:
+        return results, counts
     if arxml_only:
         # ALWAYS written: "no changes" must be an explicit statement, never
         # a silently absent file (indistinguishable from a run that died)
@@ -99,9 +102,43 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     return results, counts
 
 
-def summary_lines(results, counts):
+def _terminal_tree_lines(results):
+    """ASCII folder tree with a verdict for every scanned path."""
+    root = {}
+    for rel in sorted(results):
+        parts = rel.replace('\\', '/').split('/')
+        node = root
+        for part in parts[:-1]:
+            node = node.setdefault(part + '/', {})
+        node[parts[-1]] = results[rel]['status']
+    lines = ['Folder tree:']
+
+    def walk(node, prefix):
+        entries = sorted(node, key=lambda name: (not name.endswith('/'), name))
+        for index, name in enumerate(entries):
+            last = index == len(entries) - 1
+            branch = '`-- ' if last else '|-- '
+            value = node[name]
+            if isinstance(value, dict):
+                lines.append(prefix + branch + name)
+                walk(value, prefix + ('    ' if last else '|   '))
+            else:
+                label = 'modified' if value == 'real-change' else value
+                lines.append('{}{}{} [{}]'.format(prefix, branch, name, label))
+
+    walk(root, '')
+    if not root:
+        lines.append('  (no files matched)')
+    return lines
+
+
+def summary_lines(results, counts, tree=False):
     """Scan summary as plain-text lines the CLI prints: counts, uncompared
-    paths, modified files and the AUTOSAR/A2L semantic rollups."""
+    paths, modified files and the AUTOSAR/A2L semantic rollups.
+
+    ``tree=True`` replaces modified-file hunk counts with every scanned path
+    and its verdict. Error and consistency warnings are shared by both modes.
+    """
     lines = []
     lines.append('Summary: {real-change} modified, {comment-only} comment-only, '
                  '{ignorable-only} unimportant, {added} added, {deleted} deleted, '
@@ -121,7 +158,11 @@ def summary_lines(results, counts):
             if r['status'] == 'error':
                 for note in r['notes']:
                     lines.append('  !! {} -- {}'.format(rel, note))
-    for rel, r in sorted(results.items()):
+    if tree:
+        lines.append('')
+        lines.extend(_terminal_tree_lines(results))
+    modified_files = () if tree else sorted(results.items())
+    for rel, r in modified_files:
         if r['status'] == 'real-change':
             n_real = sum(1 for h in r['hunks'] if h['kind'] == 'real')
             if 'binary' in r['notes']:
@@ -130,6 +171,10 @@ def summary_lines(results, counts):
             lines.append('  MODIFIED  {} ({} hunk(s){})'.format(
                 rel, n_real, ', {} moved'.format(n_moved) if n_moved else ''))
 
+    if tree:
+        lines.append('')
+        lines.append('AUTOSAR / A2L changes:')
+    semantic_start = len(lines)
     if_added, if_removed = summarize_ifaces(results)
     if if_added or if_removed:
         lines.append('ARXML interfaces: {} added, {} removed'.format(
@@ -179,6 +224,9 @@ def summary_lines(results, counts):
         for rel, n, kind in a2l_removed:
             lines.append('  - {} ({}) in {}'.format(n, kind, rel))
 
+    if tree and len(lines) == semantic_start:
+        lines.append('  No extracted AUTOSAR/A2L changes.')
+
     # cross-artifact heads-up: a model whose ARXML and C did not change
     # together. Advisory only -- it never moves a count or the exit code
     advisories = consistency_advisories(results)
@@ -195,7 +243,8 @@ def _parser():
         description='Compare two AUTOSAR codegen folders, filtering MATLAB noise '
                     '(comments, 1-1 renames, UUIDs, timestamps, whitespace). '
                     'With both folders given it writes a self-contained HTML '
-                    'report; without them it opens the side-by-side viewer.')
+                    'report (or a terminal summary with --no-report); without '
+                    'them it opens the side-by-side viewer.')
     ap.add_argument('--version', action='version',
                     version='%(prog)s {}'.format(__version__))
     ap.add_argument('old_dir', nargs='?', default=None,
@@ -208,14 +257,22 @@ def _parser():
                          'This is also what runs when no folders are given, so '
                          'the flag is only needed to view folders passed on the '
                          'command line instead of comparing them in the terminal')
-    ap.add_argument('--report', metavar='OUT.html', default=None,
+    reports = ap.add_mutually_exclusive_group()
+    reports.add_argument('--report', metavar='OUT.html', default=None,
                     help='HTML report output path (default: compare_report.html, '
                          'or arxml_update.html with --arxml-only)')
+    reports.add_argument('--no-report', action='store_true',
+                         help='terminal summary only: show every scanned file '
+                              'in a folder tree with its verdict, plus AUTOSAR '
+                              'and A2L changes, without code diffs or an HTML '
+                              'report. Requires both input paths; existing '
+                              'reports are left untouched')
     ap.add_argument('--arxml-only', action='store_true',
                     help='compare only ARXML/XML and A2L files and write a '
                          'compact "what changed in the AUTOSAR model and '
                          'calibration surface" report instead of the full '
-                         'diff report; the report is ALWAYS written -- when '
+                         'diff report; unless --no-report is used, the report '
+                         'is ALWAYS written -- when '
                          'nothing real changed it states "no changes" '
                          'explicitly per file type')
     # A pipeline stages the baseline into a fixed scratch directory, so the
@@ -299,8 +356,9 @@ def _parser():
 
 def _wants_viewer(args):
     """The viewer is the default front end: the terminal compare runs only
-    when both folders are named on the command line."""
-    return bool(args.qt or not (args.old_dir and args.new_dir))
+    when both folders are named. --no-report keeps the console even for usage
+    errors, so a missing input or conflicting viewer flag can be reported."""
+    return not args.no_report and bool(args.qt or not (args.old_dir and args.new_dir))
 
 
 def viewer_requested(argv):
@@ -379,6 +437,11 @@ def _load_user_rules(ap, args):
 
 
 def _run(ap, args, zip_temp):
+    if args.no_report:
+        if args.qt:
+            ap.error('--no-report cannot be combined with --qt/--viewer')
+        if not (args.old_dir and args.new_dir):
+            ap.error('--no-report requires both old_dir and new_dir')
     user_rules = _load_user_rules(ap, args)
     if _wants_viewer(args):
         from .qtviewer import run_viewer  # deferred: PySide6 may be absent
@@ -402,7 +465,7 @@ def _run(ap, args, zip_temp):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(errors='replace')
-    if args.report is None:
+    if args.report is None and not args.no_report:
         args.report = default_report_name(args.arxml_only)
 
     old_root, old_zip = _resolve_source(ap, args.old_dir, zip_temp)
@@ -412,7 +475,9 @@ def _run(ap, args, zip_temp):
             ap.error('{} is not a directory: {}'.format(name, p))
 
     reviews = None
-    if args.review:
+    if args.review and args.no_report:
+        print('note: --review has no effect with --no-report', file=sys.stderr)
+    if args.review and not args.no_report:
         reviews = review.ReviewStore.load(args.review)
         if reviews.error:
             # loud, not fatal: an unread review file leaves every change
@@ -426,7 +491,10 @@ def _run(ap, args, zip_temp):
         print('note: --skip-var-renames has no effect with --arxml-only (it '
               'only ever folds C/C++ bindings)', file=sys.stderr)
 
-    out = Path(args.report)
+    out = Path(args.report) if args.report is not None else None
+    if args.no_report:
+        print('BASELINE: {}'.format(args.baseline_name or args.old_dir))
+        print('CURRENT:  {}'.format(args.current_name or args.new_dir))
     print('Scanning...')
 
     def progress(done, total, rel):
@@ -435,7 +503,8 @@ def _run(ap, args, zip_temp):
 
     try:
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
-                                      exclude=args.exclude, progress=progress,
+                                      exclude=args.exclude,
+                                      progress=None if args.no_report else progress,
                                       reviews=reviews, theme_name=args.theme,
                                       old_label=args.baseline_name or old_zip,
                                       new_label=args.current_name or new_zip,
@@ -455,10 +524,10 @@ def _run(ap, args, zip_temp):
         # normal outcome, and a run that produced no report must not be
         # indistinguishable from it (--exit-zero cannot mask this either)
         return 2
-    for line in summary_lines(results, counts):
+    for line in summary_lines(results, counts, tree=args.no_report):
         print(line)
 
-    if args.arxml_only:
+    if out is not None and args.arxml_only:
         if counts['real-change'] or counts['added'] or counts['deleted']:
             print('ARXML/A2L update report written: {}'.format(out.resolve()))
         elif counts['error']:
@@ -466,7 +535,7 @@ def _run(ap, args, zip_temp):
                   .format(out.resolve()))
         else:
             print('No ARXML/A2L changes -- report written: {}'.format(out.resolve()))
-    else:
+    elif out is not None:
         print('Report written: {}'.format(out.resolve()))
 
     code = _exit_code(counts, args.exit_zero)
