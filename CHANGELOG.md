@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [1.16.0] — 2026-09-15
+
+### Added
+
+- Add the per-model Overview to terminal-only comparisons.
+
 ## [1.15.0]
 
 ### Added

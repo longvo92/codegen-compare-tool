@@ -27,11 +27,14 @@ For a terminal summary without generating HTML:
 python -m compare_tool <old_gen_folder> <new_gen_folder> --no-report
 ```
 
-This prints the counts, a folder tree including **every scanned file**, and the
-existing AUTOSAR/A2L summaries: interfaces, SWCs, ports, runnables, events, RTE
-access points and calibration objects. Files are labelled `modified`, `identical`,
-`added`, `deleted`, `comment-only`, `ignorable-only`, or `error`. There are no code
-diffs or hunk details. Folder entries organize the paths; verdicts belong to files.
+This prints the counts, the same per-model **Overview** as the HTML report, a
+folder tree including **every scanned file**, and the existing AUTOSAR/A2L
+summaries: interfaces, SWCs, ports, runnables, events, RTE access points and
+calibration objects. The Overview has `Model / SWC`, `Files` and `AUTOSAR changes`
+columns and uses the same model grouping and rollup data as the report. Files are
+labelled `modified`, `identical`, `added`, `deleted`, `comment-only`,
+`ignorable-only`, or `error`. There are no code diffs or hunk details. Folder
+entries organize the paths; verdicts belong to files.
 
 The report's consistency advisories are also printed: ARXML/A2L changes without
 corresponding generated C changes, and added RTE access while a peer model stayed
@@ -48,7 +51,7 @@ Either side can be a `.zip` instead of a folder — an Azure DevOps build artifa
 
 | Flag | Meaning |
 |---|---|
-| `--no-report` | Print a complete file tree, AUTOSAR/A2L summaries and warnings to the terminal without creating HTML or printing code diffs |
+| `--no-report` | Print the per-model Overview, complete file tree, AUTOSAR/A2L summaries and warnings to the terminal without creating HTML or printing code diffs |
 | `--report out.html` | Report output path (default `compare_report.html`). An existing file there is deleted before the scan starts |
 | `--exclude PATTERN` | Skip files matching a glob (relative path or bare file name), repeatable. Example: `--exclude compare_report.html` |
 | `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |

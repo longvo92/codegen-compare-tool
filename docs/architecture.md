@@ -407,7 +407,10 @@ write, so the terminal still prints what was found, and the run exits `2`:
 immediately after scanning and counting, before any HTML rendering or file
 write. `summary_lines(..., tree=True)` prints all scanned paths and reuses the
 existing semantic summaries and consistency advisories; it does not fold the
-results or print source-code hunks. Old reports are untouched in this mode.
+results or print source-code hunks. `report.model_overview` provides structured
+rows for both the HTML and terminal Overview, so model ownership, visible file
+counts and AUTOSAR rollups stay one decision. Old reports are untouched in this
+mode.
 
 The exit code is a contract with somebody's pipeline. `--exit-zero` suppresses
 `1`, never `2` — an incomplete compare must never look green.

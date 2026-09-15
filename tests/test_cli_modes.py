@@ -242,9 +242,34 @@ class TestNoReport(unittest.TestCase):
         for heading in ('ARXML interfaces:', 'AUTOSAR behavior:',
                         'RTE access points:', 'A2L objects:'):
             self.assertIn(heading, output)
+        self.assertIn('Overview:', output)
+        self.assertIn('Model / SWC', output)
+        self.assertIn('Files', output)
+        self.assertIn('AUTOSAR changes', output)
+        expected_rows = (
+            'Ctrl            2 Modified             +1 Port | ~1 Event | +1 RTE',
+            'NoiseDemo       4 Modified  1 Deleted  '
+            '+1/-1 Interface | -1 Characteristic | +1 Measurement',
+            'PedalMap        3 Modified             +1 Port | +1 Characteristic',
+            'SpeedCtrl       1 Added                -',
+            'StaleGen        2 Modified             +1 Port | +1 Characteristic',
+            'TorqueLimiter   2 Modified             -',
+            'Shared / other  No functional change   -',
+        )
+        for row in expected_rows:
+            self.assertIn(row, output)
+        self.assertLess(output.index('Overview:'), output.index('Folder tree:'))
         for line in summary_lines(results, summarize(results)):
             if not line.startswith('  MODIFIED'):
                 self.assertIn(line, output)
+
+    def test_flat_tree_has_no_model_overview(self):
+        for side in (self.old, self.new):
+            self._file(side, 'same.c', 'int same;\n')
+        code, output, _ = self._run()
+        self.assertEqual(code, 0)
+        self.assertNotIn('Overview:', output)
+        self.assertIn('Folder tree:', output)
 
     def test_report_consistency_warnings_remain_visible_with_exit_zero(self):
         from compare_tool.report import consistency_advisories

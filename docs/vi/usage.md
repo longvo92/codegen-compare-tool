@@ -31,11 +31,13 @@ python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> [--report out
 python -m compare_tool <thư_mục_gen_cũ> <thư_mục_gen_mới> --no-report
 ```
 
-Lệnh in số đếm, folder tree chứa **mọi file đã scan**, và summary AUTOSAR/A2L hiện
-có: interface, SWC, port, runnable, event, RTE access point và calibration object.
-Mỗi file có nhãn `modified`, `identical`, `added`, `deleted`, `comment-only`,
-`ignorable-only` hoặc `error`. Không in code diff hay chi tiết hunk. Các folder
-dùng để nhóm đường dẫn; verdict được ghi ở từng file.
+Lệnh in số đếm, bảng **Overview** theo từng model giống HTML report, folder tree
+chứa **mọi file đã scan**, và summary AUTOSAR/A2L hiện có: interface, SWC, port,
+runnable, event, RTE access point và calibration object. Overview có ba cột
+`Model / SWC`, `Files`, `AUTOSAR changes`, dùng chung model grouping và dữ liệu
+rollup với report. Mỗi file có nhãn `modified`, `identical`, `added`, `deleted`,
+`comment-only`, `ignorable-only` hoặc `error`. Không in code diff hay chi tiết
+hunk. Các folder dùng để nhóm đường dẫn; verdict được ghi ở từng file.
 
 Các cảnh báo consistency giống report cũng được in: ARXML/A2L thay đổi nhưng
 generated C không đổi, hoặc thêm RTE access trong khi model khác vẫn identical.
@@ -58,7 +60,7 @@ giờ âm thầm rơi xuống so sánh một thư mục rỗng.
 
 | Flag | Ý nghĩa |
 |---|---|
-| `--no-report` | In đầy đủ file tree, summary AUTOSAR/A2L và cảnh báo trên terminal; không tạo HTML hay in code diff |
+| `--no-report` | In Overview theo model, đầy đủ file tree, summary AUTOSAR/A2L và cảnh báo trên terminal; không tạo HTML hay in code diff |
 | `--report out.html` | Đường dẫn report (mặc định `compare_report.html`). File cũ ở đó bị xoá trước khi scan bắt đầu |
 | `--exclude PATTERN` | Bỏ qua file khớp glob (đường dẫn tương đối hoặc tên file trần), lặp lại được. Ví dụ: `--exclude compare_report.html` |
 | `--exit-zero` | Luôn exit 0 kể cả khi có thay đổi thật (chế độ chỉ ghi report cho pipeline). Lỗi compare vẫn exit 2 |
