@@ -17,7 +17,8 @@ from pathlib import Path
 
 from . import __version__, review, serialize, theme, userrules, zipsource
 from .diff_engine import RULES
-from .report import build_arxml_report, build_report, consistency_advisories
+from .report import (build_arxml_report, build_report, consistency_advisories,
+                     model_overview)
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
@@ -132,6 +133,43 @@ def _terminal_tree_lines(results):
     return lines
 
 
+def _terminal_overview_lines(results):
+    """Aligned per-model Overview using the report's renderer-neutral rows."""
+    rows = model_overview(results)
+    if not rows:
+        return []
+
+    def files_text(parts):
+        return '  '.join('{} {}'.format(count, label)
+                         if count is not None else label
+                         for _status, count, label in parts)
+
+    def autosar_text(parts):
+        out = []
+        for added, removed, changed, label in parts:
+            counts = []
+            if added:
+                counts.append('+{}'.format(added))
+            if removed:
+                counts.append('-{}'.format(removed))
+            if changed:
+                counts.append('~{}'.format(changed))
+            out.append('{} {}'.format('/'.join(counts), label))
+        return ' | '.join(out) if out else '-'
+
+    rendered = [(row.model, files_text(row.file_parts),
+                 autosar_text(row.autosar_changes)) for row in rows]
+    model_width = max([len('Model / SWC')] + [len(row[0]) for row in rendered])
+    files_width = max([len('Files')] + [len(row[1]) for row in rendered])
+    header = '  {:{}}  {:{}}  {}'.format(
+        'Model / SWC', model_width, 'Files', files_width, 'AUTOSAR changes')
+    lines = ['Overview:', header, '  ' + '-' * (len(header) - 2)]
+    for model, files, changes in rendered:
+        lines.append('  {:{}}  {:{}}  {}'.format(
+            model, model_width, files, files_width, changes))
+    return lines
+
+
 def summary_lines(results, counts, tree=False):
     """Scan summary as plain-text lines the CLI prints: counts, uncompared
     paths, modified files and the AUTOSAR/A2L semantic rollups.
@@ -160,6 +198,10 @@ def summary_lines(results, counts, tree=False):
                     lines.append('  !! {} -- {}'.format(rel, note))
     if tree:
         lines.append('')
+        overview = _terminal_overview_lines(results)
+        if overview:
+            lines.extend(overview)
+            lines.append('')
         lines.extend(_terminal_tree_lines(results))
     modified_files = () if tree else sorted(results.items())
     for rel, r in modified_files:

@@ -9,6 +9,7 @@ where these reports are usually opened.
 import datetime
 import html
 import re
+from collections import namedtuple
 from pathlib import Path
 
 from . import consistency, filepair, funcname, review, syntax, theme
@@ -881,6 +882,7 @@ _STATUS_TITLE = {'real-change': 'Modified',
 # --- grouping by model / SWC (Embedded Coder AUTOSAR naming convention) ---
 
 SHARED_GROUP = 'Shared / other'
+OverviewRow = namedtuple('OverviewRow', 'model file_parts autosar_changes')
 # modular arxml export: <Model>_component.arxml, <Model>_interface.arxml, ...
 _ARXML_SPLIT_RE = re.compile(
     r'(.+)_(component|datatypes?|interfaces?|implementation|behavior|timing)$',
@@ -970,6 +972,29 @@ def _detail_order(rels, results):
                   key=lambda p: (_DETAIL_ORDER[results[p]['status']], p))
 
 
+def _group_counts(rels, results):
+    """Raw per-verdict counts for one model group."""
+    counts = {'real-change': 0, 'comment-only': 0, 'ignorable-only': 0,
+              'added': 0, 'deleted': 0, 'identical': 0, 'error': 0}
+    for rel in rels:
+        counts[results[rel]['status']] += 1
+    return counts
+
+
+def _file_count_parts(counts):
+    """Visible Overview file counts as ``(status, count, label)`` rows."""
+    parts = []
+    for key, label in (('error', 'Error'), ('real-change', 'Modified'),
+                       ('added', 'Added'), ('deleted', 'Deleted')):
+        if counts[key]:
+            parts.append((key, counts[key], label))
+    if not parts:
+        noise = counts['ignorable-only'] + counts['comment-only']
+        parts.append(('identical', None,
+                      'No functional change' if noise else 'Identical'))
+    return tuple(parts)
+
+
 def _counts_html(rels, results):
     """Colored per-status count spans for one model group + raw counts.
 
@@ -981,26 +1006,23 @@ def _counts_html(rels, results):
     say otherwise (see CLAUDE.md, "the record is never the filtered view").
     'Identical' is the verdict word the folder tree and the tags already use,
     so the two surfaces name the same state the same way."""
-    c = {'real-change': 0, 'comment-only': 0, 'ignorable-only': 0, 'added': 0,
-         'deleted': 0, 'identical': 0, 'error': 0}
-    for rel in rels:
-        c[results[rel]['status']] += 1
+    c = _group_counts(rels, results)
+    return _file_parts_html(_file_count_parts(c)), c
+
+
+def _file_parts_html(parts):
     bits = []
-    for key, label, cls in (('error', 'Error', 'cnt-err'),
-                            ('real-change', 'Modified', 'cnt-real'),
-                            ('added', 'Added', 'cnt-add'),
-                            ('deleted', 'Deleted', 'cnt-del')):
-        if c[key]:
-            bits.append('<span class="cnt {}">{} {}</span>'.format(cls, c[key], label))
-    if not bits:
-        noise = c['ignorable-only'] + c['comment-only']
-        bits.append('<span class="cnt cnt-id">{}</span>'
-                    .format('No functional change' if noise else 'Identical'))
-    return ''.join(bits), c
+    classes = {'error': 'cnt-err', 'real-change': 'cnt-real',
+               'added': 'cnt-add', 'deleted': 'cnt-del',
+               'identical': 'cnt-id'}
+    for status, count, label in parts:
+        text = '{} {}'.format(count, label) if count is not None else label
+        bits.append('<span class="cnt {}">{}</span>'.format(classes[status], text))
+    return ''.join(bits)
 
 
-def _autosar_chips(rels, results):
-    """Compact AUTOSAR change rollup for one model group, e.g.
+def _autosar_parts(rels, results):
+    """Overview rollup as ``(added, removed, changed, label)`` parts, e.g.
     '+1 Interface · +2/−1 Port · ~1 Event · +3 RTE · +1 Characteristic'.
 
     A2L is split by object kind (Characteristic / Measurement) rather than a
@@ -1035,6 +1057,16 @@ def _autosar_chips(rels, results):
             for _n, kind in a['removed']:
                 a2l_rem[kind] = a2l_rem.get(kind, 0) + 1
 
+    parts = [(sa, sr, 0, 'SWC'), (ia, ir, 0, 'Interface')]
+    parts += [tuple(cats[cat.key]) + (cat.noun,) for cat in SWC_DISPLAY]
+    parts.append((ra, rr, 0, 'RTE'))
+    parts += [(a2l_add.get(k, 0), a2l_rem.get(k, 0), 0, a2l_kind_label(k))
+              for k in A2L_KINDS]
+    return tuple(part for part in parts if any(part[:3]))
+
+
+def _autosar_parts_html(parts):
+    """Render structured AUTOSAR Overview parts as colored HTML chips."""
     def chip(a, r, c, label):
         bits = []
         if a:
@@ -1045,23 +1077,37 @@ def _autosar_chips(rels, results):
             bits.append('<span class="a-chg">~{}</span>'.format(c))
         return '{} {}'.format('/'.join(bits), label) if bits else ''
 
-    chips = [chip(sa, sr, 0, 'SWC'), chip(ia, ir, 0, 'Interface')]
-    chips += [chip(*(cats[cat.key] + [cat.noun])) for cat in SWC_DISPLAY]
-    chips.append(chip(ra, rr, 0, 'RTE'))
-    chips += [chip(a2l_add.get(k, 0), a2l_rem.get(k, 0), 0, a2l_kind_label(k))
-              for k in A2L_KINDS]
-    return ' &middot; '.join(c for c in chips if c)
+    return ' &middot; '.join(chip(*part) for part in parts)
+
+
+def _autosar_chips(rels, results):
+    """HTML AUTOSAR rollup for one model group."""
+    return _autosar_parts_html(_autosar_parts(rels, results))
+
+
+def _overview_rows(groups, results):
+    """Renderer-neutral rows shared by the HTML and terminal Overview."""
+    return [OverviewRow(model, _file_count_parts(_group_counts(rels, results)),
+                        _autosar_parts(rels, results))
+            for model, rels in groups.items()]
+
+
+def model_overview(results):
+    """Renderer-neutral per-model Overview rows, or ``[]`` for a flat tree."""
+    groups = _model_groups(results)
+    return _overview_rows(groups, results) if groups else []
 
 
 def _overview_table(groups, results, model_anchors):
     """Executive per-model rollup table shown at the top of the report."""
     rows = []
-    for m, rels in groups.items():
-        counts_html, _c = _counts_html(rels, results)
-        chips = _autosar_chips(rels, results)
-        name = _esc(m)
-        if m in model_anchors:
-            name = '<a onclick="go(\'{}\')">{}</a>'.format(model_anchors[m], name)
+    for overview in _overview_rows(groups, results):
+        counts_html = _file_parts_html(overview.file_parts)
+        chips = _autosar_parts_html(overview.autosar_changes)
+        name = _esc(overview.model)
+        if overview.model in model_anchors:
+            name = '<a onclick="go(\'{}\')">{}</a>'.format(
+                model_anchors[overview.model], name)
         rows.append('<tr><td>{}</td><td>{}</td><td class="aut">{}</td></tr>'
                     .format(name, counts_html, chips or '&mdash;'))
     return ('<h2>Overview</h2><table class="ov">'

@@ -334,8 +334,10 @@ giờ dập `2` — một lần compare không trọn vẹn không được phé
 `--no-report` truyền `out=None` vào cùng hàm `run_compare`. Hàm trả về sau khi
 scan và đếm verdict, trước khi render HTML hay ghi file. `summary_lines(...,
 tree=True)` in mọi đường dẫn đã scan, dùng lại summary ngữ nghĩa và consistency
-advisory hiện có; không fold kết quả hoặc in code hunk. Report cũ được giữ nguyên
-trong chế độ này.
+advisory hiện có; không fold kết quả hoặc in code hunk. `report.model_overview`
+cấp dữ liệu có cấu trúc cho cả Overview HTML và terminal, nên model ownership,
+số file cần hiện và AUTOSAR rollup chỉ được quyết định một chỗ. Report cũ được
+giữ nguyên trong chế độ này.
 
 ### Viewer
 

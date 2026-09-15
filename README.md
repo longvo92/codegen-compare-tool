@@ -73,8 +73,9 @@ python -m compare_tool baseline.zip current.zip --report report.html
 python -m compare_tool old_gen_folder new_gen_folder --no-report
 ```
 
-Prints a folder tree with every file's verdict, AUTOSAR/A2L changes, and the same
-consistency warnings as the HTML report. No code diff or HTML file is generated.
+Prints the same per-model Overview as the report, a folder tree with every file's
+verdict, AUTOSAR/A2L changes, and consistency warnings. No code diff or HTML file
+is generated.
 
 ### Open the desktop viewer
 

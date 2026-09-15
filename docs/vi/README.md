@@ -70,8 +70,9 @@ python -m compare_tool baseline.zip current.zip --report report.html
 python -m compare_tool old_gen_folder new_gen_folder --no-report
 ```
 
-In folder tree với verdict của mọi file, AUTOSAR/A2L changes và các cảnh báo
-consistency giống HTML report. Không in code diff và không tạo file HTML.
+In Overview theo từng model giống report, folder tree với verdict của mọi file,
+AUTOSAR/A2L changes và các cảnh báo consistency. Không in code diff và không tạo
+file HTML.
 
 ### Mở Desktop Viewer
 
