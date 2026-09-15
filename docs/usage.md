@@ -1,15 +1,14 @@
-# Usage guide
+# Usage Guide
 
-🇻🇳 Bản tiếng Việt: [vi/usage.md](vi/usage.md)
+🇻🇳 [Bản tiếng Việt](vi/usage.md)
 
-This is the long version of everything the [README](../README.md) points to: every flag, every viewer shortcut, the exact noise rules, why the report shows what it shows, and how to wire the whole thing into CI. If you're after *how the code itself is organized* rather than how to run it, that's [architecture.md](architecture.md) instead.
+This guide is for people running CodeGen Compare Tool. Run `python -m compare_tool --help` for the complete option reference.
 
 - [Command line](#command-line)
 - [Side-by-side viewer](#side-by-side-viewer)
 - [What counts as noise](#what-counts-as-noise)
-- [Moved block detection](#moved-block-detection)
+- [Custom noise rules](#custom-noise-rules)
 - [AUTOSAR semantic summary](#autosar-semantic-summary)
-- [Grouping by model / SWC](#grouping-by-model--swc)
 - [Consistency check](#consistency-check)
 - [HTML report](#html-report)
 - [CI integration](#ci-integration)
@@ -17,384 +16,220 @@ This is the long version of everything the [README](../README.md) points to: eve
 
 ## Command line
 
-```bash
-python -m compare_tool <old_gen_folder> <new_gen_folder> [--report out.html]
-```
+Both inputs can be folders or ZIP archives.
 
-For a terminal summary without generating HTML:
+### HTML report
 
 ```bash
-python -m compare_tool <old_gen_folder> <new_gen_folder> --no-report
+python -m compare_tool baseline current --report report.html
 ```
 
-This prints the counts, the same per-model **Overview** as the HTML report, a
-folder tree including **every scanned file**, and the existing AUTOSAR/A2L
-summaries: interfaces, SWCs, ports, runnables, events, RTE access points and
-calibration objects. The Overview has `Model / SWC`, `Files` and `AUTOSAR changes`
-columns and uses the same model grouping and rollup data as the report. Files are
-labelled `modified`, `identical`, `added`, `deleted`, `comment-only`,
-`ignorable-only`, or `error`. There are no code diffs or hunk details. Folder
-entries organize the paths; verdicts belong to files.
+If `--report` is omitted, the default is `compare_report.html`. With `--arxml-only`, the default is `arxml_update.html`.
 
-The report's consistency advisories are also printed: ARXML/A2L changes without
-corresponding generated C changes, and added RTE access while a peer model stayed
-identical. Compare failures and unsafe quick-check warnings remain visible.
-Advisories do not change verdicts or exit codes.
+### Terminal summary
 
-Both inputs are required; `--no-report` cannot be combined with `--report` or
-`--qt`/`--viewer`. Existing HTML reports are left untouched. Filters, custom rules,
-ZIP inputs and exit codes `0`/`1`/`2` work as usual; `--arxml-only` restricts the
-tree and summaries to ARXML/XML/A2L. `--json` and `--sarif` still write files when
-explicitly requested. `--review` has no effect in this mode.
+```bash
+python -m compare_tool baseline current --no-report
+```
 
-Either side can be a `.zip` instead of a folder — an Azure DevOps build artifact, say. The tool unpacks it read-only into a temp directory, compares it like an ordinary folder, and deletes the temp copy on exit. If the archive has a single wrapper directory inside it, the tool descends into that automatically. The report header shows the zip's name rather than the temp path it was unpacked to (`--baseline-name` / `--current-name` still override that if you want something else). A zip that can't be read stops the run with a loud error — it never quietly falls through to comparing an empty folder.
+This mode creates no HTML and prints no source-code hunks. It prints:
 
-| Flag | Meaning |
+1. total verdict counts;
+2. a per-model Overview with file counts and AUTOSAR changes;
+3. a complete folder tree with one verdict per file;
+4. detailed AUTOSAR/A2L changes;
+5. consistency and quick-check warnings.
+
+An existing report is left untouched. `--json` and `--sarif` still write their requested files.
+
+### Common options
+
+| Option | Purpose |
 |---|---|
-| `--no-report` | Print the per-model Overview, complete file tree, AUTOSAR/A2L summaries and warnings to the terminal without creating HTML or printing code diffs |
-| `--report out.html` | Report output path (default `compare_report.html`). An existing file there is deleted before the scan starts |
-| `--exclude PATTERN` | Skip files matching a glob (relative path or bare file name), repeatable. Example: `--exclude compare_report.html` |
-| `--exit-zero` | Always exit 0 even when real changes exist (report-only mode for pipelines). Compare errors still exit 2 |
-| `--arxml-only` | Scan only `.arxml`/`.xml`/`.a2l`. Writes a compact per-type report (default `arxml_update.html`), even when nothing changed, unless `--no-report` is used |
-| `--review FILE` | Render notes and sign-offs from a review file (`codegen-review.json`, written by the viewer) next to the changes they belong to, plus a `Reviewed` badge that hides the changes already signed off. Must be named explicitly — a report must not pick up someone else's sign-off by accident; no effect with `--arxml-only` |
-| `--baseline-name NAME` | Name the BASELINE side in the report header instead of using its folder name. For a pipeline that stages the previous codegen into a fixed scratch directory, where `cg_temp` names the mechanism rather than the build. Example: `--baseline-name "build 4821"` |
-| `--current-name NAME` | Same for the CURRENT side. Either flag only changes the header text — the folder path stays in the tooltip, so a compare is still traceable to where the files were read from |
-| `--theme dark\|light` | Colour scheme the report and the viewer open with (default `dark`). The report carries **both** and has its own switch, so this only sets what the reader sees first |
-| `--rules RULES.json` | Extra noise patterns applied on top of the built-in rules — see [Custom noise rules](#custom-noise-rules) |
-| `--skip-var-renames` | **Quick check, unsafe.** Fold away C/C++ hunks that are only variable renames, without proving they are noise — see [Quick check: skipping variable renames](#quick-check-skipping-variable-renames) |
-| `--max-diff-lines N` | Cap the diff embedded per file at about N lines (0 = no cap, the default). Stops a whole-tree regenerate from rendering one file into a report so large the browser hangs; a capped file keeps its verdict and the exit code, and the cut is loud |
-| `--qt`, `--viewer` | Open the side-by-side viewer on folders named on the command line, instead of comparing them in the terminal. Needs the `viewer` extra |
-| `--version` | Print the version and exit |
+| `--report OUT.html` | Write a self-contained HTML report |
+| `--no-report` | Print the terminal-only summary |
+| `--arxml-only` | Compare only ARXML, XML and A2L files |
+| `--exclude PATTERN` | Skip a matching path or file name; repeatable |
+| `--baseline-name NAME` | Change the BASELINE label |
+| `--current-name NAME` | Change the CURRENT label |
+| `--theme dark\|light` | Select the initial report/viewer theme |
+| `--rules RULES.json` | Add project-specific noise rules |
+| `--skip-var-renames` | Run the unsafe variable-rename quick check |
+| `--max-diff-lines N` | Limit embedded diff lines per report file |
+| `--json OUT.json` | Also write the complete structured result |
+| `--sarif OUT.sarif` | Also write actionable findings as SARIF 2.1.0 |
+| `--exit-zero` | Convert real-change exit code `1` to `0` |
+| `--version` | Print the installed version |
 
-Leave `old_dir`/`new_dir` off entirely and the viewer opens instead. (The old tkinter panel, `--gui`, is gone as of 1.1.0, if you're looking at an older doc that still mentions it.)
-
-If the report path can't be written — the folder's missing, the file is open in a browser, the disk is read-only — that's an exit `2` with a one-line reason, never a traceback and never exit `1` (which a pipeline would read as "ordinary real changes found", the wrong signal entirely). Whatever the scan *did* manage to find still gets printed before the process exits.
+`--report` and `--no-report` are mutually exclusive. Both input paths are required for terminal comparison.
 
 ## Side-by-side viewer
 
-The viewer is a PySide6 desktop app: a folder tree, a two-pane diff with a minimap and syntax colouring, review notes you can leave on individual changes, and a commit picker for when the folder you're looking at happens to be a git checkout.
+Install PySide6, then start the viewer:
 
 ```bash
-pip install "codegen-compare-tool[viewer] @ git+https://github.com/longvo92/codegen-compare-tool.git"   # or: pip install PySide6
+pip install PySide6
+python -m compare_tool
 ```
+
+To open a comparison directly:
 
 ```bash
-python -m compare_tool                                        # then drop the folders in
+python -m compare_tool --viewer baseline current
 ```
 
-```bash
-python -m compare_tool --qt <old_gen_folder> <new_gen_folder> # or start loaded
-```
+The viewer accepts folders and ZIP archives. **Git compare** compares a selected commit with the current checkout without changing the working tree.
 
-There are two ways to load a compare. `Open folders…` is for two folders you name yourself. `Git compare…` is for the case where you only have **one** folder and it's a git checkout — it lists the commits that touched it, checks out whichever one you pick into a temp folder (read-only, so your working copy is never touched), and compares against that.
+The Files, Quick changes and Consistency panes can be folded or resized. Hiding or muting a category changes only the view; it never changes verdicts, counts or exported reports.
 
-Either side can be a `.zip` too — drop it straight onto the window, or use the `Zip…` button inside `Open folders…`. It's unpacked to a temp folder and the pane is labelled by the zip's own name, not the temp path.
-
-Once a file is open, a small caption next to its name tracks whatever you're looking at — the enclosing C/C++ function, a Python class or method, an AUTOSAR SHORT-NAME, an A2L block — and updates as you scroll, so you're never lost inside a long generated file. For C files specifically, if the function's signature scrolls off the top of the pane, it stays pinned there (much like VS Code's sticky scroll) until you actually leave the function.
-
-### Reading a scan
-
-- The left column is three panes — **Files**, **Quick changes** and **Consistency**. Click a bar to fold that pane away and hand its height to the panes still open; click again and it comes back the size it was. All three share one splitter, so any of them can be dragged to the height you want. The Consistency pane only appears when the scan has a heads-up, and its bar keeps the count even folded.
-- The scan **opens on the first change** — you never land on an empty pane next to a tree full of results.
-- `F8` / `F7` step through the changes in the open file, then carry on into the next (or previous) changed file once you run out, wrapping around at the end. `Ctrl+Home` / `Ctrl+End` stay inside the current file. Comment and noise files join that walk while their category is ticked on, but stopping on one signs off nothing — only real and moved changes ever enter the review record.
-- `Ctrl+F` finds text in the open file, either side, with `F3` / `Shift+F3` to step through matches and `Esc` to close it. The query survives moving to another file, so you can chase one identifier across the whole compare.
-- `Hide identical` narrows the tree down to files that actually differ. Only genuinely identical files go: a Comment or Unimportant file stays, greyed or not. It's purely a view — verdicts, counts and the exported report are untouched by it.
-- Unticking `Comment` / `Unimportant` greys those lines out rather than deleting them: they keep their place and their line numbers, just lose their red/green colouring and drop off the minimap and the `F7`/`F8` walk. Left ticked, which is the default, they keep their colour and behave like any other stop. The **verdict does not change** either way — a comment-only file still reads Comment in the tree and in an exported report.
-- Wherever you currently are is marked with a small arrow in the line-number gutter, on both panes, so `F7`/`F8` visibly move you even in a file too short to scroll.
-- `☀ Light` / `☾ Dark` in the toolbar swaps the colour scheme on the fly; `--theme` just picks which one it opens in. C, C++, ARXML/XML, A2L, Python, JSON and YAML are all syntax-coloured in either theme.
+### Verdict marks
 
 | Mark | Verdict | Meaning |
 |---|---|---|
-| `≠` | Modified | real changes |
-| `≈` | Comment | only comments differ |
-| `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
-| `+` | Added | file exists only in CURRENT |
-| `−` | Deleted | file exists only in BASELINE |
-| `=` | Identical | no difference |
-| `‼` | NOT compared | treat as changed |
+| `≠` | Modified | Real changes |
+| `≈` | Comment | Comments only |
+| `≈` | Unimportant | Proven generator noise only |
+| `+` | Added | Only in CURRENT |
+| `−` | Deleted | Only in BASELINE |
+| `=` | Identical | No difference |
+| `‼` | Not compared | Read or comparison error |
 
-### Renamed and moved files
-
-Rename a model, move `Foo.c` from `swc_a/` to `swc_b/`, or restructure the output folders some other way, and on its own that would just look like one file Added and a different one Deleted. The tool matches those two back up and reports them as a single move instead:
-
-> `swc_b/Sub.c` **Added** *(moved from swc_a/Sub.c — and changed, 89% alike)*
-
-The Added entry then shows a diff against the file it came from, instead of dumping its whole contents, and the Deleted entry just links to it rather than printing the same lines a second time.
-
-In the viewer both rows read `Added (moved)` / `Deleted (moved)` in the Status column, with the origin path and the similarity percentage available on hover. Files that genuinely didn't move keep the labels they always had.
-
-The pairing logic needs the two files to share an extension, to pick each other as the best available match, and to be clearly better than whatever the runner-up match was — generated files tend to resemble each other closely enough that a near-tie isn't a real answer. Anything it can't confidently match falls back to plain Added / Deleted, exactly as it would without this feature at all.
-
-Both files still keep their own verdict and their own place in the counts, and the exit code doesn't change because of a move — a moved file is still a change to the tree, so a pipeline gating on Added/Deleted keeps working exactly as before.
-
-### Review mode
-
-Turning on `Review mode` adds a note box and a `Review` column to the tree — green when every change in a row is signed off, amber when it's part way there, grey when none of it is. You sign off one change with `Ctrl+R`, or a whole file at once with `Ctrl+Shift+R`. A note is attached to the change's *content*, not its line number, so it survives a later rescan instead of drifting onto the wrong line. Everything saves to `codegen-review.json` next to the CURRENT folder.
-
-`Export report…` (`Ctrl+E`) writes the same self-contained HTML report the CLI writes, with your review notes folded in. It's always built from the complete scan, never from whatever happens to be on screen at the time — so a category you'd collapsed in the tree still shows up in the exported file with its real verdict.
+### Shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+Home` / `Ctrl+End` | First / last change in this file |
-| `F7` / `F8` | Previous / next change, crossing into the previous / next changed file |
-| `Ctrl+F` | Find in this file |
+| `F7` / `F8` | Previous / next change across files |
+| `Ctrl+Home` / `Ctrl+End` | First / last change in the current file |
+| `Ctrl+F` | Find in the current file |
 | `F3` / `Shift+F3` | Next / previous match |
-| `Esc` | Close the find bar |
-| `Ctrl+R` | Mark this change reviewed |
-| `Ctrl+Shift+R` | Mark the whole file reviewed |
-| `Ctrl+E` | Export report |
-| `F1` | User guide (offline) |
+| `Ctrl+R` | Mark the current change reviewed |
+| `Ctrl+Shift+R` | Mark the current file reviewed |
+| `Ctrl+E` | Export an HTML report |
+| `F1` | Open the offline user guide |
+
+Review notes are stored in `codegen-review.json` beside the CURRENT folder. The CLI loads them only when `--review FILE` is specified.
+
+### Renamed and moved files
+
+A confident Added/Deleted file pair is shown as a move and rendered as one diff. Pairing requires the same extension, a mutual best match and enough distance from the next candidate. Uncertain pairs remain Added and Deleted.
+
+The original verdicts and exit code remain unchanged.
 
 ## What counts as noise
 
-| Kind | Rule | Files |
-|---|---|---|
-| `comment` | C/C++/A2L comments (`//`, `/* */`), XML comments (`<!-- -->`), `#` line comments (Python, YAML). Python docstrings and JSON are **not** folded — a triple-quoted string is code, and JSON has no comments | .c .h .cpp .hpp .arxml .a2l .py .yaml .yml |
-| `rename` | Consistent 1-to-1 variable renaming (MATLAB auto-generated names). Anything the mapping can't fully explain stays a real change | .c .h |
-| `reorder` | Independent statements emitted in a different order (Embedded Coder rescheduling). Only folded when the block is straight-line scalar assignments **and** the new order preserves every data dependence — otherwise it stays a real change | .c .h |
-| `uuid` | `UUID="..."` attributes | .arxml .xml |
-| `timestamp` | `<ADMIN-DATA>` blocks, `<DATE>` | .arxml .xml |
-| `sw-version` | `<SW-VERSION>` version stamps (bumped on every regenerate). Anchored, so `<SW-MAJOR-VERSION>` and the like are untouched | .arxml .xml |
-| `description` | `<DESC>`, `<LONG-NAME>`, `<INTRODUCTION>` — the prose an Identifiable carries (schema 4.2 and 4.4 alike). `<CATEGORY>` and `<ANNOTATIONS>` are **not** included: the first is semantic, the second can carry tool payload | .arxml .xml |
-| `assumed-rename` | Assignments and declarations differing only by variable names, folded **without proof** — only with `--skip-var-renames`, never by default | .c .h .cpp .hpp |
-| `whitespace` | Layout outside string literals. Python/YAML indentation and literal whitespace remain significant | all |
-| `line-endings` | CRLF vs LF, BOM | all |
+A difference is noise only when a rule fully explains it.
 
-### Renames
+| Kind | What can be folded |
+|---|---|
+| Comment | Supported C/C++, A2L, XML, Python and YAML comments |
+| Rename | A verified one-to-one rename of generated identifiers |
+| Reorder | Side-effect-free scalar assignments reordered without changing dependencies |
+| UUID | ARXML/XML `UUID` attributes |
+| Timestamp | ARXML/XML `ADMIN-DATA` and `DATE` |
+| Version | ARXML/XML `SW-VERSION` |
+| Description | ARXML/XML `DESC`, `LONG-NAME` and `INTRODUCTION` |
+| Whitespace | Layout outside literals; Python/YAML indentation remains significant |
+| Line ending | CRLF/LF and BOM differences |
 
-Changing a called function, such as `getSpeed()` to `getTorque()`, is a real
-change even when the old name disappears entirely. Callee names are folded
-only for a regenerated embedded checksum with the same remaining name.
-Rename maps never rewrite string or character literal contents.
-
-Auto-generated name churn gets recognised as a `rename`, but only under a fairly strict test. Two identifiers count as the same name only when the code generator plausibly owns both of them — a generated prefix (`rtb_`, `rtu_`, `rty_`, `rtDW`, `rtP`, `rtC`, `rtZC`, `localB`, `localDW`, and so on), a DWork field (`_DSTATE`, `_PreviousInput`, `_MODE`, `_SubsysRanBC`, …), or an embedded block-path checksum (`Sub_c4nxjoom3d_step` → `Sub_j2kqp1wxab_step`) — **and** they still share a root once the generated part is stripped away. That generated part is either a mangling suffix (`_c`, `_o4`) or a checksum (`rtb_AND_c4nxjoom3d` → `rtb_AND_j2kqp1wxab`); renumbered MATLAB Coder temporaries (`tmp`, `idx`, `loop_ub`, `i`) fall under the same rule.
-
-Sometimes a shorter name is enough to stop an argument list wrapping at 80 columns, which leaves the two sides holding the same statements over a different number of lines. That kind of hunk gets compared as one token stream instead, so where the newlines happen to fall stops mattering — token order still has to match exactly, though.
-
-Everything else keeps its suffix as meaning, which is the whole point of being this strict. `SIG_TORQUE_MIN` becoming `SIG_TORQUE_MAX` is a real change, and so is `CFG_TIMEOUT_MS` becoming `CFG_TIMEOUT_US`, `rtb_AND_…` becoming `rtb_OR_…` (a different block is driving that buffer now), or `Sub_…_step` becoming `Sub_…_Init` (a different entry point entirely). Digits glued onto a block name, like `rtb_Switch1` versus `rtb_Switch2`, are part of the name rather than a mangle tail, so those stay real too.
-
-### Reorder
-
-Regenerating a model routinely emits the same independent assignments — output ports, temporaries — in a different order, which a plain text diff reads as a change even though the block computes exactly the same values. A `reorder` fold recognises this case, but only where it can actually be **proven**, never guessed at:
-
-- every line on both sides is a side-effect-free scalar assignment (`ident = expr;` — no call, increment/decrement, nested assignment, store through an array/pointer/field, control flow, or declaration with a type);
-- the two sides hold the same statements, just in a different order;
-- the new order preserves **every data dependence** — whenever two statements share a variable and one of them writes it, their relative order hasn't changed.
-
-Two straight-line schedules that agree on the order of every dependent pair are guaranteed to compute the same result, so folding the reorder is behaviour-preserving, not a guess. If any of those three conditions fails — a call sneaks in between the lines, a right-hand side actually changed, a dependent pair got flipped — the whole block stays a real change. The rule errs toward calling a block real rather than toward hiding one; when in doubt, it shows you the diff.
-
-### Significant whitespace
-
-String contents are compared exactly, including spaces and blank lines in
-Python triple-quoted strings. Python and YAML indentation stays visible because
-it can change scope or nesting. YAML plain scalar spacing also stays significant.
-For YAML files containing block scalars (`|` or `>`), all textual changes remain
-visible: the tool does not attempt to distinguish block content from comments.
-
-A corrupt text file on either side, including a file that was added or deleted,
-is reported as `error`. Other files are still compared, and the CLI exits `2`
-even with `--exit-zero`.
+Function calls, literal contents, control flow, pointer/array/field writes and uncertain rename mappings remain real changes.
 
 ### Quick check: skipping variable renames
 
-Every rule above proves its case before folding anything away. `--skip-var-renames` does not, and it is the only part of the tool that works this way — so it is off by default and has to be asked for by name.
+`--skip-var-renames` folds C/C++ bindings that differ only by variable names without proving that the change is harmless. It can hide a real rewiring such as `output = speed` becoming `output = torque`.
 
-It is for one job: sweeping a fresh regenerate for what is **not** a rename, when you already expect a wave of renaming and want to see the rest. It is not for signing a review off.
-
-With the flag on, a C/C++ hunk is folded as `assumed-rename` when every line on both sides is a **binding** — one statement that names an object and at most copies a single other object or literal into it — and the two sides pair up line for line, differing only by identifier names, with the declared type unchanged.
-
-A binding never *computes*. Either side of the `=` may be a plain lvalue path — a name, a `.field`, a `->field`, a `[index]` — which is how Embedded Coder reaches its ports, DWork state and buffers:
-
-```c
-a = b;                     →  x = b;
-acc_cmd = rtU.Pedal;       →  drv_cmd = rtU.Pedal;
-rtY.Out = filt_in;         →  rtY.Out = filt_val;
-buf[2] = rtDW->State;      →  buf[2] = rtDW->Level;
-real_T filt_in;            →  real_T filt_val;
-boolean_T flag = FALSE;    →  boolean_T other = FALSE;
-```
-
-**What it costs you.** A rewiring has exactly the same shape as a rename, so it is folded too. `a = speed;` becoming `a = torque;` is a genuine signal change, and this mode will not report it. That is the trade the flag exists to make; a run that used it can be missing a real change.
-
-**What still counts as real, even here:**
-
-- a changed literal — `a = 0;` → `x = 1;`;
-- a changed type — `sint32 a = 0;` → `uint8 x = 0;`;
-- an ALL_CAPS macro or enum constant on either side — `flag = FALSE;` → `flag = TRUE;`, `mode = IDLE;` → `mode = DRIVE;`. C reserves all-caps for constants declared elsewhere, so swapping one is a value change, not a rename;
-- a variable swap — `a`↔`b` — which is a real change however consistent it looks;
-- any hunk holding a line that is not a binding: an expression (`a = b + c;`), a call, a cast, an address-of or a dereference, a prototype, a multi-declarator list. One such line leaves the **whole** hunk real, so a rename sitting next to a real edit is still shown.
-
-**How it announces itself.** Folding without proof is only acceptable if it is impossible to miss:
-
-- the terminal summary prints a `QUICK CHECK` warning above the counts;
-- the HTML report carries a one-line note at its foot, and a revealed hunk's placeholder row names the kind (`assumed-rename`) rather than calling it a proven rename;
-- the JSON output carries `"quick_check": "skip-var-renames"`;
-- the viewer's title bar says `QUICK CHECK: variable renames skipped`.
-
-The flag only ever touches C/C++ bindings, so it does nothing at all with `--arxml-only`.
-
-### Comment is its own category
-
-A file whose only differences are comments gets reported as **Comment**, kept separate from **Unimportant** (which covers UUIDs, timestamps, SW-VERSION, descriptions, renames and whitespace) — because "someone rewrote the comment banner" and "an identifier got renamed" are different enough findings that they shouldn't share a bucket. Each gets its own count in the CLI summary and its own tree marker in the viewer. A file that mixes comment changes *with* other noise stays classified as Unimportant, since the narrower Comment label wouldn't be accurate for it. The viewer has a separate rule toggle for each, and the HTML report gives `Unimportant` its own badge while never rendering comment lines at all.
+Use it only to sweep a regenerate for changes that are not rename-shaped. The terminal, report, JSON and viewer identify runs that used this option.
 
 ## Custom noise rules
 
-The built-in rules know Embedded Coder's output. A team generating from TargetLink or DaVinci produces different churn — a `<TL-CHECKSUM>` element, a tool banner with a build number — that the built-in rules do not recognise, so every regenerate shows it as a real change. `--rules FILE.json` teaches the tool those patterns without touching the source.
-
-The rules are **additive**: they run on top of the built-in rules, never in place of them. Running without `--rules` behaves exactly as before, and a project that uses it still gets every built-in filter as well.
-
-A rules file is a JSON list, or an object with a `rules` key:
+A rules file adds anchored text substitutions on top of the built-in rules:
 
 ```json
 {
   "rules": [
     {
-      "name": "tl-checksum",
-      "pattern": "<TL-CHECKSUM>[^<]*</TL-CHECKSUM>",
-      "replacement": "<TL-CHECKSUM></TL-CHECKSUM>",
-      "extensions": [".arxml", ".xml"]
-    },
-    {
-      "name": "davinci-banner",
-      "pattern": "Generated by DaVinci .* on .*"
+      "name": "generator-checksum",
+      "pattern": "Checksum: [0-9A-F]{8}",
+      "replacement": "Checksum: <generated>",
+      "extensions": [".c", ".h"]
     }
   ]
 }
 ```
 
-- `name` — the label a hunk this rule explains is shown under, in the diff and the counts. It reads as **Unimportant**, never as Comment (Comment is a built-in category with its own report behaviour).
-- `pattern` — a Python regular expression. Every match is removed from the *shadow* the verdict is decided on, so a difference this rule fully explains stops being a real change.
-- `replacement` — what each match becomes (default: removed entirely). It must stay on one line.
-- `extensions` — which file types the rule applies to (default: all). A leading dot is optional.
+Each rule needs `name` and `pattern`. `replacement` defaults to an empty string; `extensions` is optional.
 
-The same fail-safe rule as everywhere else holds: **a filter can never hide a real change.** Anything a rule cannot fully explain stays a real change, a rule whose regex does not compile is skipped with a warning rather than aborting the run, and a rule that would change a file's line count is skipped (the diff needs the shadow to stay line-for-line with the file). The rules apply to the report **and** the viewer, so both still give the same answer.
+Invalid rules and rules that change line count are skipped with a warning. A custom rule cannot replace built-in safety checks or hide a remaining real change.
 
 ## Moved block detection
 
-When a block disappears from one place in a file and reappears intact somewhere else — a common side effect of Embedded Coder reordering functions and declarations when a model changes — it's labelled `moved` and coloured **blue** instead of the usual red/green. It still counts as **Modified**, because reordering code can genuinely change behaviour, but it's a lot easier to read at a glance than two large red and green blocks that turn out to be the same thing.
-
-The matching step ignores generated-name churn, so a block that both moved *and* had its checksums regenerated in the process is still recognised as one move, rather than being reported as an unrelated delete plus insert.
-
-It works the same way for a reordered ARXML element or A2L block, not just C: an `APPLICATION-SW-COMPONENT-TYPE` or a `CHARACTERISTIC` that a regenerate emits in a different order is a `moved` block, and because the match runs on the shadow, a regenerated `UUID` on the moved element does not stop it pairing.
+Reordered C functions, ARXML objects and A2L blocks are shown as moved when their content matches after supported generator noise is removed. Modified blocks remain real changes.
 
 ## AUTOSAR semantic summary
 
-Alongside the text diff, the tool extracts AUTOSAR information from both sides and reports what changed at the **semantic** level:
+For changed and one-sided files, the tool extracts:
 
-| Source | Extracted | Reported |
-|---|---|---|
-| `.arxml`/`.xml` | **Port interfaces** (SENDER-RECEIVER, CLIENT-SERVER, MODE-SWITCH, NV-DATA, PARAMETER, TRIGGER) with their full package path | added / removed |
-| `.arxml`/`.xml` | **SWCs** (APPLICATION, SENSOR-ACTUATOR, SERVICE, CDD, ECU-ABSTRACTION, NV-BLOCK) | added / removed |
-| `.arxml`/`.xml` | SWC **ports** (P/R/PR + referenced interface), **runnables** (+ SYMBOL), **events** (kind, PERIOD, triggered runnable) | added / removed / **changed** (e.g. a TIMING-EVENT period going `0.01s → 0.02s`, a port pointing at a different interface) |
-| `.c` | **RTE access points** — every `Rte_Read/Write/Call/IrvRead/IrvWrite/Mode/Switch/…` call (comments stripped before counting) | added / removed |
-| `.a2l` | **Calibration objects** — `CHARACTERISTIC` / `MEASUREMENT` by name (comments and strings stripped first, so commented-out blocks don't count) | added / removed |
+- SWCs;
+- ports and port interfaces;
+- runnables and events;
+- `Rte_*` access points;
+- A2L `CHARACTERISTIC` and `MEASUREMENT` objects.
 
-Where you see it:
-
-- **CLI**: `ARXML interfaces`, `AUTOSAR behavior`, `RTE access points` and `A2L objects` blocks, each listing `+`/`-`/`~` entries alongside the file they belong to.
-- **HTML report**: an **AUTOSAR changes** section at the top of the page, grouped by kind — port interfaces, software components, ports, runnables, events, RTE access points, A2L variables. Clicking a file name jumps straight to its detailed diff, and every file in Detailed changes carries its own `Interfaces:` / `Behavior:` / `RTE:` / `A2L:` note. This section always renders, even with nothing to list — "no AUTOSAR-level changes" is itself a finding worth stating, and a heading that just disappears would read as a check that never ran.
-- Whole files that were added or deleted contribute every interface, SWC, RTE call and A2L object inside them as added or removed, the same as if each had changed individually.
-
-A file whose XML fails to parse is skipped from this summary specifically — its text diff still shows in full elsewhere. An `Rte_` call the tool doesn't recognise isn't counted here either, but it still shows up in the ordinary diff.
+Timing-event period changes are reported directly, for example `0.01 s → 0.02 s`.
 
 ## Grouping by model / SWC
 
-Files are grouped by **Simulink model**, following the Embedded Coder AUTOSAR naming convention (`X.c`, `X.h`, `X.arxml`, `Rte_X.h`, `X_data.c`, the modular ARXML set, and so on). Anything that doesn't match a model lands in a final **Shared / other** group instead of getting silently dropped.
+The Overview groups generated artifacts by model/SWC when ownership can be determined from their paths and extracted content. Unassigned files appear under **Shared / other**.
+
+The HTML report and `--no-report` use the same grouping and rollup data.
 
 ## Consistency check
 
-A model's ARXML declares its interface — which ports, runnables and events it has. Its A2L declares the calibration and measurement variables. The generated C has to implement both: add a port in the ARXML and the code needs a matching `Rte_*` call, add a characteristic in the A2L and the code needs a matching variable.
+The tool warns about combinations that may indicate incomplete regeneration, including:
 
-That relationship only runs **one way**. When a port, runnable, event or calibration variable is added or removed in the ARXML or A2L while that model's C file doesn't change by a single byte, something is wrong: the report (just below the AUTOSAR changes), the viewer (its Consistency pane, last in the left column) and the terminal all name that model. The usual cause is a regenerate that didn't finish, or that skipped a model. A file-by-file diff can't catch it, because each file is fine on its own — what's wrong is that the two no longer agree.
+- ARXML interface changes without corresponding generated C changes;
+- A2L changes without corresponding generated C changes;
+- a model gaining RTE access while a related model remains identical.
 
-The check is measured **per access point, not per file**: it needs a port interface or an SWC port/runnable/event added or removed in the ARXML, or a calibration object added or removed in the A2L. Every export also rewrites the shared library packages — base types, compu-methods, units — which changes plenty of bytes without touching a single port or runnable, so those alone never raise the advisory.
-
-There's one deliberate exception: a file the tool can't parse — malformed XML, or binary content — raises the advisory on any change to it, because the tool couldn't read it to find out whether its access points changed. Anything it can't verify is never filed as noise.
-
-The reverse is *not* flagged: C code changing while the ARXML and A2L stay the same is ordinary — an internal logic or gain edit touches no interface and no calibration variable.
-
-There's a second check, this one **across models**. When model A's C gains a new `Rte_*` call (`+ Rte_Write_…`) while model B's C doesn't change a byte, you probably regenerated only model A. Why that's a safe read: a full regenerate rewrites at least a timestamp banner in every model, so a model left byte-identical wasn't generated at all. The new `Rte_*` call widens model A's interface, so the RTE layer and the remaining SWCs have to be regenerated before the code will build and integrate. That model gets flagged with *"gained an RTE access while a peer model stayed identical — regenerate the architecture before integrating."*
-
-Both are **heads-up flags, not verdicts**: they never fold a file, move a count, or touch the exit code. Only a real surface change counts — an ARXML that only churned its UUIDs didn't really change, so an unchanged C file next to it isn't treated as a mismatch.
+These warnings require review but do not change verdicts or exit codes.
 
 ## HTML report
 
-The report is one self-contained file per compare: badge toggles, a folder tree, a filter box, and per-file diffs you can collapse or expand. There's one badge per category — `Modified`, `Added`, `Deleted`, then `Unimportant`, which is the only one that starts collapsed — so the page opens on what actually matters rather than burying it. Code is syntax-coloured the same way the viewer paints it, and the changed characters *inside* a line are highlighted across the whole identifier, so `rtb_Sum1` becoming `rtb_Sum2` reads as one renamed name instead of "one digit changed somewhere in there."
+The report includes the Overview, verdict filters, focused diffs, semantic changes and consistency warnings. Long unchanged regions and generator noise are collapsed so real changes remain visible.
 
-### What is shown, and what collapses
+The file is self-contained: CSS and JavaScript are inline, and opening it requires no server or network connection.
 
-Each real change shows three lines of context on either side of it — not the whole surrounding file:
-
-- Comment / Unimportant hunks that fall **inside that window** render in full, just greyed out.
-- Hunks that fall **outside every window** show nothing at all until you click `Unimportant`, at which point they appear flat grey exactly where they sit in the file.
-- A file with **no** real change at all keeps its full context, and its collapsed hunks keep a `⋯ N lines hidden` placeholder rather than vanishing.
-
-The lines themselves are always in the file — only the screen stays quiet about them. A file whose differences are purely comments doesn't even get a detail section; it just keeps its `≈` mark and `Comment` count in the tree. (If you're curious why the window is kept this tight rather than wider, that's covered in [architecture.md](architecture.md#decisions-worth-knowing-before-you-change-something).)
-
-Each change is labelled with the function it sits in (for ARXML the SHORT-NAME, for A2L the block). When several changes sit in the same function, the name appears once, above the first.
-
-`Focus on changes`, next to the folder tree, narrows the tree down to files that actually changed — identical, comment-only and Unimportant rows drop out, and any folder left holding none of them goes with them. Like the viewer's `Hide identical`, this is purely a view: verdicts and counts underneath are untouched. A `☀ Light` / `☾ Dark` button sits in the top right; both palettes are embedded in the file itself, so switching between them fetches nothing and works fine on a machine with no internet connection at all.
+Use `--max-diff-lines N` when a very large regenerate would otherwise create an impractical report. Truncation is shown clearly and does not change verdicts or exit codes.
 
 ## CI integration
 
-Run it as a pipeline gate — one command, and exit codes that actually mean something:
-
 ```bash
-python -m compare_tool old_dir new_dir --exit-zero --exclude compare_report.html
+python -m compare_tool baseline.zip current.zip \
+    --report compare_report.html \
+    --json compare_result.json \
+    --sarif compare_result.sarif
 ```
 
-`--exit-zero` keeps the build green when the only thing that happened was a regenerate; `--exclude` stops the previous run's own report file from being counted as part of the diff. Publish `compare_report.html` as a build artifact and you've got a clickable record for every run.
+| Exit code | Meaning |
+|---:|---|
+| `0` | No real changes |
+| `1` | Real changes found |
+| `2` | Comparison incomplete or failed |
 
-A pipeline usually stages the baseline into some scratch directory, which by default leaves the report header naming that scratch directory instead of anything meaningful. Name the two sides after what was actually compared instead:
+`--exit-zero` suppresses only exit code `1`. A read, scan, comparison or report-write failure always exits `2`.
 
-```bash
-python -m compare_tool "$OLD_DIR" "$NEW_DIR" \
-  --baseline-name "$(git log -1 --format='%h %s' "$BASE")" \
-  --current-name "build $BUILD_NUMBER"
-```
-
-See [azure-pipelines.yml](../azure-pipelines.yml) for a working example — OLD is checked out via `git worktree`, NEW is just the working tree.
-
-### Machine-readable output
-
-The HTML report is for a human, and the exit code is for a gate. If your build wants to actually read *what* changed — to annotate a pull request, feed a dashboard, drive its own policy on top — write the result out as data instead:
-
-```bash
-python -m compare_tool old_dir new_dir --json result.json --sarif result.sarif
-```
-
-Both are additive: the HTML report still gets written alongside them, and either flag works fine on its own.
-
-- `--json` writes the entire scan under a versioned `schema` key: every file's verdict, its hunks, its renames and AUTOSAR extras, the run summary, the consistency advisories, and the same `exit_code` the process itself returns — so the file on disk and `$?` can never disagree with each other. Pin the `schema` value and an internal refactor won't move the shape out from under you later.
-- `--sarif` writes a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/) log covering only the files that need action — modified, added, deleted, error — each carrying a level (`error` for a path that couldn't be compared at all, `warning` for everything else). Upload it to GitHub code scanning or Azure DevOps and the changes show up annotated inline on the pull request. Identical and noise-only files aren't findings, so they're left out entirely.
-
-A write that fails is loud about it: same as a missing HTML report, it exits `2` — a pipeline that specifically asked for one of these files must never proceed as though it actually got one.
+Publish the HTML report and any JSON/SARIF outputs as CI artifacts.
 
 ## Single-file build
 
-```powershell
-.\build.ps1           # dist\compare-tool.exe  - one file, nothing to install on the target
-```
+The release page provides:
+
+- `compare-tool.exe`: Windows executable with the viewer;
+- `compare_tool.pyz`: standard-library CLI zipapp.
+
+Build them locally from PowerShell:
 
 ```powershell
-.\build.ps1 -Pyz      # also dist\compare_tool.pyz for machines that have Python 3.8+
+.\build.ps1 -Pyz
 ```
 
-```powershell
-.\build.ps1 -PyzOnly  # zipapp only (building it needs no PyInstaller / PySide6)
-```
-
-`dist\compare-tool.exe` is one binary carrying both front ends, and it wears the tool's own icon rather than a generic one:
-
-| Invocation | What happens |
-|---|---|
-| `compare-tool.exe <old> <new> [flags]` | CLI: scan, write the HTML report, exit `0`/`1`/`2` |
-| `compare-tool.exe --qt <old> <new>` | side-by-side viewer, folders already loaded |
-| double-click (no arguments) | side-by-side viewer, waiting for the two folders |
-
-It's built as a **console** application on purpose, so a terminal run keeps its exit code (`1` = real changes, `2` = compare incomplete) intact for the CI gate. The viewer hides the console window at runtime — you'll see a brief flash on double-click and then it's gone — but a crash un-hides it again so the error is actually visible instead of disappearing with the window.
-
-- **`.pyz` (zipapp, stdlib)**: `python compare_tool.pyz <old> <new> [flags]`. Prefer this one when Python is available at all — it's tiny, needs no build dependencies, and doesn't tend to get flagged by antivirus the way a PyInstaller binary sometimes does. The CLI works anywhere; the viewer additionally needs PySide6 installed on that machine, and without it the tool just says so rather than failing to open.
-- **`.exe` (PyInstaller onefile, ~47 MB)**: no Python needed on the target machine at all. Building it needs `pyinstaller` and `PySide6` on the dev machine (`build.ps1` installs both for you), and the resulting binary only runs on the OS it was built on. PyInstaller executables occasionally get blocked by antivirus or AppLocker — if that happens, fall back to the `.pyz`.
-
-Every CLI flag behaves identically across every packaged build. `build/` and `dist/` are already in `.gitignore`, so a local build never shows up as something to commit.
+Use `.\build.ps1 -PyzOnly` to build only the zipapp.

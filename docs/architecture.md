@@ -1,492 +1,186 @@
 # Architecture
 
-🇻🇳 Bản tiếng Việt: [vi/architecture.md](vi/architecture.md)
+This is the implementation map for maintainers and code agents. Read [AGENTS.md](../AGENTS.md) first; it contains the project invariants and required checks. This file explains where behavior lives and which contracts must remain stable.
 
-How the compare tool is put together, and why. For what it *does*, read the
-[README](../README.md) first, and [usage.md](usage.md) for the flags, the noise
-rules and the report's layout; this document is for someone about to change the
-code.
+The English document is authoritative.
 
-## The claim the design has to protect
+## Non-negotiable contracts
 
-The product is one sentence: **"you can ignore what I hid."**
+1. If a difference cannot be proven to be noise, it is a real change.
+2. A scan, read or comparison failure produces `error`; it never looks identical.
+3. File verdicts are `identical`, `comment-only`, `ignorable-only`, `real-change`, `added`, `deleted` or `error`.
+4. Only `comment-only` and `ignorable-only` may be folded or muted.
+5. CLI, report and viewer consume the same raw scan result.
+6. The comparison core and zipapp use only the Python standard library and support Python 3.8.
+7. Qt imports stay inside `compare_tool/qtviewer/` and are loaded lazily.
+8. HTML reports are self-contained and make no network requests.
+9. Exit codes are `0` for no real changes, `1` for real changes and `2` for incomplete comparison. `--exit-zero` never suppresses `2`.
 
-Regenerating a Simulink model rewrites timestamps, UUIDs, comment banners and
-auto-generated identifiers even when the behaviour is identical. The tool
-classifies every difference so a reviewer is not drowned in that churn. The
-moment it hides one real change, a reviewer stops trusting the filter and the
-tool is worse than `diff`.
-
-Every structural decision below follows from that: **anything not *proven* to
-be noise is a real change**, and anything that could not be compared at all is
-louder still.
-
-## Layers
+## Data flow
 
 ```mermaid
-flowchart TD
-    subgraph front[Front ends]
-        CLI[main.py<br/>CLI + exit code]
-        QT[qtviewer/<br/>PySide6 viewer]
-    end
-    subgraph core[Compare core — stdlib only]
-        SC[scanner.py<br/>walk + pair + fold]
-        DE[diff_engine.py<br/>two-pass diff + verdict]
-        LD[linediff.py<br/>patience line matcher + exact fallback]
-        RULES[c_rules · arxml_rules · a2l_rules<br/>strip, tokenize, extract]
-    end
-    subgraph shared[Shared seams]
-        VM[view_model.py<br/>mode_of · char_span · aligned_rows]
-        TH[theme.py<br/>dark/light palettes by role]
-        RV[review.py<br/>notes keyed by content]
-        SY[syntax.py<br/>token spans, Qt-free]
-        FN[funcname.py<br/>enclosing scope per line, Qt-free]
-    end
-    RP[report.py<br/>self-contained HTML]
-    GS[gitsource.py<br/>commit → temp folder]
-    ZS[zipsource.py<br/>zip → temp folder]
-
-    CLI --> SC
-    QT --> SC
-    GS --> QT
-    ZS --> QT
-    ZS --> CLI
-    SC --> DE
-    DE --> LD
-    DE --> RULES
-    RULES --> LD
-    CLI --> RP
-    QT --> RP
-    RP --> VM
-    QT --> VM
-    RP --> TH
-    QT --> TH
-    QT --> SY
-    RP --> RV
-    QT --> RV
+flowchart LR
+    A[Folder, ZIP or Git commit] --> B[Source adapter]
+    B --> C[scanner.scan]
+    C --> D[diff_engine.compare_pair]
+    D --> E[Raw result dict]
+    C --> F[Semantic extractors]
+    F --> E
+    E --> G[CLI summary]
+    E --> H[HTML report]
+    E --> I[Qt viewer]
+    E --> J[JSON / SARIF]
 ```
 
-Two rules hold this shape:
+Source adapters materialize inputs as directories. Everything after that uses the same scanner and result contract.
 
-**The core imports nothing but the standard library.** `scanner`, `diff_engine`,
-the three rule modules, `report`, `review`, `view_model`, `theme`, `syntax`,
-`funcname`, `gitsource` and `zipsource` are what ships in `compare_tool.pyz` — no install, the
-documented fallback for machines where antivirus blocks the `.exe`. One
-third-party import in `scanner.py` and the zipapp stops running there. PySide6
-lives only under `compare_tool/qtviewer/` and is imported lazily, when the
-viewer opens, so the test suite runs headless.
+## Module map
 
-**Arrows only point down.** The core never imports a front end. `syntax.py`
-says *what* a stretch of text is and never what colour it gets — that is
-`theme.py`'s job, answered once for both surfaces — so the Qt layer and any
-second surface can reuse it without the mapping being written twice.
+| Module | Responsibility |
+|---|---|
+| `main.py` | CLI parsing, front-end selection, exit codes and terminal output |
+| `scanner.py` | Tree walk, file comparison, move pairing and semantic rollups |
+| `diff_engine.py` | Two-pass comparison, hunk classification and the single verdict decision |
+| `linediff.py` | Patience-based line matching |
+| `c_rules.py` | C/C++ comments, generated renames and safe reorder checks |
+| `arxml_rules.py` | ARXML/XML noise rules and semantic extraction |
+| `a2l_rules.py` | A2L noise rules and semantic extraction |
+| `langspec.py` | Shared comment/string grammar and whitespace-safe shadows |
+| `filepair.py` | Conservative Added/Deleted move pairing |
+| `consistency.py` | Cross-file regeneration advisories |
+| `view_model.py` | Renderer-neutral labels, row alignment and visual modes |
+| `report.py` | Self-contained HTML and shared Overview data |
+| `serialize.py` | JSON and SARIF output |
+| `review.py` | Stable review IDs, notes and sign-offs |
+| `gitsource.py` | Read-only Git snapshot materialization |
+| `zipsource.py` | Safe ZIP extraction and wrapper-folder handling |
+| `theme.py` | Named color roles for HTML and Qt |
+| `resources.py` | Optional packaged UI resources |
+| `qtviewer/` | The only Qt-dependent package |
 
-```
-compare_tool/
-├── main.py          # entry point: picks the CLI or the viewer, run_compare() core
-├── resources.py     # finds the shipped icons/logo, in a checkout and in the .exe
-├── qtviewer/        # PySide6 side-by-side viewer (app, diff pane, minimap, dialogs, section.py = the collapsible left-column panes)
-├── scanner.py       # walks both trees, pairs files by relative path
-├── diff_engine.py   # two-pass diff (raw + normalized), hunk classification, moved-block detection
-├── linediff.py      # the line matcher both passes share: patience anchoring, exact fallback
-├── filepair.py      # matches an added file to the deleted one it was renamed/moved from
-├── c_rules.py       # C/H rules: strip comments, tokenize, detect renames, extract RTE access points
-├── arxml_rules.py   # ARXML rules: UUID, ADMIN-DATA, DATE, comments, DESC/LONG-NAME + extract port interfaces, SWCs (ports/runnables/events)
-├── a2l_rules.py     # A2L rules: strip C-style comments + extract CHARACTERISTIC/MEASUREMENT
-├── view_model.py    # renderer-agnostic view model (paint mode, intra-line span, row alignment) shared by the report and the viewer
-├── theme.py         # the dark and light palettes as named roles, shared by the report's CSS and every Qt surface
-├── langspec.py      # the comment/string grammar per language, shared by syntax.py (colouring) and the diff shadow (folding) so they agree; generic comment stripper for Python/YAML/JSON
-├── syntax.py        # line-at-a-time C / C++ / XML / A2L / Python / JSON / YAML token spans, Qt-free so it ships in the .pyz
-├── funcname.py      # enclosing scope name per line (C/C++ function / Python class·method / SHORT-NAME / A2L block), Qt-free — feeds hunk captions and the "Affected" list
-├── consistency.py    # cross-artifact/-model advisories: a model whose ARXML/A2L really changed but whose generated C did not follow, plus a +RTE while a peer model's C stayed identical (single-model quick regen) (heads-up only, never a verdict)
-├── serialize.py      # machine-readable output of a scan: schema-versioned JSON (the whole record) and SARIF 2.1.0 (the files needing action) for a pipeline
-├── review.py        # reviewer notes and sign-offs, keyed by change content so they survive a rescan
-├── gitsource.py     # read-only `git archive` of a commit into a temp folder, so a commit can be the OLD side
-├── zipsource.py     # read-only unpack of a .zip artifact into a temp folder, so a zip can be either side
-└── report.py        # self-contained HTML report (badge toggles, Overview, grouping, filter, collapsible diffs)
-```
+## Comparison contract
 
-## Data flow of one compare
-
-Comparing two C files, end to end. A difference is a **real change unless a
-filter can prove it is noise** — the shadow decides the truth, the raw diff
-decides what you see, and three peeling steps (rename, autogen-name, reorder)
-each remove only what they can justify. ARXML and A2L take the same two passes;
-only the *shadow* — what each strips — differs.
-
-There is one opt-in exception to "prove it is noise", drawn dashed below:
-`--skip-var-renames` peels hunks that are only variable-name swaps in bindings,
-without a proof that the swap preserves behaviour. It is off unless asked for,
-and what it peels is labelled `assumed-rename`, never `rename`.
-
-```mermaid
-flowchart TD
-    START["scanner pairs a file by path"]:::io --> DISP{"present on…"}
-    DISP -- "new side only" --> ADD["added<br/>(+ AUTOSAR/A2L extras)"]:::green
-    DISP -- "old side only" --> DEL["deleted"]:::green
-    DISP -- "could not read" --> ERR["error<br/>loud, never silent"]:::red
-    DISP -- "both sides" --> EQ{"bytes identical?"}
-
-    EQ -- "yes" --> IDENT["identical"]:::grey
-    EQ -- "no" --> EOL{"equal after newline<br/>normalize?"}
-    EOL -- "yes" --> LEN["ignorable-only<br/>line-endings / BOM"]:::grey
-    EOL -- "no" --> SHA["build the C shadow, both sides<br/>strip // and /* */ comments · collapse whitespace<br/>line count preserved"]:::step
-
-    SHA --> P2["PASS 2 · diff the shadows<br/>patience matcher (linediff.hunks)<br/>→ candidate real hunks"]:::pass
-    P2 --> F1["peel · 1-to-1 rename map<br/>verified by re-diff"]:::filter
-    F1 --> F2["peel · autogen-name noise<br/>rtb_ · _DSTATE · tmp_N swaps"]:::filter
-    F2 -. "--skip-var-renames only" .-> FQ["peel · assumed rename<br/>bindings differing by name<br/>NOT proven"]:::filter
-    FQ -.-> F3
-    F2 --> F3["peel · safe reorder<br/>dependence-preserving permutation"]:::filter
-    F3 --> REM{"candidate hunks<br/>still left?"}
-
-    REM -- "yes → real" --> MOV["detect moved blocks<br/>delete ↔ insert, same content"]:::step
-    REM -- "no" --> P1
-    MOV --> P1
-
-    P1["PASS 1 · diff the raw lines<br/>label every hunk for display<br/>real · moved · comment · rename · reorder · whitespace"]:::pass --> VER{"_status_of<br/>one place decides"}
-
-    VER -- "a real hunk survived pass 2" --> RC["real-change"]:::red
-    VER -- "only comment hunks" --> CMT["comment-only"]:::grey
-    VER -- "other noise only" --> IGN["ignorable-only"]:::grey
-
-    classDef io fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
-    classDef step fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e;
-    classDef pass fill:#dcfce7,stroke:#16a34a,color:#14532d;
-    classDef filter fill:#fef9c3,stroke:#ca8a04,color:#713f12;
-    classDef red fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
-    classDef grey fill:#f1f5f9,stroke:#94a3b8,color:#334155;
-    classDef green fill:#dcfce7,stroke:#16a34a,color:#14532d;
-```
-
-The scanner drives the top branch — added / deleted / error / both — and hands
-the renderers **one dict, unfiltered** (`{rel_path: result}`); the two-pass body
-below the fold is `diff_engine.compare_pair`, and is the same for every text
-file, C shown here.
-
-### The two passes
-
-`compare_pair` diffs the files twice. Both passes call the same matcher,
-`linediff.hunks`, so they cannot align the same two files differently.
-
-That matcher is **patience**, not `difflib` directly, and the reason is the
-shadow: `arxml_shadow` blanks every UUID and ADMIN-DATA block, so a shadow's
-structural lines are identical from one package to the next. `difflib`'s
-`autojunk` heuristic refuses to anchor on any line making up more than 1% of a
-long sequence — which, on that input, is every line. With no anchor left it
-returns the whole file as one changed block, and because pass 2 is what decides
-`real-change`, all the surrounding churn gets absorbed into a real hunk and
-stops being foldable. Patience anchors only on lines occurring exactly once on
-both sides and recurses into the gaps, so segments are small enough to hand the
-leftovers to the exact (`autojunk=False`) matcher. See `linediff.py` — it also
-records the measurements, because the fast path the heuristic was bought with
-turns out not to be needed.
-
-- **Pass 2 decides the truth.** Each side is reduced to a *shadow*: comments
-  stripped, layout whitespace outside literals normalized, UUIDs and dates and version stamps removed,
-  and for C a verified 1-to-1 rename map applied. Whatever still differs
-  between the two shadows is a real change. The rename map is best-effort and
-  then *checked* — it is applied to the old shadow and re-diffed, and any line
-  it does not fully explain stays real.
-  `langspec.normalize_ws` preserves literal payload and Python/YAML indentation.
-  Literal continuation lines carry a nonblank shadow marker so blank-only hunk
-  filtering cannot erase an inserted empty line inside a string. The raw text
-  and raw line coordinates remain unchanged. Callee changes require matching
-  generated checksum roots before entering a rename map; RHS writes disqualify
-  a block from reorder folding.
-- **Pass 1 decides what you see.** The raw line diff keeps every textual
-  difference, so the viewer can show the churn instead of pretending the files
-  were identical. A raw hunk that intersects no real hunk is ignorable, and is
-  *labelled* by `_build_variants`: a list of shadows each with exactly **one**
-  rule applied. The first variant under which the hunk's two slices are equal
-  names it (`comment`, `uuid`, `timestamp`, `sw-version`, `description`,
-  `rename`, `whitespace`). A hunk that no single rule explains is `mixed` — still
-  ignorable, but honest that more than one rule combined to explain it.
-
-This is why the noise-rule checklist is what it is: a new rule has to be
-text-based and preserve line count (or the two passes stop lining up), joined
-into the ruleset's shadow, *and* given a labelled variant. Miss the variant and
-the rule silently becomes `mixed`.
-
-### The verdict lives in one function
-
-`diff_engine._status_of` is the only place a status is decided:
-
-| Status | Meaning | Foldable |
-|---|---|---|
-| `identical` | no difference at all | — |
-| `comment-only` | every labelled hunk is `comment` | yes |
-| `ignorable-only` | noise, but not comments alone | yes |
-| `real-change` | at least one hunk survived pass 2 | **no** |
-| `added` / `deleted` | present on one side only | **no** |
-| `error` | could not be listed, read or compared | **no** |
-
-`comment-only` is deliberately separate from `ignorable-only`: "the banner
-moved" triages differently from "an identifier was renamed". A file mixing
-comments *with* other noise stays `ignorable-only` — the narrower claim has to
-be exact.
-
-`scanner.FOLDABLE` names the only two statuses a UI toggle may collapse. Real
-changes, one-sided files and errors are absent from that tuple **by
-construction**, so no caller mistake can hide one.
-
-### A viewer toggle is a paint decision, not a verdict
-
-`MainWindow._muted_statuses()` reads the two checkboxes; `_apply_rules` passes
-the matching row modes to `DiffPane.set_muted_modes` and otherwise hands the
-**raw scan** straight through to `self.results`. Nothing is re-judged, so a
-toggle is instant and the folders are read exactly once.
-
-Unticking a category changes how its rows are **painted** and nothing else:
-`view_model.mute_rows` greys them, the minimap stops striping them, `F7`/`F8`
-stop landing on them. The lines stay on screen, the hunks are untouched, and
-the verdict is untouched — a comment-only file still reads Comment in the tree,
-in the counts, and in the exported report. `Hide identical` therefore leaves it
-alone: it hides files that are identical, not files whose differences the
-reviewer chose to play down.
-
-That the verdict is left alone is the whole point. When the toggle re-judged
-the file `identical`, the tree and the exported report (built from
-`_raw_results`) disagreed about the same file, and the tree made the one claim
-this tool must never make about a file that really differs.
-
-`scanner.fold_status` still implements that collapse for `scan(fold=…)`, where
-a caller asks for it up front, and `scanner.FOLDABLE` still names the only two
-statuses any caller may collapse — real changes, one-sided files and errors are
-absent from that tuple **by construction**. `apply_fold`, which re-judged an
-already-scanned tree, went with the behaviour it existed for.
-
-Navigation follows what is on screen. A shown comment or Unimportant hunk **is**
-an `F7`/`F8` stop, and such a file is in `MainWindow._NAV_STATUS`, so the walk
-crosses into it. `_is_nav` drops it again the moment its box is unticked —
-those rows are greyed and off the minimap, so the file has no stops left and
-stepping into it would dead-end. What navigation must never do is imply a
-sign-off: `DiffPane._stop_units` carries `None` for those stops, so
-`current_unit()` reports nothing to review there. Only `real` and `moved` are
-reviewable (`review.REVIEWABLE`), navigable or not.
-
-## The result dict is the contract
-
-Everything downstream — CLI summary, HTML report, viewer tree, review store —
-consumes one dict per compared path:
+`scanner.scan` returns a dict keyed by relative path. Each value has at least a verdict and comparison metadata:
 
 ```python
 {
-    'status': 'real-change',
-    'hunks': [{'kind': 'real', 'old_range': [12, 15], 'new_range': [12, 14]},
-              {'kind': 'moved', 'old_range': [40, 60], 'new_range': [40, 40],
-               'moved_to': 91}],
-    'renames': {'rtb_AND_c4nxjoom3d': 'rtb_AND_j2kqp1wxab'},
-    'notes': ['line-endings'],
-    'binary': False,
-    # semantic extras, only on real changes and one-sided files:
-    'ifaces': ..., 'swc': ..., 'rte': ..., 'a2l': ...,
-    # only on a file paired across a rename/move (see below):
-    'moved_from': 'swc_a/Sub.c',   # on the ADDED entry
-    'moved_to': 'swc_b/Sub.c',     # on the DELETED entry
-    'move_status': 'real-change', 'move_similarity': 0.89,
+    "status": "real-change",
+    "hunks": [
+        {
+            "kind": "real",
+            "old_range": [12, 15],
+            "new_range": [12, 14],
+        }
+    ],
+    "renames": {},
+    "notes": [],
+    "binary": False,
 }
 ```
 
-Ranges are 0-based, end-exclusive, into the **raw** lines of each side.
-`kind` is one of `real`, `moved`, `comment`, `rename`, `assumed-rename`,
-`reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`,
-`mixed`.
+Semantic keys such as `ifaces`, `swc`, `rte` and `a2l` are added only when applicable. Move pairs add `moved_from` or `moved_to`, `move_status` and `move_similarity`.
 
-`assumed-rename` is the only kind applied **without** proof, and it appears
-only when the caller passed `skip_var_renames` (`--skip-var-renames`). It folds
-a hunk whose every line is a binding — a statement that names one object and
-at most copies another into it (`a = b;`, `rtY.Out = rtU.Pedal;`, `real_T x;`,
-`boolean_T f = FALSE;`) — differing only by identifier names, which a rewiring
-also looks like. It is
-therefore a deliberate false-negative mode: it keeps its own kind so no surface
-can spell it `rename`, and the report, the terminal summary, the JSON and the
-viewer title each say the run used it.
+Ranges are zero-based and end-exclusive indexes into raw file lines. Do not convert the stored coordinates to shadow lines or rendered rows.
 
-`reorder` is the one ignorable kind decided on *meaning* rather than spelling:
-when the whole surviving change set is a dependence-preserving permutation of a
-straight-line block of scalar assignments, it computes the same values and is
-proven noise (`c_rules.reorder_equivalent`). Like the autogen-rename kind it is
-detected on the shadow hunks and applied by overlap, not through
-`_build_variants`; any real change mixed in, or any line that is not a safe
-scalar assignment, leaves every hunk real.
+Hunk kinds currently include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace` and `mixed`.
 
-The semantic extras are computed only where they can matter: a shadow-equal
-file has the same content, so it cannot have moved the AUTOSAR surface.
+### Verdict ownership
 
-### Renames and moves
+`diff_engine._status_of` is the only place that decides a file verdict. `scanner.FOLDABLE` names the only foldable verdicts.
 
-`scanner` pairs files by relative path, which is right until the path is what
-changed. After every verdict is settled, `_link_moves` takes the files that
-came out `added` and `deleted` and asks `filepair` which of them are the same
-file — exact content first, then similarity over the **shadow** lines, so a
-file that moved *and* was regenerated still matches.
+A UI filter may change paint, navigation or visibility. It must not rewrite `status`, counts or exported data. Reports and summaries must always use the raw result.
 
-A pair is a **reading aid, not a verdict**. Both files keep their `added` /
-`deleted` status, both stay in the counts, and the exit code does not move: a
-file that changed folder is a change to the tree, and a pipeline gating on that
-must keep seeing it. What the pair adds is `hunks` on the added entry —
-describing it against the file it came from — so the report renders one diff
-instead of two whole files, and the deleted entry points at it rather than
-printing the same bytes again.
+## Two-pass diff
 
-Because a pairing is a claim that can be wrong, it is only made when it is not
-a guess: same extension, mutual best match, and a margin over the runner-up.
-Generated files share banners and call shapes, so near-ties between unrelated
-SWCs are the normal case rather than a freak one. An unmatched file simply
-reports as it did before.
+`diff_engine.compare_pair` uses `linediff.hunks` for both passes so coordinates stay aligned.
 
-## Shared seams
+1. **Truth pass:** compare normalized shadows. Comments and supported generator noise are removed while literal contents and significant Python/YAML indentation are preserved. Anything left is real.
+2. **Display pass:** diff raw lines and label each hunk. A raw hunk that does not overlap a real hunk is classified by the one-rule variants. If several rules are needed, its kind is `mixed`.
 
-Any fact two renderers need lives in one module they both import. The failure
-mode this prevents is quiet: two copies of a four-line mapping agree perfectly
-until someone adds a new kind to one of them.
+The matcher uses patience anchors, then an exact matcher for remaining gaps. This avoids poor alignment in generated files with many repeated structural lines.
 
-- **`view_model.mode_of`** — hunk kind → paint mode (`real`, `moved`,
-  `comment`, `minor`). The HTML report and the Qt panes cannot disagree about
-  how a kind is coloured or whether it can be hidden.
-- **`view_model.char_span`** — the intra-line highlight as plain character
-  offsets, grown outward to the enclosing identifier so a rename marks the
-  whole name rather than the letters that happen to differ. The report wraps
-  them in a `<span>`; the viewer applies a `QTextCharFormat` over the same
-  numbers — widening the span was one edit here, and both surfaces got it.
-- **`view_model.aligned_rows` / `mute_rows`** — whole-file two-pane alignment,
-  and playing a switched-off noise category *down* rather than away: the rows
-  keep their place, their line numbers and their text, and come back with mode
-  `muted` for the renderer to paint flat grey. Muting moves no row, so
-  navigation stops and find hits stay valid without translation, and the
-  reviewer keeps the context the surviving hunks have to be read in.
-- **`theme.py`** — every colour as a named role, one value per theme. The
-  report emits the whole palette as CSS custom properties and uses
-  `var(--role)`; the Qt widgets look the same role up with `theme.c`. Adding a
-  role means adding it to **both** palettes — an import-time assert says so,
-  because the alternative is a `KeyError` on whichever surface nobody opened.
-- **`review.py`** — notes and sign-offs keyed by a hash of the change's own
-  text, not by line number, so an unrelated edit elsewhere in the file does not
-  detach them on the next scan.
-- **`funcname.enclosing`** — the scope name for each line (C/C++ function,
-  Python class/method, AUTOSAR SHORT-NAME, A2L block), one list the report and
-  the viewer both read. The report shows it above each change group (once,
-  when consecutive groups share it); the viewer tracks a "current function" as
-  the pane scrolls. It never decides a verdict — a wrong name costs a caption,
-  so the heuristics say `None` rather than guess.
-- **`langspec.SPECS`** — one table of each language's comment/string grammar
-  (what opens a comment, how a string escapes). Two very different surfaces read
-  it: `syntax.py` colours a comment, and the diff shadow (`langspec.shadow` for
-  the generic Python/YAML/C++ rulesets, and the `_build_variants` comment label)
-  blanks it. If the two disagreed, a line could be painted a comment yet still
-  counted as a change. The single-line and triple-quote scanners
-  (`langspec.string_end`, `langspec.triple_close`) live here too, so the
-  line-at-a-time colourer and the whole-file stripper find the end of a string
-  the same way. The C/A2L/ARXML strippers predate the table and keep their own
-  walkers; what `langspec` unifies is the shared *definition* and the generic
-  walker the newer languages run on.
+### Rename and reorder safety
+
+A generated rename is applied only after a one-to-one mapping is inferred and rechecked against the shadow. Function callees require matching generated checksum roots. Literal contents are never rewritten.
+
+A reorder is noise only when every line is a side-effect-free scalar assignment, both sides contain the same statements and all data dependencies keep their order. Calls, increments, nested assignments, control flow, declarations and indirect writes disqualify the block.
+
+`--skip-var-renames` is the only intentionally unsafe comparison mode. Its hunks use `assumed-rename`, and every output surface must disclose that the option was used.
+
+## Semantic extraction
+
+`scanner.compare_file` attaches semantic data for real changes and one-sided files. The `summarize_*` functions aggregate interfaces, SWCs, RTE access and A2L objects.
+
+`consistency.py` derives advisories from the complete result. Advisories never change verdicts or exit codes.
+
+File move pairing runs after verdicts are settled. A pair is presentation metadata: Added and Deleted verdicts remain in the result and counts.
+
+## Shared presentation seams
+
+Keep facts shared by two front ends outside their renderers:
+
+| Shared decision | Owner |
+|---|---|
+| Hunk kind to display mode | `view_model.mode_of` |
+| Intra-line highlight span | `view_model.char_span` |
+| Side-by-side row alignment and muting | `view_model.aligned_rows`, `mute_rows` |
+| AUTOSAR display vocabulary | `view_model.SWC_DISPLAY` |
+| Model Overview grouping and counts | `report.model_overview` |
+| Function/object caption per line | `funcname.enclosing` |
+| Color roles | `theme.py` |
+| Review identity | `review.py` |
+
+Do not copy mappings or rollup logic into CLI, HTML or Qt code.
 
 ## Front ends
 
-`main.viewer_requested(argv)` owns the "which front end does this argv want"
-decision, and answers it **without running the compare** — the frozen entry
-point calls it to hide the console window before Qt starts. The rule: the
-terminal compare runs only when both folders are named on the command line;
-everything else opens the viewer.
+### CLI and report
 
-### CLI
+`main.viewer_requested` decides whether the process opens Qt or runs a terminal comparison.
 
-With an output path, `run_compare` deletes any leftover report *before* scanning — if this run dies,
-a stale file from the previous one must not pass for its result. A report path
-that cannot be written raises `ReportWriteError` carrying the scan it could not
-write, so the terminal still prints what was found, and the run exits `2`:
+`run_compare` removes a stale target report before scanning. A report-write failure preserves the scan for terminal output and exits `2`.
 
-| Code | Meaning |
-|---|---|
-| 0 | No real change |
-| 1 | Real changes found (the CI gate) |
-| 2 | Compare INCOMPLETE — a path could not be listed, read or compared, or the report could not be written |
-
-`--no-report` passes `out=None` to the same `run_compare` function. It returns
-immediately after scanning and counting, before any HTML rendering or file
-write. `summary_lines(..., tree=True)` prints all scanned paths and reuses the
-existing semantic summaries and consistency advisories; it does not fold the
-results or print source-code hunks. `report.model_overview` provides structured
-rows for both the HTML and terminal Overview, so model ownership, visible file
-counts and AUTOSAR rollups stay one decision. Old reports are untouched in this
-mode.
-
-The exit code is a contract with somebody's pipeline. `--exit-zero` suppresses
-`1`, never `2` — an incomplete compare must never look green.
+With `--no-report`, `run_compare` skips HTML rendering. `summary_lines(..., tree=True)` prints the Overview, full tree, semantic details and warnings without source hunks. `report.model_overview` supplies the same structured rows to HTML and terminal renderers.
 
 ### Viewer
 
-The scan walks the disk, so it runs on a `QThread` (`qtviewer/worker.py`) and
-results cross back through signals only. Widgets stay dumb: they walk a model
-and paint it. `tree.py`, `summary_model.py` and `compare_tool/resources.py`
-have no PySide6 import at all, so their tests run on a box with no Qt.
+The scanner runs in `qtviewer/worker.py` on a `QThread`. Results cross into widgets through signals. Renderer-independent Qt models must remain importable without PySide6 so headless tests still run.
 
-`Git compare…` is not a second compare mode. `gitsource.py` runs `git archive`
-— read-only, touching neither HEAD, the index nor the working tree — to lay one
-commit down in a temp folder, and everything downstream sees two directories as
-usual. That matters because the folder being reviewed is normally the one the
-engineer is still editing.
+Report export uses the raw scan, not the filtered tree. Muted noise remains part of the verdict and exported counts.
 
-A dropped or picked `.zip` is the same idea one more time: `zipsource.py`
-unpacks it read-only into a temp folder — guarding against a path that escapes
-the destination, and descending into a lone wrapper directory so an Azure
-`drop.zip` does not read as one directory deep — and the compare runs on the
-folder, none the wiser. A source that materialises a temp folder labels its
-pane by the commit or the zip name, since the temp path names nothing:
-`diffpane.set_old_label` / `set_new_label`, one per side.
+### Input adapters
 
-## Decisions worth knowing before you change something
+`gitsource.py` uses `git archive` and never changes HEAD, the index or the working tree.
 
-**The record is never the filtered view.** `MainWindow._export_report` builds
-from `_raw_results`, not from what is on screen. A category the reviewer
-collapsed must still appear in the exported file with its real verdict —
-otherwise an export could show a file as Identical when it is not. Same for the
-quick-changes rollup.
+`zipsource.py` rejects unreadable/empty archives, prevents path traversal and removes temporary extraction directories after use.
 
-**A report window is measured from real changes only.** The HTML report shows
-three lines either side of each real change, not the whole file. Noise *inside*
-a window renders greyed; noise *outside* every window shows nothing until
-`Unimportant` is clicked. The tight window is the point: a regenerated file
-carries a UUID or a banner line every few lines, so if each noise hunk pulled
-its own three lines of context, the windows would chain and one real change
-would drag the whole file back onto the page. A file with **no** real change has
-nothing louder competing for the space, so it keeps full context and a
-`⋯ N lines hidden` placeholder instead.
+## Change map
 
-**The HTML report is self-contained.** CSS and JS inline, no CDN, nothing
-fetched when the file is opened. It gets mailed around and opened on machines
-with no internet; a report that renders blank there is worse than no report.
-That is also why the page carries *both* palettes rather than the one
-`--theme` asked for: the reader's dark/light button has to be an attribute
-flip, with nothing left to download.
+| Change | Start here | Required proof |
+|---|---|---|
+| Noise rule | Relevant `*_rules.py`, then `diff_engine.py` | Rule alone becomes noise; adjacent real change stays real |
+| Generic comment language | `langspec.py`, `diff_engine.RULES`, `syntax.py` | String/comment boundaries agree in diff and highlighting |
+| File verdict | `diff_engine._status_of` | Every renderer/count/exit path handles it; folding is explicit |
+| Semantic object | Extractor, `scanner.compare_file`, `summarize_*` | Added, removed and modified cases |
+| Shared label or rollup | `view_model.py` or a renderer-neutral report helper | HTML, terminal and Qt stay consistent |
+| Color | `theme.py` | Role exists in both themes |
+| CLI behavior | `main.py` | Exit codes, stale-output behavior and docs |
+| Viewer behavior | `qtviewer/` | Headless model test plus a rendered check |
+| JSON/SARIF schema | `serialize.py` | Schema/version compatibility and error representation |
 
-**Cosmetic failures degrade, the compare does not.** A missing icon leaves a
-button with its text label (`resources.py` getters return `None` and callers
-cope); no PySide6 gives a plain sentence about the `viewer` extra, not a
-traceback; Windows legacy codepages are handled with
-`stream.reconfigure(errors='replace')` so a print can never kill a run. The
-compare itself is the exception — a scan or render failure is loud, never an
-empty, clean-looking result.
+## Verification
 
-**The `.exe` is a console build on purpose.** A windowed build makes the shell
-stop waiting and throws the exit code away, which breaks the CI gate. So the
-console *window* is hidden at runtime instead (`packaging/entry.py`), and
-un-hidden on a crash.
+Run before commit:
 
-**Python 3.8 is a shipped promise.** No `match`, no `X | Y` at runtime;
-`list[str]` in an annotation needs `from __future__ import annotations`. CI runs
-3.8 and 3.11 on Linux and Windows, so a 3.10-ism passes locally and fails there.
+```bash
+python -m unittest discover -s tests -v
+python -m ruff check .
+```
 
-## Where to change what
+For a release:
 
-| Change | Touch |
-|---|---|
-| New noise rule | the rule module's strip function → that ruleset's shadow → one labelled variant in `_build_variants` → two tests (alone it is noise; beside a real change it stays real) |
-| New file type (AUTOSAR-grade, with its own strips) | `RULES` in `diff_engine.py`, a `*_rules.py` module, shadow + variants |
-| New file type (comment-only, e.g. Python/YAML) | one `LangSpec` in `langspec.py` (the comment/string grammar), add the ext to `RULES` and the ruleset to `_GENERIC_COMMENT_RULES`, one `_Lang` in `syntax.py` for its colours — the shadow, the variant and the colouring all read the one spec |
-| New semantic extraction | `*_rules.py` extractor, wire into `scanner.compare_file` and `_single_info`, then a `summarize_*` rollup |
-| Anything both renderers show | `view_model.py` — never inline in one of them |
-| A colour, anywhere | `theme.py`, as a role in **both** palettes; the report uses `var(--role)`, Qt uses `theme.c(role)` |
-| New verdict | `diff_engine._status_of`, and decide explicitly whether it belongs in `scanner.FOLDABLE` (default: no) |
-| Viewer layout or colour | render it and look at it (`widget.grab().save(png)` under `QT_QPA_PLATFORM=offscreen`), then a real window |
+```bash
+python packaging/release_check.py X.Y.Z
+```
+
+Qt tests may skip without PySide6. A green run in that environment does not verify the viewer.

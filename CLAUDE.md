@@ -156,6 +156,11 @@ For a normal release:
 
 The English documentation is the source of truth.
 
+Documentation has two audiences:
+
+* `AGENTS.md` and `docs/architecture.md` are for maintainers and code agents. Keep them implementation-accurate, compact, and explicit about contracts, module ownership and required tests.
+* `README.md` and `docs/usage.md` are for end users. Keep them task-oriented and short; do not expose internal design rationale or duplicate the full `--help` output.
+
 Vietnamese documentation in `docs/vi/` should translate meaning, not terminology.
 
 Keep industry/tool terms in English where appropriate:

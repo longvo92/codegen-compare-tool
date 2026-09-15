@@ -1,410 +1,161 @@
 # Kiến trúc
 
-> Bản tiếng Việt của [docs/architecture.md](../architecture.md). Bản tiếng Anh là
-> bản chuẩn — khi hai bên lệch nhau, tin bản tiếng Anh.
+Đây là bản đồ implementation dành cho maintainer. AI/code agent phải dùng [bản tiếng Anh](../architecture.md) làm nguồn chuẩn và đọc [AGENTS.md](../../AGENTS.md) trước khi sửa code.
 
-Tool được ghép lại như thế nào, và tại sao lại thế. Muốn biết nó *làm gì* thì đọc
-[README](README.md) trước, và [usage.md](usage.md) cho flag, luật noise và bố cục
-report; tài liệu này viết cho người sắp sửa code.
+## Contract bắt buộc
 
-## Lời hứa mà thiết kế phải bảo vệ
+1. Nếu không chứng minh được khác biệt là noise, đó là real change.
+2. Lỗi scan, đọc hoặc compare tạo verdict `error`; không được trông giống identical.
+3. File verdict gồm `identical`, `comment-only`, `ignorable-only`, `real-change`, `added`, `deleted` và `error`.
+4. Chỉ `comment-only` và `ignorable-only` được fold hoặc mute.
+5. CLI, report và viewer dùng cùng raw scan result.
+6. Comparison core và zipapp chỉ dùng Python standard library, hỗ trợ Python 3.8.
+7. Qt import chỉ nằm trong `compare_tool/qtviewer/` và được load lazy.
+8. HTML report độc lập, không gọi network.
+9. Exit code: `0` không có real change, `1` có real change, `2` comparison không đầy đủ. `--exit-zero` không được bỏ qua `2`.
 
-Sản phẩm gói trong một câu: **"cái gì tôi giấu đi thì anh bỏ qua được."**
-
-Mỗi lần regenerate một model Simulink, timestamp, UUID, comment banner và tên
-identifier auto-generated bị ghi lại dù hành vi không đổi. Tool phân loại từng khác
-biệt để reviewer không chết chìm trong đống rác đó. Ngay khi nó giấu nhầm một thay
-đổi thật, reviewer hết tin bộ lọc, và tool còn tệ hơn `diff`.
-
-Mọi quyết định cấu trúc bên dưới đều đi ra từ đó: **cái gì không *chứng minh được*
-là noise thì là thay đổi thật**, còn cái gì không so sánh được thì phải kêu to hơn
-nữa.
-
-## Phân lớp
+## Data flow
 
 ```mermaid
-flowchart TD
-    subgraph front[Front end]
-        CLI[main.py<br/>CLI + exit code]
-        QT[qtviewer/<br/>viewer PySide6]
-    end
-    subgraph core[Compare core — chỉ stdlib]
-        SC[scanner.py<br/>duyệt + ghép cặp + fold]
-        DE[diff_engine.py<br/>diff hai lượt + verdict]
-        LD[linediff.py<br/>khớp dòng patience + fallback exact]
-        RULES[c_rules · arxml_rules · a2l_rules<br/>bóc, tokenize, trích]
-    end
-    subgraph shared[Seam dùng chung]
-        VM[view_model.py<br/>mode_of · char_span · aligned_rows]
-        TH[theme.py<br/>palette sáng/tối theo role]
-        RV[review.py<br/>note khoá theo nội dung]
-        SY[syntax.py<br/>token span, không dính Qt]
-        FN[funcname.py<br/>scope bao quanh mỗi dòng, không dính Qt]
-    end
-    RP[report.py<br/>HTML self-contained]
-    GS[gitsource.py<br/>commit → thư mục tạm]
-    ZS[zipsource.py<br/>zip → thư mục tạm]
-
-    CLI --> SC
-    QT --> SC
-    GS --> QT
-    ZS --> QT
-    ZS --> CLI
-    SC --> DE
-    DE --> LD
-    DE --> RULES
-    RULES --> LD
-    CLI --> RP
-    QT --> RP
-    RP --> VM
-    QT --> VM
-    RP --> TH
-    QT --> TH
-    QT --> SY
-    RP --> RV
-    QT --> RV
+flowchart LR
+    A[Folder, ZIP hoặc Git commit] --> B[Source adapter]
+    B --> C[scanner.scan]
+    C --> D[diff_engine.compare_pair]
+    D --> E[Raw result dict]
+    C --> F[Semantic extractor]
+    F --> E
+    E --> G[CLI summary]
+    E --> H[HTML report]
+    E --> I[Qt viewer]
+    E --> J[JSON / SARIF]
 ```
 
-Hai luật giữ cho hình dạng này đứng vững:
+Source adapter đưa input về dạng directory. Từ scanner trở đi, mọi front end dùng chung result contract.
 
-**Core không import gì ngoài standard library.** `scanner`, `diff_engine`, ba module
-rule, `report`, `review`, `view_model`, `theme`, `syntax`, `funcname`, `gitsource` và
-`zipsource` là những gì ship
-trong `compare_tool.pyz` — không cần cài, và là phương án dự phòng đã được
-ghi rõ cho các máy bị antivirus chặn `.exe`. Chỉ cần một import thư viện ngoài trong
-`scanner.py` là zipapp hết chạy ở đó. PySide6 chỉ nằm dưới `compare_tool/qtviewer/`
-và được import lười, lúc viewer mở, nên bộ test chạy headless được.
+## Bản đồ module
 
-**Mũi tên chỉ đi xuống.** Core không bao giờ import front end. `syntax.py` nói một
-đoạn text *là gì* chứ không nói nó tô màu gì — màu là việc của `theme.py`, trả lời
-một lần cho cả hai surface — nên lớp Qt và bất kỳ surface thứ hai nào cũng dùng lại
-được mà không phải viết mapping đó hai lần.
+| Module | Trách nhiệm |
+|---|---|
+| `main.py` | CLI parsing, chọn front end, exit code và terminal output |
+| `scanner.py` | Scan tree, compare file, ghép file move và semantic rollup |
+| `diff_engine.py` | Two-pass diff, phân loại hunk và quyết định verdict |
+| `linediff.py` | Patience-based line matching |
+| `c_rules.py` | C/C++ comment, generated rename và safe reorder |
+| `arxml_rules.py` | ARXML/XML noise rules và semantic extraction |
+| `a2l_rules.py` | A2L noise rules và semantic extraction |
+| `langspec.py` | Comment/string grammar và whitespace-safe shadow |
+| `filepair.py` | Ghép Added/Deleted thành file move một cách bảo thủ |
+| `consistency.py` | Cross-file regeneration advisory |
+| `view_model.py` | Label, aligned row và visual mode dùng chung |
+| `report.py` | HTML độc lập và dữ liệu Overview dùng chung |
+| `serialize.py` | JSON và SARIF |
+| `review.py` | Stable review ID, note và sign-off |
+| `gitsource.py` | Tạo Git snapshot read-only |
+| `zipsource.py` | Giải nén ZIP an toàn |
+| `theme.py` | Named color role cho HTML và Qt |
+| `qtviewer/` | Package duy nhất phụ thuộc Qt |
 
-## Luồng dữ liệu của một lần compare
+## Result contract
 
-```mermaid
-sequenceDiagram
-    participant F as Front end
-    participant S as scanner.scan
-    participant D as diff_engine.compare_pair
-    participant R as Renderer
-
-    F->>S: old_root, new_root, exclude/include
-    S->>S: list_files() cả hai bên, bắt lỗi listing
-    loop từng đường dẫn tương đối
-        alt có ở cả hai cây
-            S->>D: old_text, new_text, rel
-            D->>D: lượt 1 — diff dòng thô
-            D->>D: lượt 2 — diff shadow (+ rename map)
-            D->>D: gán nhãn từng hunk thô, rồi _status_of
-            D-->>S: {status, hunks, renames, notes}
-        else chỉ có một bên
-            S->>S: added / deleted + phần ngữ nghĩa
-        else không đọc được
-            S->>S: status 'error' — kêu to, không bao giờ im lặng
-        end
-    end
-    S-->>F: {đường_dẫn: result}
-    F->>R: ĐÚNG cái dict đó, chưa lọc
-```
-
-### Hai lượt diff
-
-`compare_pair` diff hai file hai lần. Cả hai lượt đều gọi chung một matcher,
-`linediff.hunks`, nên không thể căn cùng hai file theo hai kiểu khác nhau.
-
-Matcher đó là **patience**, không phải `difflib` trực tiếp, và lý do nằm ở
-shadow: `arxml_shadow` xoá ruột mọi UUID và khối ADMIN-DATA, nên các dòng cấu
-trúc của shadow giống hệt nhau từ package này sang package khác. Heuristic
-`autojunk` của `difflib` từ chối neo vào bất kỳ dòng nào chiếm hơn 1% của một
-chuỗi dài — mà với input đó thì là *mọi* dòng. Không còn neo nào, nó trả về cả
-file như một khối thay đổi duy nhất; và vì lượt 2 mới là cái quyết định
-`real-change`, toàn bộ churn xung quanh bị nuốt vào một hunk real và mất khả
-năng fold. Patience chỉ neo vào dòng xuất hiện đúng một lần ở cả hai bên rồi đệ
-quy vào khoảng giữa, nên các đoạn còn lại đủ nhỏ để giao cho matcher chính xác
-(`autojunk=False`). Xem `linediff.py` — số đo nằm ngay trong đó, vì hoá ra cái
-đường nhanh mà heuristic kia đánh đổi để có được là không cần thiết.
-
-- **Lượt 2 quyết định sự thật.** Mỗi bên được rút gọn thành một *shadow*: bóc
-  comment, chuẩn hoá whitespace định dạng ngoài literal, bỏ UUID, ngày tháng, version stamp, và với C thì áp một
-  rename map đã được kiểm chứng. Cái gì còn khác nhau giữa hai shadow là thay đổi
-  thật. Rename map chỉ là best-effort rồi *bị kiểm lại* — nó được áp lên shadow cũ
-  và diff lại, dòng nào nó không giải thích trọn vẹn thì vẫn là real.
-  `langspec.normalize_ws` giữ nội dung literal và indentation Python/YAML.
-  Các dòng tiếp theo trong literal có marker không rỗng trong shadow để bước lọc
-  hunk trắng không bỏ mất dòng trống được thêm bên trong string. Text gốc và vị trí
-  dòng gốc không đổi. Đổi tên hàm được gọi chỉ vào rename map khi chung gốc checksum
-  do generator sinh; biểu thức RHS ghi vào biến khiến block không được gộp reorder.
-- **Lượt 1 quyết định cái bạn nhìn thấy.** Diff dòng thô giữ lại mọi khác biệt về
-  text, nhờ vậy viewer hiện được đống rác thay vì giả vờ hai file y hệt nhau. Hunk
-  thô nào không giao với hunk real nào thì là ignorable, và được *gán nhãn* bởi
-  `_build_variants`: một danh sách shadow, mỗi cái áp đúng **một** rule. Variant đầu
-  tiên mà hai lát cắt của hunk bằng nhau sẽ đặt tên cho nó (`comment`, `uuid`,
-  `timestamp`, `sw-version`, `description`, `rename`, `whitespace`). Hunk mà không rule đơn lẻ nào
-  giải thích được thì là `mixed` — vẫn ignorable, nhưng nói thẳng là phải nhiều rule
-  cộng lại mới giải thích nổi.
-
-Đây là lý do checklist khi thêm noise rule đúng như nó đang có: rule mới phải làm
-trên text và giữ nguyên số dòng (không thì hai lượt lệch nhau), phải nối vào shadow
-của ruleset, *và* phải có một variant có nhãn. Quên variant là rule đó âm thầm biến
-thành `mixed`.
-
-### Verdict nằm trong đúng một hàm
-
-`diff_engine._status_of` là chỗ duy nhất status được quyết định:
-
-| Status | Nghĩa | Fold được |
-|---|---|---|
-| `identical` | không khác gì cả | — |
-| `comment-only` | mọi hunk có nhãn đều là `comment` | có |
-| `ignorable-only` | noise, nhưng không phải chỉ mỗi comment | có |
-| `real-change` | ít nhất một hunk sống sót qua lượt 2 | **không** |
-| `added` / `deleted` | chỉ có ở một bên | **không** |
-| `error` | không list / đọc / so sánh được | **không** |
-
-`comment-only` cố ý tách khỏi `ignorable-only`: "cái banner dịch chỗ" triage khác
-"một identifier bị đổi tên". File trộn comment *với* noise loại khác thì vẫn là
-`ignorable-only` — lời khẳng định hẹp hơn thì phải chính xác.
-
-`scanner.FOLDABLE` liệt kê đúng hai status mà một toggle UI được phép thu gọn. Thay
-đổi thật, file một bên và lỗi vắng mặt khỏi tuple đó **do cấu trúc**, nên không lỗi
-lập trình nào ở phía caller giấu được chúng.
-
-### Toggle của viewer là quyết định tô màu, không phải verdict
-
-`MainWindow._muted_statuses()` đọc hai checkbox; `_apply_rules` truyền các row
-mode tương ứng cho `DiffPane.set_muted_modes`, còn `self.results` nhận thẳng
-**lần scan gốc**. Không có gì bị phán lại, nên một lần bật tắt là tức thì và hai
-thư mục chỉ được đọc đúng một lần.
-
-Bỏ tick một nhóm chỉ đổi cách các dòng đó được **tô**, không gì khác:
-`view_model.mute_rows` làm chúng xám đi, minimap thôi kẻ vạch, `F7`/`F8` thôi
-dừng ở đó. Các dòng vẫn nằm trên màn hình, hunk không bị đụng, và verdict cũng
-không: file chỉ khác comment vẫn hiện Comment trên cây, trong số đếm, và trong
-report xuất ra. `Hide identical` vì thế để yên nó — nút đó ẩn file identical,
-không ẩn file mà người review chọn làm mờ đi.
-
-Chuyện verdict được để yên chính là điểm mấu chốt. Hồi toggle còn phán lại file
-thành `identical`, cây và report xuất ra (dựng từ `_raw_results`) nói khác nhau
-về cùng một file, và cây đưa ra đúng lời khẳng định mà tool này không bao giờ
-được phép nói về một file thật sự có khác biệt.
-
-`scanner.fold_status` vẫn hiện thực cách thu gọn cũ cho `scan(fold=…)`, nơi
-caller yêu cầu ngay từ đầu, và `scanner.FOLDABLE` vẫn liệt kê đúng hai status mà
-caller được phép thu gọn.
-
-Navigation đi theo cái đang hiện trên màn hình. Hunk comment hoặc Unimportant
-đang hiện **là** một điểm dừng `F7`/`F8`, và file mà cả verdict là
-`comment-only` / `ignorable-only` nằm trong `MainWindow._NAV_STATUS` nên lộ
-trình đi vào đó. `_is_nav` loại nó ra ngay khi checkbox bị bỏ tick — các dòng đó
-đã xám và biến khỏi minimap, nên file không còn điểm dừng nào, bước vào chỉ là
-đi vào ngõ cụt. Cái mà navigation tuyệt đối không được làm là ngụ ý đã ký duyệt:
-`DiffPane._stop_units` mang `None` cho các stop đó, nên `current_unit()` báo là
-không có gì để review ở đây. Chỉ `real` và `moved` mới review được
-(`review.REVIEWABLE`), dù có navigate tới hay không.
-
-## Result dict là contract
-
-Mọi thứ ở phía sau — summary của CLI, HTML report, cây của viewer, review store —
-đều ăn một dict cho mỗi đường dẫn được so:
+`scanner.scan` trả về dict theo relative path:
 
 ```python
 {
-    'status': 'real-change',
-    'hunks': [{'kind': 'real', 'old_range': [12, 15], 'new_range': [12, 14]},
-              {'kind': 'moved', 'old_range': [40, 60], 'new_range': [40, 40],
-               'moved_to': 91}],
-    'renames': {'rtb_AND_c4nxjoom3d': 'rtb_AND_j2kqp1wxab'},
-    'notes': ['line-endings'],
-    'binary': False,
-    # phần ngữ nghĩa, chỉ có ở thay đổi thật và file một bên:
-    'ifaces': ..., 'swc': ..., 'rte': ..., 'a2l': ...,
-    # chỉ có ở file đã ghép cặp qua một lần đổi tên / di chuyển (xem dưới):
-    'moved_from': 'swc_a/Sub.c',   # nằm trên entry ADDED
-    'moved_to': 'swc_b/Sub.c',     # nằm trên entry DELETED
-    'move_status': 'real-change', 'move_similarity': 0.89,
+    "status": "real-change",
+    "hunks": [
+        {
+            "kind": "real",
+            "old_range": [12, 15],
+            "new_range": [12, 14],
+        }
+    ],
+    "renames": {},
+    "notes": [],
+    "binary": False,
 }
 ```
 
-Range đánh số từ 0, hở đầu cuối (end-exclusive), tính trên dòng **thô** của mỗi bên.
-`kind` là một trong `real`, `moved`, `comment`, `rename`, `assumed-rename`,
-`reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`,
-`mixed`.
+Các key `ifaces`, `swc`, `rte` và `a2l` chỉ xuất hiện khi phù hợp. File move có thêm `moved_from` hoặc `moved_to`, `move_status` và `move_similarity`.
 
-`assumed-rename` là kind duy nhất được gán **không kèm chứng minh**, và chỉ
-xuất hiện khi caller truyền `skip_var_renames` (`--skip-var-renames`). Nó gộp
-một hunk mà mọi dòng đều là binding — câu lệnh chỉ gọi tên một object và
-nhiều nhất là chép một object khác vào đó (`a = b;`, `rtY.Out = rtU.Pedal;`,
-`real_T x;`, `boolean_T f = FALSE;`) — chỉ khác nhau ở tên định danh, mà một
-thay đổi đấu nối lại cũng trông y hệt vậy. Nói cách khác đây là chế độ cố ý chấp nhận báo thiếu: nó giữ kind riêng để
-không bề mặt nào đọc thành `rename`, và report, summary trên terminal, JSON lẫn
-tiêu đề viewer đều nói rõ lần chạy đó có bật cờ.
+Range dùng index zero-based, end-exclusive trên raw line. Không đổi chúng sang shadow line hoặc rendered row.
 
-Phần ngữ nghĩa chỉ được tính ở chỗ nó có thể có nghĩa: file có shadow bằng nhau thì
-nội dung như nhau, nên không thể làm xê dịch bề mặt AUTOSAR.
+`diff_engine._status_of` là nơi duy nhất quyết định file verdict. `scanner.FOLDABLE` khai báo hai verdict được phép fold.
 
-### Đổi tên và di chuyển file
+UI filter chỉ được thay đổi paint, navigation hoặc visibility. Không được sửa `status`, count hoặc exported data.
 
-`scanner` ghép file theo đường dẫn tương đối — đúng, cho tới khi chính đường dẫn
-là thứ bị đổi. Sau khi mọi verdict đã chốt, `_link_moves` lấy các file ra kết quả
-`added` và `deleted` rồi hỏi `filepair` xem cái nào là cùng một file: khớp nội
-dung y hệt trước, rồi tới độ giống trên dòng **shadow**, nhờ vậy file vừa bị
-chuyển chỗ vừa bị regenerate vẫn khớp được.
+## Two-pass diff
 
-Một cặp là **công cụ đọc, không phải verdict**. Hai file giữ nguyên trạng thái
-`added` / `deleted`, vẫn nằm trong các con số đếm, và exit code không đổi: file
-đổi thư mục là một thay đổi của cây, pipeline nào đang gate theo đó phải tiếp tục
-thấy nó. Cái mà cặp thêm vào là `hunks` trên entry added — mô tả nó so với file
-nó đi ra — để report vẽ một cái diff thay vì hai file nguyên vẹn, còn entry
-deleted thì trỏ sang đó chứ không in lại đúng từng byte lần nữa.
+`diff_engine.compare_pair` gọi `linediff.hunks` cho cả hai pass để giữ alignment:
 
-Vì ghép cặp là một *lời khẳng định* có thể sai, nó chỉ được đưa ra khi không phải
-đoán: cùng phần mở rộng, hai bên cùng chọn nhau là tốt nhất, và phải cách người
-đứng thứ hai một khoảng. File codegen dùng chung banner và chung dạng lời gọi,
-nên chuyện hai SWC không liên quan chấm điểm sát nhau là bình thường chứ không
-hiếm. File không khớp được thì báo cáo y như trước.
+1. **Truth pass:** compare normalized shadow. Phần còn khác sau khi bỏ supported generator noise là real.
+2. **Display pass:** diff raw line và gắn kind cho từng hunk. Hunk không overlap real hunk được phân loại bằng single-rule variant; nếu cần nhiều rule thì dùng `mixed`.
 
-## Các seam dùng chung
+Shadow phải giữ nguyên literal content và indentation có ý nghĩa trong Python/YAML.
 
-Sự thật nào mà hai renderer cùng cần thì nằm trong một module cả hai cùng import.
-Kiểu hỏng mà điều này ngăn lại rất im lặng: hai bản sao của một mapping bốn dòng
-khớp nhau hoàn hảo cho tới lúc ai đó thêm một kind mới vào một bản.
+Generated rename chỉ được áp dụng sau khi mapping một-một được suy ra và verify lại. Function callee cần cùng generated checksum root. Literal không được rewrite.
 
-- **`view_model.mode_of`** — hunk kind → paint mode (`real`, `moved`, `comment`,
-  `minor`). HTML report và pane Qt không thể bất đồng về việc một kind được tô màu
-  gì hay có được ẩn đi không.
-- **`view_model.char_span`** — vùng highlight trong dòng, dưới dạng offset ký tự
-  trần, nới rộng ra tới hết định danh bao quanh để một rename đánh dấu trọn cái
-  tên chứ không chỉ mấy chữ khác nhau. Report bọc nó trong một `<span>`; viewer áp
-  `QTextCharFormat` lên đúng những con số đó — nới rộng vùng này là sửa một chỗ,
-  cả hai surface đều được.
-- **`view_model.aligned_rows` / `mute_rows`** — canh dòng hai pane cho cả file, và
-  làm *mờ* một nhóm noise bị tắt thay vì bỏ nó đi: dòng giữ nguyên vị trí, số dòng
-  và nội dung, chỉ đổi mode thành `muted` để renderer tô một màu xám phẳng. Vì mute
-  không dời dòng nào, các mốc điều hướng và kết quả tìm kiếm vẫn đúng chỉ số, và
-  reviewer giữ được phần code xung quanh — thứ giúp đọc được những hunk còn lại.
-- **`theme.py`** — mọi màu là một role có tên, mỗi theme một giá trị. Report xuất
-  cả palette ra CSS custom property rồi dùng `var(--role)`; widget Qt tra cùng role
-  đó bằng `theme.c`. Thêm role nghĩa là thêm vào **cả hai** palette — có assert lúc
-  import bắt việc này, vì nếu không thì mặt nào không ai mở sẽ nổ `KeyError`.
-- **`review.py`** — note và sign-off khoá theo hash nội dung của chính change đó,
-  không theo số dòng, nên một sửa đổi không liên quan ở chỗ khác trong file không
-  làm chúng rớt ra ở lần scan sau.
-- **`funcname.enclosing`** — tên scope của mỗi dòng (hàm C/C++, class/method
-  Python, SHORT-NAME AUTOSAR, block A2L), một list mà cả report và viewer cùng
-  đọc. Report hiện tên này phía trên mỗi nhóm thay đổi (chỉ một lần nếu các nhóm
-  liền nhau cùng scope); viewer bám theo "hàm hiện tại" khi pane cuộn. Nó không
-  bao giờ quyết định verdict — tên sai chỉ tốn một caption — nên heuristic thà
-  trả `None` còn hơn đoán.
-- **`langspec.SPECS`** — một bảng duy nhất mô tả ngữ pháp comment/string của mỗi
-  ngôn ngữ (cái gì mở một comment, string escape ra sao). Hai surface rất khác
-  nhau cùng đọc nó: `syntax.py` tô màu comment, còn shadow của diff
-  (`langspec.shadow` cho các ruleset generic Python/YAML/C++, và nhãn comment
-  trong `_build_variants`) thì blank nó đi. Nếu hai bên bất đồng, một dòng có thể
-  bị tô là comment mà vẫn bị tính là thay đổi. Cả bộ scan string một dòng và
-  triple-quote (`langspec.string_end`, `langspec.triple_close`) cũng nằm ở đây,
-  để bộ tô màu từng-dòng và bộ strip cả-file tìm điểm kết thúc chuỗi giống hệt
-  nhau. Bộ strip C/A2L/ARXML có trước bảng này nên vẫn giữ walker riêng; cái
-  `langspec` thống nhất là *định nghĩa* dùng chung và walker generic cho các ngôn
-  ngữ mới.
+Reorder chỉ là noise khi toàn bộ line là scalar assignment không side effect, hai phía có cùng statement và mọi data dependency giữ nguyên thứ tự.
 
-## Front end
+`--skip-var-renames` là mode cố ý không an toàn duy nhất. Hunk của nó dùng `assumed-rename`, và mọi output phải báo option này đã được bật.
 
-`main.viewer_requested(argv)` sở hữu quyết định "argv này muốn front end nào", và
-trả lời **mà không chạy compare** — entry point của bản đóng băng gọi nó để ẩn cửa
-sổ console trước khi Qt khởi động. Luật: compare trong terminal chỉ chạy khi cả hai
-thư mục được nêu trên command line; còn lại đều mở viewer.
+## Semantic và file move
 
-### CLI
+`scanner.compare_file` gắn semantic data cho real change và one-sided file. Các hàm `summarize_*` tổng hợp interface, SWC, RTE access và A2L object.
 
-Khi có đường dẫn output, `run_compare` xoá report cũ sót lại *trước khi* scan — nếu lần chạy này chết giữa
-chừng, file cũ của lần trước không được phép bị hiểu thành kết quả của lần này.
-Đường dẫn report không ghi được sẽ ném `ReportWriteError` mang theo lần scan mà nó
-không ghi nổi, nên terminal vẫn in ra những gì tìm được, và lần chạy exit `2`:
+`consistency.py` tạo advisory từ toàn bộ result. Advisory không đổi verdict hoặc exit code.
 
-| Code | Nghĩa |
+File move được ghép sau khi verdict đã chốt. Pairing chỉ là presentation metadata; Added và Deleted vẫn giữ nguyên trong count và exit code.
+
+## Seam dùng chung
+
+| Quyết định dùng chung | Owner |
 |---|---|
-| 0 | Không có thay đổi thật |
-| 1 | Có thay đổi thật (CI gate) |
-| 2 | Compare INCOMPLETE — có path không list / đọc / so sánh được, hoặc không ghi được report |
+| Hunk kind → display mode | `view_model.mode_of` |
+| Intra-line highlight | `view_model.char_span` |
+| Aligned row và muting | `view_model.aligned_rows`, `mute_rows` |
+| AUTOSAR display vocabulary | `view_model.SWC_DISPLAY` |
+| Model Overview | `report.model_overview` |
+| Function/object caption | `funcname.enclosing` |
+| Color role | `theme.py` |
+| Review identity | `review.py` |
 
-Exit code là contract với pipeline của ai đó. `--exit-zero` dập được `1`, không bao
-giờ dập `2` — một lần compare không trọn vẹn không được phép trông xanh.
+Không copy mapping hoặc rollup logic vào CLI, HTML hay Qt renderer.
 
-`--no-report` truyền `out=None` vào cùng hàm `run_compare`. Hàm trả về sau khi
-scan và đếm verdict, trước khi render HTML hay ghi file. `summary_lines(...,
-tree=True)` in mọi đường dẫn đã scan, dùng lại summary ngữ nghĩa và consistency
-advisory hiện có; không fold kết quả hoặc in code hunk. `report.model_overview`
-cấp dữ liệu có cấu trúc cho cả Overview HTML và terminal, nên model ownership,
-số file cần hiện và AUTOSAR rollup chỉ được quyết định một chỗ. Report cũ được
-giữ nguyên trong chế độ này.
+## Front end và input
 
-### Viewer
+`main.viewer_requested` chọn Qt hoặc terminal comparison. `run_compare` xóa stale report trước khi scan; lỗi ghi report vẫn in được scan result và trả exit code `2`.
 
-Scan phải duyệt đĩa, nên nó chạy trên một `QThread` (`qtviewer/worker.py`) và kết
-quả đi ngược về chỉ qua signal. Widget cứ ngu ngu: duyệt một model rồi vẽ ra.
-`tree.py`, `summary_model.py` và `compare_tool/resources.py` hoàn toàn không import
-PySide6, nên test của chúng chạy được trên máy không có Qt.
+Với `--no-report`, tool bỏ qua HTML rendering. `summary_lines(..., tree=True)` in Overview, full tree, semantic details và warnings. `report.model_overview` cấp cùng structured rows cho HTML và terminal.
 
-`Git compare…` không phải chế độ compare thứ hai. `gitsource.py` chạy `git archive`
-— read-only, không đụng HEAD, index hay working tree — để trải một commit ra thư mục
-tạm, còn mọi thứ phía sau vẫn thấy hai thư mục như thường. Điều đó quan trọng vì thư
-mục đang được review thường là thư mục kỹ sư vẫn đang sửa.
+Viewer chạy scanner trong `qtviewer/worker.py` bằng `QThread`. Export report luôn dùng raw scan, không dùng filtered tree.
 
-Một `.zip` kéo thả hay chọn vào cũng đúng ý tưởng đó một lần nữa: `zipsource.py`
-giải nén read-only vào thư mục tạm — có chặn đường dẫn thoát khỏi đích, và đi vào
-một thư mục bọc duy nhất để `drop.zip` của Azure không bị đọc lệch một cấp — rồi
-compare chạy trên thư mục, không hề hay biết. Nguồn nào dựng ra thư mục tạm thì gán
-nhãn pane theo tên commit hoặc tên zip, vì đường dẫn tạm chẳng nói lên gì:
-`diffpane.set_old_label` / `set_new_label`, mỗi phía một cái.
+`gitsource.py` dùng `git archive`, không đổi HEAD, index hoặc working tree. `zipsource.py` chặn path traversal, báo lỗi archive hỏng/rỗng và xóa temp directory sau khi chạy.
 
-## Những quyết định nên biết trước khi sửa
+## Sửa gì, bắt đầu ở đâu
 
-**Bản ghi không bao giờ là view đã lọc.** `MainWindow._export_report` dựng từ
-`_raw_results`, không phải từ cái đang trên màn hình. Category mà reviewer thu gọn
-vẫn phải nằm trong file export với verdict thật của nó — không thì một bản export có
-thể báo một file là Identical trong khi nó không phải. Rollup quick-changes cũng
-theo đúng luật đó.
+| Change | Bắt đầu | Bằng chứng cần có |
+|---|---|---|
+| Noise rule | `*_rules.py`, rồi `diff_engine.py` | Rule đứng một mình là noise; cạnh real change vẫn là real |
+| Generic comment language | `langspec.py`, `RULES`, `syntax.py` | Diff và highlighting hiểu comment/string giống nhau |
+| File verdict | `diff_engine._status_of` | Mọi renderer, count và exit path xử lý rõ ràng |
+| Semantic object | Extractor, `scanner.compare_file`, `summarize_*` | Added, removed và modified cases |
+| Shared label/rollup | `view_model.py` hoặc renderer-neutral helper | HTML, terminal và Qt cho cùng kết quả |
+| Color | `theme.py` | Role có trong cả hai theme |
+| CLI behavior | `main.py` | Exit code, stale output và docs |
+| Viewer behavior | `qtviewer/` | Headless model test và rendered check |
+| JSON/SARIF schema | `serialize.py` | Schema compatibility và error representation |
 
-**Cửa sổ report đo từ change thật, không từ gì khác.** HTML report hiện ba dòng
-hai bên mỗi change thật, không phải cả file. Noise *nằm trong* cửa sổ thì tô
-xám; noise *nằm ngoài* mọi cửa sổ thì không hiện gì cho tới khi bấm
-`Unimportant`. Cửa sổ hẹp là cố ý: file regen cứ vài dòng lại có một UUID hay
-một dòng banner, nên nếu mỗi hunk noise cũng kéo theo ba dòng ngữ cảnh của nó,
-các cửa sổ sẽ dính vào nhau và một change thật kéo cả file trở lại lên trang.
-File **không có** change thật nào thì không có gì to tiếng hơn để giành chỗ, nên
-nó giữ nguyên ngữ cảnh và một placeholder `⋯ N lines hidden`.
+## Verify
 
-**HTML report là self-contained.** CSS và JS nội tuyến, không CDN, mở file không tải
-gì về. Nó bị gửi email lòng vòng và mở trên máy không có internet; một report render
-ra trắng bóc ở đó còn tệ hơn là không có report. Cũng vì thế mà trang nhúng *cả hai*
-palette chứ không chỉ cái `--theme` yêu cầu: nút sáng/tối của người đọc phải chỉ là
-đổi một attribute, không còn gì để tải.
+```bash
+python -m unittest discover -s tests -v
+python -m ruff check .
+```
 
-**Hỏng phần trang trí thì xuống cấp, hỏng phần compare thì kêu to.** Thiếu icon thì
-nút còn lại chữ (`resources.py` trả `None`, phía gọi tự lo); không có PySide6 thì
-hiện một câu tử tế về extra `viewer`, không phải traceback; codepage cũ của Windows
-được xử bằng `stream.reconfigure(errors='replace')` để một lệnh print không giết nổi
-lần chạy. Riêng bản thân phần compare là ngoại lệ — scan hay render hỏng là phải kêu
-to, không bao giờ ra một kết quả rỗng trông sạch sẽ.
+Trước release:
 
-**`.exe` build kiểu console là có chủ đích.** Build kiểu windowed làm shell không
-chờ tiến trình nữa và vứt mất exit code, tức là gãy CI gate. Nên *cửa sổ* console
-được ẩn lúc runtime (`packaging/entry.py`), và hiện lại khi crash.
+```bash
+python packaging/release_check.py X.Y.Z
+```
 
-**Python 3.8 là lời hứa đã ship.** Không `match`, không `X | Y` lúc runtime;
-`list[str]` trong annotation cần `from __future__ import annotations`. CI chạy 3.8 và
-3.11 trên Linux lẫn Windows, nên một cú pháp 3.10 qua được ở máy mình nhưng gãy ở đó.
-
-## Sửa cái gì thì đụng vào đâu
-
-| Thay đổi | Đụng vào |
-|---|---|
-| Noise rule mới | hàm strip trong module rule → shadow của ruleset đó → một variant có nhãn trong `_build_variants` → hai test (đứng một mình là noise; nằm cạnh thay đổi thật thì vẫn real) |
-| Loại file mới (cỡ AUTOSAR, có strip riêng) | `RULES` trong `diff_engine.py`, một module `*_rules.py`, shadow + variant |
-| Loại file mới (chỉ ignore comment, vd Python/YAML) | một `LangSpec` trong `langspec.py` (ngữ pháp comment/string), thêm đuôi file vào `RULES` và ruleset vào `_GENERIC_COMMENT_RULES`, một `_Lang` trong `syntax.py` cho màu — shadow, variant và tô màu đều đọc chung một spec |
-| Trích ngữ nghĩa mới | extractor trong `*_rules.py`, nối vào `scanner.compare_file` và `_single_info`, rồi một rollup `summarize_*` |
-| Thứ cả hai renderer cùng hiện | `view_model.py` — đừng bao giờ viết thẳng vào một trong hai |
-| Một màu bất kỳ | `theme.py`, thành role có trong **cả hai** palette; report dùng `var(--role)`, Qt dùng `theme.c(role)` |
-| Verdict mới | `diff_engine._status_of`, và quyết định rõ ràng xem nó có thuộc `scanner.FOLDABLE` không (mặc định: không) |
-| Layout hay màu của viewer | render ra rồi nhìn tận mắt (`widget.grab().save(png)` dưới `QT_QPA_PLATFORM=offscreen`), sau đó mở cửa sổ thật |
+Qt tests có thể skip nếu thiếu PySide6.
