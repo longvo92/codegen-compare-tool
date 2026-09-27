@@ -194,7 +194,52 @@ The tool warns about combinations that may indicate incomplete regeneration, inc
 - A2L changes without corresponding generated C changes;
 - a model gaining RTE access while a related model remains identical.
 
-These warnings require review but do not change verdicts or exit codes.
+The CURRENT-tree check is disabled by default, so existing CLI, viewer and HTML-report workflows are unchanged. Enable it for a CLI comparison with:
+
+```bash
+python -m compare_tool baseline current --no-report --check-consistency
+```
+
+The check validates generated C and ARXML inside the CURRENT folder:
+
+| Rule | Default | Finding |
+|---|---|---|
+| `forbidden_rte_api` | `fail` | An RTE call starts with a configured forbidden prefix. |
+| `no_matching_port_dataelement` | `fail` | A generated RTE read/write cannot be matched to an ARXML Port/DataElement pair. |
+| `missing_access_point_in_arxml` | `fail` | A duplicate ARXML runnable definition omits an access used by generated C. |
+| `inconsistent_arxml_access_mode` | `fail` | Duplicate ARXML definitions disagree on direction or access mode. |
+| `access_mode_mismatch` | `fail` | The generated API and ARXML disagree on read/write or explicit/implicit access. |
+| `orphan_access` | `warn` | A resolved ARXML access point has no matching generated RTE access. |
+
+Use `--consistency-config CONFIG.yaml` to override the built-in CURRENT-tree policy without adding PyYAML. Every section is optional; omitted values keep their defaults:
+
+```yaml
+forbidden_rte_prefixes:
+  - Rte_IRead_
+  - Rte_IWrite_
+ignore_access_port_regex:
+  - ^Bsw_
+rules:
+  forbidden_rte_api: fail
+  no_matching_port_dataelement: fail
+  missing_access_point_in_arxml: fail
+  inconsistent_arxml_access_mode: fail
+  access_mode_mismatch: fail
+  orphan_access: warn
+```
+
+Rule severities are:
+
+- `fail`: print the finding and set exit code `1`;
+- `warn`: print the finding without changing the exit code;
+- `skip`: omit the finding and report how many configured findings were skipped;
+- `off`: disable the rule without a skipped count.
+
+The ignore regex is matched against the API payload after `Rte_<verb>_`, for example `Bsw_Port_Data`. It affects Port/DataElement matching but does not disable `forbidden_rte_api`. `--ignore-access-port-regex REGEX` adds one temporary pattern to the file configuration.
+
+`--consistency-config` and `--ignore-access-port-regex` require `--check-consistency`. The check is not available with `--arxml-only`, and its findings are not embedded in the HTML report or viewer.
+
+Old/new regeneration warnings remain advisory. A CURRENT-tree `fail` finding sets exit code `1`, even with `--exit-zero`; `warn` does not change the exit code. A file read, folder listing or ARXML parse failure makes the consistency scan incomplete and sets exit code `2`. Consistency results never rewrite file verdicts.
 
 ## HTML report
 
@@ -209,17 +254,19 @@ Use `--max-diff-lines N` when a very large regenerate would otherwise create an 
 ```bash
 python -m compare_tool baseline.zip current.zip \
     --report compare_report.html \
+    --check-consistency \
+    --consistency-config codegen_checker.yaml \
     --json compare_result.json \
     --sarif compare_result.sarif
 ```
 
 | Exit code | Meaning |
 |---:|---|
-| `0` | No real changes |
-| `1` | Real changes found |
-| `2` | Comparison incomplete or failed |
+| `0` | No real changes and no enabled consistency rule failed |
+| `1` | Real changes found, or an enabled CURRENT-tree consistency rule failed |
+| `2` | Comparison or enabled consistency scan incomplete/failed |
 
-`--exit-zero` suppresses only exit code `1`. A read, scan, comparison or report-write failure always exits `2`.
+`--exit-zero` suppresses exit code `1` only when it came from file differences. It never suppresses a CURRENT-tree consistency `fail`. A read, scan, comparison, consistency-scan or report-write failure always exits `2`.
 
 Publish the HTML report and any JSON/SARIF outputs as CI artifacts.
 

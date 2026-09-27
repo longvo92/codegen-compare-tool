@@ -44,7 +44,7 @@ Print only a terminal summary:
 python -m compare_tool baseline current --no-report
 ```
 
-The terminal mode shows a per-model Overview, AUTOSAR/A2L changes, consistency warnings, effective compare settings, hunk-classification totals and one summary for each non-identical file. It does not print individual hunks, source diffs or create HTML.
+The terminal mode shows a per-model Overview, AUTOSAR/A2L changes, consistency warnings, effective compare settings, hunk-classification totals and one summary for each non-identical file. Add `--check-consistency` to validate CURRENT generated RTE calls against CURRENT ARXML declarations. It does not print individual hunks, source diffs or create HTML.
 
 Open the desktop viewer:
 
@@ -72,9 +72,10 @@ The comparison engine also reports:
 - ports, port interfaces, runnables and events;
 - `Rte_*` access points;
 - A2L `CHARACTERISTIC` and `MEASUREMENT` objects;
-- possible incomplete regeneration across ARXML, A2L and generated C.
+- possible incomplete regeneration across ARXML, A2L and generated C;
+- generated RTE calls that disagree with CURRENT ARXML access declarations when `--check-consistency` is enabled.
 
-Consistency warnings are advisory. They do not change file verdicts or exit codes.
+Old/new regeneration warnings remain advisory. The optional CURRENT-tree check is disabled by default; when enabled, a `fail` finding exits `1`, an incomplete consistency scan exits `2`, and a `warn` finding does not change the exit code. No consistency result changes a file verdict.
 
 ## Verdicts
 

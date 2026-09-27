@@ -44,7 +44,7 @@ Chỉ in summary trên terminal:
 python -m compare_tool baseline current --no-report
 ```
 
-Terminal mode hiển thị Overview theo model, toàn bộ file cùng verdict, AUTOSAR/A2L changes và consistency warnings. Mode này không in source diff và không tạo HTML.
+Terminal mode hiển thị Overview theo model, toàn bộ file cùng verdict, AUTOSAR/A2L changes và consistency warnings. Thêm `--check-consistency` để kiểm tra generated RTE call của CURRENT với ARXML declaration trong CURRENT. Mode này không in source diff và không tạo HTML.
 
 Mở desktop viewer:
 
@@ -72,9 +72,10 @@ Comparison engine còn báo cáo:
 - port, port interface, runnable và event;
 - `Rte_*` access point;
 - A2L `CHARACTERISTIC` và `MEASUREMENT`;
-- dấu hiệu regenerate chưa đầy đủ giữa ARXML, A2L và generated C.
+- dấu hiệu regenerate chưa đầy đủ giữa ARXML, A2L và generated C;
+- generated RTE call không khớp với access declaration trong ARXML của CURRENT khi bật `--check-consistency`.
 
-Consistency warning chỉ là advisory, không thay đổi file verdict hoặc exit code.
+Old/new regeneration warning vẫn là advisory. CURRENT-tree check mặc định tắt; khi được bật, finding mức `fail` trả exit code `1`, consistency scan không hoàn tất trả `2`, còn `warn` không đổi exit code. Consistency result không thay đổi file verdict.
 
 ## Verdict
 

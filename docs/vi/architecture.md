@@ -102,7 +102,7 @@ Reorder chỉ là noise khi toàn bộ line là scalar assignment không side ef
 
 `scanner.compare_file` gắn semantic data cho real change và one-sided file. Các hàm `summarize_*` tổng hợp interface, SWC, RTE access và A2L object.
 
-`consistency.py` tạo advisory từ toàn bộ result. Advisory không đổi verdict hoặc exit code.
+`consistency.py` tạo old/new regeneration advisory từ toàn bộ result. Khi CLI caller opt in bằng `--check-consistency`, module này còn kiểm tra generated RTE call của CURRENT với access-point declaration trong ARXML của CURRENT mà chỉ dùng Python standard library. Current-tree finding mức `fail` trả exit code `1`; lỗi đọc, list hoặc parse trả `2`; finding mức `warn` không gate. Consistency không đổi file verdict. Viewer và HTML renderer không chạy hoặc render optional check này.
 
 File move được ghép sau khi verdict đã chốt. Pairing chỉ là presentation metadata; Added và Deleted vẫn giữ nguyên trong count và exit code.
 

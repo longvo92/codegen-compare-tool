@@ -111,7 +111,7 @@ A reorder is noise only when every line is a side-effect-free scalar assignment,
 
 `scanner.compare_file` attaches semantic data for real changes and one-sided files. The `summarize_*` functions aggregate interfaces, SWCs, RTE access and A2L objects.
 
-`consistency.py` derives advisories from the complete result. Advisories never change verdicts or exit codes.
+`consistency.py` derives old/new regeneration advisories from the complete result. When CLI callers opt in with `--check-consistency`, it also performs a standard-library-only check of CURRENT generated RTE calls against CURRENT ARXML access-point declarations. Current-tree `fail` findings set exit code `1`; read, listing and parse failures set `2`; `warn` findings do not gate. Consistency never rewrites file verdicts. The viewer and HTML renderer do not run or render this optional check.
 
 File move pairing runs after verdicts are settled. A pair is presentation metadata: Added and Deleted verdicts remain in the result and counts.
 
