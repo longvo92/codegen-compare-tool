@@ -125,7 +125,7 @@ Không copy mapping hoặc rollup logic vào CLI, HTML hay Qt renderer.
 
 `main.viewer_requested` chọn Qt hoặc terminal comparison. `run_compare` xóa stale report trước khi scan; lỗi ghi report vẫn in được scan result và trả exit code `2`.
 
-Với `--no-report`, tool bỏ qua HTML rendering. `summary_lines(..., tree=True)` in Overview, full tree, semantic details và warnings. `report.model_overview` cấp cùng structured rows cho HTML và terminal.
+Với `--no-report`, tool bỏ qua HTML rendering. `summary_lines(..., terminal=True)` in Overview, semantic details và warnings mà không in source hunk. `diagnostic_lines` bổ sung effective settings, tổng số hunk theo kind và một summary cho mỗi file không identical. Cả hai đều dùng raw result và không thay đổi verdict, count hoặc exit code. `report.model_overview` cấp cùng structured rows cho HTML và terminal.
 
 Viewer chạy scanner trong `qtviewer/worker.py` bằng `QThread`. Export report luôn dùng raw scan, không dùng filtered tree.
 

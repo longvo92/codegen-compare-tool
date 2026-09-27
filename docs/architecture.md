@@ -140,7 +140,7 @@ Do not copy mappings or rollup logic into CLI, HTML or Qt code.
 
 `run_compare` removes a stale target report before scanning. A report-write failure preserves the scan for terminal output and exits `2`.
 
-With `--no-report`, `run_compare` skips HTML rendering. `summary_lines(..., tree=True)` prints the Overview, full tree, semantic details and warnings without source hunks. `report.model_overview` supplies the same structured rows to HTML and terminal renderers.
+With `--no-report`, `run_compare` skips HTML rendering. `summary_lines(..., terminal=True)` prints the Overview, semantic details and warnings without source hunks. `diagnostic_lines` adds effective settings, aggregate hunk-kind totals and one summary per non-identical file. Both consume the raw result and never change verdicts, counts or exit codes. `report.model_overview` supplies the same structured rows to HTML and terminal renderers.
 
 ### Viewer
 

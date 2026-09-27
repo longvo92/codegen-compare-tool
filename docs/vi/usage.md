@@ -36,11 +36,15 @@ Mode này không tạo HTML và không in source-code hunk. Terminal hiển th�
 
 1. tổng số file theo verdict;
 2. Overview theo model với file count và AUTOSAR changes;
-3. folder tree đầy đủ với verdict của từng file;
-4. AUTOSAR/A2L changes chi tiết;
-5. consistency và quick-check warnings.
+3. AUTOSAR/A2L changes chi tiết;
+4. consistency và quick-check warnings;
+5. version của tool/Python/platform và các compare option thực tế;
+6. tổng số theo từng hunk classification;
+7. một summary cho mỗi file không identical gồm verdict, ruleset, số hunk theo kind, tổng rename/move và error note.
 
 Report đã có từ trước không bị thay đổi. `--json` và `--sarif` vẫn tạo file khi được chỉ định.
+
+Diagnostics không in source content và không thay đổi verdict hoặc exit code.
 
 ### Options thường dùng
 
