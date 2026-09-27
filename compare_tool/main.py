@@ -10,13 +10,15 @@ been a folder, then the temp directory is removed on exit.
 """
 
 import argparse
+import platform
 import shutil
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 from . import __version__, review, serialize, theme, userrules, zipsource
-from .diff_engine import RULES
+from .diff_engine import RULES, ruleset_for
 from .report import (build_arxml_report, build_report, consistency_advisories,
                      model_overview)
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
@@ -103,36 +105,6 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     return results, counts
 
 
-def _terminal_tree_lines(results):
-    """ASCII folder tree with a verdict for every scanned path."""
-    root = {}
-    for rel in sorted(results):
-        parts = rel.replace('\\', '/').split('/')
-        node = root
-        for part in parts[:-1]:
-            node = node.setdefault(part + '/', {})
-        node[parts[-1]] = results[rel]['status']
-    lines = ['Folder tree:']
-
-    def walk(node, prefix):
-        entries = sorted(node, key=lambda name: (not name.endswith('/'), name))
-        for index, name in enumerate(entries):
-            last = index == len(entries) - 1
-            branch = '`-- ' if last else '|-- '
-            value = node[name]
-            if isinstance(value, dict):
-                lines.append(prefix + branch + name)
-                walk(value, prefix + ('    ' if last else '|   '))
-            else:
-                label = 'modified' if value == 'real-change' else value
-                lines.append('{}{}{} [{}]'.format(prefix, branch, name, label))
-
-    walk(root, '')
-    if not root:
-        lines.append('  (no files matched)')
-    return lines
-
-
 def _terminal_overview_lines(results):
     """Aligned per-model Overview using the report's renderer-neutral rows."""
     rows = model_overview(results)
@@ -170,12 +142,12 @@ def _terminal_overview_lines(results):
     return lines
 
 
-def summary_lines(results, counts, tree=False):
+def summary_lines(results, counts, terminal=False):
     """Scan summary as plain-text lines the CLI prints: counts, uncompared
     paths, modified files and the AUTOSAR/A2L semantic rollups.
 
-    ``tree=True`` replaces modified-file hunk counts with every scanned path
-    and its verdict. Error and consistency warnings are shared by both modes.
+    ``terminal=True`` adds the per-model Overview and a semantic-section
+    heading for ``--no-report``. Per-file diagnostics are rendered separately.
     """
     lines = []
     lines.append('Summary: {real-change} modified, {comment-only} comment-only, '
@@ -196,14 +168,12 @@ def summary_lines(results, counts, tree=False):
             if r['status'] == 'error':
                 for note in r['notes']:
                     lines.append('  !! {} -- {}'.format(rel, note))
-    if tree:
-        lines.append('')
+    if terminal:
         overview = _terminal_overview_lines(results)
         if overview:
-            lines.extend(overview)
             lines.append('')
-        lines.extend(_terminal_tree_lines(results))
-    modified_files = () if tree else sorted(results.items())
+            lines.extend(overview)
+    modified_files = () if terminal else sorted(results.items())
     for rel, r in modified_files:
         if r['status'] == 'real-change':
             n_real = sum(1 for h in r['hunks'] if h['kind'] == 'real')
@@ -213,7 +183,7 @@ def summary_lines(results, counts, tree=False):
             lines.append('  MODIFIED  {} ({} hunk(s){})'.format(
                 rel, n_real, ', {} moved'.format(n_moved) if n_moved else ''))
 
-    if tree:
+    if terminal:
         lines.append('')
         lines.append('AUTOSAR / A2L changes:')
     semantic_start = len(lines)
@@ -266,7 +236,7 @@ def summary_lines(results, counts, tree=False):
         for rel, n, kind in a2l_removed:
             lines.append('  - {} ({}) in {}'.format(n, kind, rel))
 
-    if tree and len(lines) == semantic_start:
+    if terminal and len(lines) == semantic_start:
         lines.append('  No extracted AUTOSAR/A2L changes.')
 
     # cross-artifact heads-up: a model whose ARXML and C did not change
@@ -276,6 +246,105 @@ def summary_lines(results, counts, tree=False):
         lines.append('Consistency check:')
         for model, msg in advisories:
             lines.append('  !! {}: {}'.format(model, msg))
+    return lines
+
+
+_HUNK_KIND_ORDER = (
+    'real', 'moved', 'comment', 'rename', 'assumed-rename', 'reorder',
+    'uuid', 'timestamp', 'sw-version', 'description', 'whitespace', 'mixed',
+)
+
+
+def diagnostic_lines(results, arxml_only=False, exclude=(), user_rules=(),
+                     skip_var_renames=False, source_kinds=('folder', 'folder')):
+    """Technical terminal trace included by ``--no-report``.
+
+    The trace explains the effective compare settings, aggregate hunk
+    classifications and one summary line per non-identical path without
+    printing source content. It is deliberately derived from the raw scan
+    result so it cannot change a verdict, count or exit code.
+    """
+    hunk_counts = Counter(
+        h.get('kind', 'unknown')
+        for result in results.values()
+        for h in result.get('hunks', ())
+    )
+    differences = sum(
+        result['status'] not in ('identical', 'error')
+        for result in results.values()
+    )
+    errors = sum(result['status'] == 'error' for result in results.values())
+    binary_changes = sum(
+        bool(result.get('binary')) for result in results.values()
+    )
+    rule_names = [rule.name for rule in user_rules]
+
+    lines = [
+        '',
+        'Diagnostics:',
+        '  Runtime: codegen-compare-tool {} | Python {} | {}'.format(
+            __version__, platform.python_version(), sys.platform),
+        '  Sources: BASELINE {}; CURRENT {}'.format(*source_kinds),
+        '  Scope: {}'.format(
+            'ARXML/XML/A2L only' if arxml_only else 'all matched files'),
+        '  Excludes: {}'.format(', '.join(exclude) if exclude else 'none'),
+        '  Custom noise rules: {}'.format(
+            ', '.join(rule_names) if rule_names else 'none'),
+        '  Unsafe rename quick check: {}'.format(
+            'enabled' if skip_var_renames else 'disabled'),
+        '  Paths: {} scanned; {} with differences; {} not compared; '
+        '{} binary change(s)'.format(
+            len(results), differences, errors, binary_changes),
+    ]
+
+    lines.append('Hunk classification: {} total'.format(sum(hunk_counts.values())))
+    if hunk_counts:
+        order = {kind: index for index, kind in enumerate(_HUNK_KIND_ORDER)}
+        for kind, count in sorted(
+                hunk_counts.items(),
+                key=lambda item: (order.get(item[0], len(order)), item[0])):
+            lines.append('  {}: {}'.format(kind, count))
+    else:
+        lines.append('  (no text hunks; one-sided, binary or identical files only)')
+
+    order = {kind: index for index, kind in enumerate(_HUNK_KIND_ORDER)}
+
+    lines.append('File summary:')
+    traced = [(rel, result) for rel, result in sorted(results.items())
+              if result['status'] != 'identical']
+    if not traced:
+        lines.append('  (no differences or compare errors)')
+        return lines
+
+    for rel, result in traced:
+        hunks = result.get('hunks', ())
+        content = 'binary' if result.get('binary') else 'text'
+        per_file = Counter(h.get('kind', 'unknown') for h in hunks)
+        hunk_summary = ', '.join(
+            '{}={}'.format(kind, count)
+            for kind, count in sorted(
+                per_file.items(),
+                key=lambda item: (order.get(item[0], len(order)), item[0])))
+        details = [
+            'ruleset={}'.format(ruleset_for(rel)),
+            content,
+            '{} hunk(s){}'.format(
+                len(hunks), ': ' + hunk_summary if hunk_summary else ''),
+        ]
+        if result.get('renames'):
+            details.append('{} rename(s)'.format(len(result['renames'])))
+        if result.get('moved_from'):
+            details.append('move from BASELINE {} ({:.1%}, {})'.format(
+                result['moved_from'], result.get('move_similarity', 0),
+                result.get('move_status', 'unknown')))
+        if result.get('moved_to'):
+            details.append('move to CURRENT {} ({:.1%}, {})'.format(
+                result['moved_to'], result.get('move_similarity', 0),
+                result.get('move_status', 'unknown')))
+        if result.get('notes'):
+            details.append('notes: {}'.format('; '.join(result['notes'])))
+        lines.append('  {} [{}] {}'.format(
+            rel, result['status'], '; '.join(details)))
     return lines
 
 
@@ -304,10 +373,11 @@ def _parser():
                     help='HTML report output path (default: compare_report.html, '
                          'or arxml_update.html with --arxml-only)')
     reports.add_argument('--no-report', action='store_true',
-                         help='terminal summary only: show every scanned file '
-                              'in a folder tree with its verdict, plus AUTOSAR '
-                              'and A2L changes, without code diffs or an HTML '
-                              'report. Requires both input paths; existing '
+                         help='terminal summary and diagnostics only: show the '
+                              'model Overview, AUTOSAR/A2L changes, effective '
+                              'settings, hunk-kind totals and one summary per '
+                              'non-identical file, without source diffs or an '
+                              'HTML report. Requires both input paths; existing '
                               'reports are left untouched')
     ap.add_argument('--arxml-only', action='store_true',
                     help='compare only ARXML/XML and A2L files and write a '
@@ -566,8 +636,16 @@ def _run(ap, args, zip_temp):
         # normal outcome, and a run that produced no report must not be
         # indistinguishable from it (--exit-zero cannot mask this either)
         return 2
-    for line in summary_lines(results, counts, tree=args.no_report):
+    for line in summary_lines(results, counts, terminal=args.no_report):
         print(line)
+    if args.no_report:
+        for line in diagnostic_lines(
+                results, arxml_only=args.arxml_only, exclude=args.exclude,
+                user_rules=user_rules,
+                skip_var_renames=args.skip_var_renames,
+                source_kinds=('zip' if old_zip else 'folder',
+                              'zip' if new_zip else 'folder')):
+            print(line)
 
     if out is not None and args.arxml_only:
         if counts['real-change'] or counts['added'] or counts['deleted']:

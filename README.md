@@ -44,7 +44,7 @@ Print only a terminal summary:
 python -m compare_tool baseline current --no-report
 ```
 
-The terminal mode shows a per-model Overview, every file and its verdict, AUTOSAR/A2L changes, and consistency warnings. It does not print source diffs or create HTML.
+The terminal mode shows a per-model Overview, AUTOSAR/A2L changes, consistency warnings, effective compare settings, hunk-classification totals and one summary for each non-identical file. It does not print individual hunks, source diffs or create HTML.
 
 Open the desktop viewer:
 
@@ -62,7 +62,7 @@ Folders and ZIP archives are accepted as inputs.
 |---|---|
 | Desktop viewer | Interactive side-by-side review |
 | HTML report | Sharing or publishing as a CI artifact |
-| `--no-report` | Fast terminal review without generated files |
+| `--no-report` | Detailed terminal review and diagnostics without generated files |
 | `--json` | Structured pipeline processing |
 | `--sarif` | Code-scanning annotations |
 

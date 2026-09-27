@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. Versions follow
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [1.17.0] — 2026-09-27
+
+### Changed
+
+- Improve terminal-only comparisons with built-in diagnostics and concise per-file summaries.
+
 ## [1.16.0] — 2026-09-15
 
 ### Added

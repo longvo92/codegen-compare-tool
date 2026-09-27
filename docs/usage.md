@@ -36,11 +36,15 @@ This mode creates no HTML and prints no source-code hunks. It prints:
 
 1. total verdict counts;
 2. a per-model Overview with file counts and AUTOSAR changes;
-3. a complete folder tree with one verdict per file;
-4. detailed AUTOSAR/A2L changes;
-5. consistency and quick-check warnings.
+3. detailed AUTOSAR/A2L changes;
+4. consistency and quick-check warnings;
+5. tool/Python/platform versions and effective compare options;
+6. totals for each hunk classification;
+7. one summary per non-identical file with its verdict, ruleset, hunk-kind counts, rename/move totals and error notes.
 
 An existing report is left untouched. `--json` and `--sarif` still write their requested files.
+
+The diagnostics do not print source content and do not change verdicts or exit codes.
 
 ### Common options
 

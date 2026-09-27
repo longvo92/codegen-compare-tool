@@ -14,7 +14,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from compare_tool.main import main, viewer_requested
+from compare_tool.main import diagnostic_lines, main, viewer_requested
 
 
 def quiet(fn, *a):
@@ -198,7 +198,10 @@ class TestNoReport(unittest.TestCase):
             code, output, errors = self._run()
         self.assertEqual(code, 0)
         self.assertEqual(errors, '')
-        self.assertIn('same.c [identical]', output)
+        self.assertIn('Diagnostics:', output)
+        self.assertIn('File summary:', output)
+        self.assertIn('(no differences or compare errors)', output)
+        self.assertNotIn('same.c [identical]', output)
         self.assertIn('No extracted AUTOSAR/A2L changes.', output)
         self.assertNotIn('Report written:', output)
         self.assertEqual(stale.read_text(encoding='utf-8'), 'existing report')
@@ -206,7 +209,7 @@ class TestNoReport(unittest.TestCase):
         report.assert_not_called()
         arxml_report.assert_not_called()
 
-    def test_tree_includes_every_verdict_without_code_or_hunk_details(self):
+    def test_file_summary_includes_non_identical_verdicts_without_hunk_details(self):
         pairs = {
             'model/changed.c': ('int value = 1;\n', 'int value = 2;\n'),
             'model/same.h': ('int same;\n', 'int same;\n'),
@@ -221,15 +224,17 @@ class TestNoReport(unittest.TestCase):
         (self.new / 'bad.txt').write_bytes(b'\xff\xfe\x41')
         code, output, _ = self._run()
         self.assertEqual(code, 2)
-        for name, status in (('changed.c', 'modified'), ('same.h', 'identical'),
+        for name, status in (('changed.c', 'real-change'),
                              ('comment.c', 'comment-only'), ('noise.c', 'ignorable-only'),
                              ('removed.txt', 'deleted'), ('added.txt', 'added'),
                              ('bad.txt', 'error')):
             self.assertIn('{} [{}]'.format(name, status), output)
-        self.assertIn('|-- model/\n|   |-- changed.c [modified]', output)
+        self.assertNotIn('same.h [identical]', output)
+        self.assertNotIn('Folder tree:', output)
         self.assertIn('COMPARE INCOMPLETE', output)
         self.assertNotIn('int value', output)
-        self.assertNotIn('hunk(s)', output)
+        self.assertNotIn('hunk 1:', output)
+        self.assertNotIn('BASELINE line', output)
 
     def test_autosar_and_a2l_summaries_use_the_scan(self):
         from compare_tool.main import summary_lines
@@ -258,18 +263,19 @@ class TestNoReport(unittest.TestCase):
         )
         for row in expected_rows:
             self.assertIn(row, output)
-        self.assertLess(output.index('Overview:'), output.index('Folder tree:'))
+        self.assertLess(output.index('Overview:'), output.index('Diagnostics:'))
         for line in summary_lines(results, summarize(results)):
             if not line.startswith('  MODIFIED'):
                 self.assertIn(line, output)
 
-    def test_flat_tree_has_no_model_overview(self):
+    def test_flat_scan_has_no_model_overview_or_folder_tree(self):
         for side in (self.old, self.new):
             self._file(side, 'same.c', 'int same;\n')
         code, output, _ = self._run()
         self.assertEqual(code, 0)
         self.assertNotIn('Overview:', output)
-        self.assertIn('Folder tree:', output)
+        self.assertNotIn('Folder tree:', output)
+        self.assertIn('Diagnostics:', output)
 
     def test_report_consistency_warnings_remain_visible_with_exit_zero(self):
         from compare_tool.report import consistency_advisories
@@ -293,7 +299,8 @@ class TestNoReport(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('model.arxml [added]', output)
         self.assertNotIn('model.c', output)
-        self.assertNotIn('skip.a2l', output)
+        self.assertNotIn('skip.a2l [', output)
+        self.assertIn('Excludes: skip.a2l', output)
         self.assertNotIn('report written', output)
 
     def test_exit_zero_only_suppresses_real_changes(self):
@@ -303,10 +310,11 @@ class TestNoReport(unittest.TestCase):
         (self.new / 'bad.txt').write_bytes(b'\xff\xfe\x41')
         self.assertEqual(self._run('--exit-zero')[0], 2)
 
-    def test_empty_filtered_tree_is_explicit(self):
+    def test_empty_scan_is_explicit(self):
         code, output, _ = self._run()
         self.assertEqual(code, 0)
-        self.assertIn('(no files matched)', output)
+        self.assertIn('Paths: 0 scanned', output)
+        self.assertIn('(no differences or compare errors)', output)
         self.assertIn('Summary: 0 modified', output)
 
     def test_json_and_sarif_remain_opt_in(self):
@@ -317,6 +325,22 @@ class TestNoReport(unittest.TestCase):
         self.assertEqual(json.loads(json_path.read_text(encoding='utf-8'))['exit_code'], code)
         self.assertEqual(json.loads(sarif_path.read_text(encoding='utf-8'))['version'], '2.1.0')
         self.assertEqual(list(self.root.glob('*.html')), [])
+
+    def test_no_report_always_includes_diagnostics_without_hunk_details(self):
+        self._file(self.old, 'model.c', 'int value = 1;\n')
+        self._file(self.new, 'model.c', 'int value = 2;\n')
+        code, output, errors = self._run('--exclude', '*.tmp')
+        self.assertEqual(code, 1)
+        self.assertEqual(errors, '')
+        self.assertIn('Diagnostics:', output)
+        self.assertIn('Scope: all matched files', output)
+        self.assertIn('Excludes: *.tmp', output)
+        self.assertIn('Hunk classification:', output)
+        self.assertIn('real: 1', output)
+        self.assertIn('model.c [real-change] ruleset=c; text; '
+                      '1 hunk(s): real=1', output)
+        self.assertNotIn('hunk 1:', output)
+        self.assertNotIn('int value =', output)
 
     def test_rules_and_quick_check_are_still_applied(self):
         self._file(self.old, 'model.cpp', 'out = input_a;\n')
@@ -336,7 +360,9 @@ class TestNoReport(unittest.TestCase):
     def test_invalid_combinations_keep_console_and_raise_usage_error(self):
         for argv in (['--no-report'], ['old', '--no-report'],
                      ['old', 'new', '--no-report', '--qt'],
-                     ['old', 'new', '--no-report', '--report', 'out.html']):
+                     ['old', 'new', '--no-report', '--report', 'out.html'],
+                     ['--diagnostics'], ['old', '--diagnostics'],
+                     ['old', 'new', '--diagnostics', '--qt']):
             with self.subTest(argv=argv):
                 self.assertFalse(quiet(viewer_requested, argv))
                 with self.assertRaises(SystemExit) as raised:
@@ -353,7 +379,8 @@ class TestNoReport(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('BASELINE: build 100', output)
         self.assertIn('CURRENT:  build 101', output)
-        self.assertIn('same.c [identical]', output)
+        self.assertIn('Sources: BASELINE zip; CURRENT zip', output)
+        self.assertNotIn('same.c [identical]', output)
 
 
 class TestVersionFlag(unittest.TestCase):
@@ -366,6 +393,56 @@ class TestVersionFlag(unittest.TestCase):
         self.assertIn(__version__, out.getvalue())
 
 
+class TestDiagnosticLines(unittest.TestCase):
+    def test_reports_settings_hunks_moves_renames_and_errors(self):
+        class Rule:
+            name = 'build-stamp'
+
+        results = {
+            'a.c': {
+                'status': 'real-change', 'binary': False,
+                'hunks': [
+                    {'kind': 'real', 'old_range': [1, 2], 'new_range': [1, 2]},
+                    {'kind': 'moved', 'old_range': [5, 7], 'new_range': [5, 5],
+                     'moved_to': 20},
+                ],
+                'renames': {'old_name': 'new_name'},
+                'notes': ['review this file'],
+            },
+            'moved/new.c': {
+                'status': 'added', 'binary': False, 'hunks': [], 'renames': {},
+                'notes': [], 'moved_from': 'old/new.c',
+                'move_similarity': 0.925, 'move_status': 'comment-only',
+            },
+            'bad.arxml': {
+                'status': 'error', 'binary': False, 'hunks': [], 'renames': {},
+                'notes': ['compare failed: PermissionError'],
+            },
+            'same.h': {
+                'status': 'identical', 'binary': False, 'hunks': [],
+                'renames': {}, 'notes': [],
+            },
+        }
+        text = '\n'.join(diagnostic_lines(
+            results, arxml_only=True, exclude=('generated/*',),
+            user_rules=(Rule(),), skip_var_renames=True,
+            source_kinds=('zip', 'folder')))
+        self.assertIn('Sources: BASELINE zip; CURRENT folder', text)
+        self.assertIn('Scope: ARXML/XML/A2L only', text)
+        self.assertIn('Custom noise rules: build-stamp', text)
+        self.assertIn('Unsafe rename quick check: enabled', text)
+        self.assertIn('Paths: 4 scanned; 2 with differences; 1 not compared', text)
+        self.assertIn('Hunk classification: 2 total', text)
+        self.assertIn('moved: 1', text)
+        self.assertIn('a.c [real-change] ruleset=c; text; '
+                      '2 hunk(s): real=1, moved=1; 1 rename(s); '
+                      'notes: review this file', text)
+        self.assertIn('move from BASELINE old/new.c (92.5%, comment-only)', text)
+        self.assertIn('notes: compare failed: PermissionError', text)
+        self.assertNotIn('hunk 1:', text)
+        self.assertNotIn('same.h', text)
+
+
 class TestTkinterPanelIsGone(unittest.TestCase):
     def test_gui_flag_is_rejected(self):
         self.assertFalse(quiet(viewer_requested, ['--gui']))
@@ -375,6 +452,11 @@ class TestTkinterPanelIsGone(unittest.TestCase):
     def test_the_module_is_not_shipped(self):
         with self.assertRaises(ImportError):
             __import__('compare_tool.gui')
+
+    def test_removed_diagnostics_flag_is_rejected(self):
+        self.assertFalse(quiet(viewer_requested, ['--diagnostics']))
+        with self.assertRaises(SystemExit):
+            quiet(main, ['old', 'new', '--diagnostics'])
 
 
 if __name__ == '__main__':
