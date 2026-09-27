@@ -194,7 +194,52 @@ Tool cảnh báo các trường hợp có thể cho thấy regenerate chưa đ�
 - A2L thay đổi nhưng generated C tương ứng không đổi;
 - một model có thêm RTE access trong khi model liên quan vẫn identical.
 
-Các warning này cần được review nhưng không thay đổi verdict hoặc exit code.
+CURRENT-tree check mặc định tắt nên CLI, viewer và HTML-report workflow hiện có không đổi. Bật check cho CLI comparison bằng:
+
+```bash
+python -m compare_tool baseline current --no-report --check-consistency
+```
+
+Check đối chiếu generated C và ARXML bên trong folder CURRENT:
+
+| Rule | Default | Finding |
+|---|---|---|
+| `forbidden_rte_api` | `fail` | RTE call bắt đầu bằng forbidden prefix đã cấu hình. |
+| `no_matching_port_dataelement` | `fail` | Generated RTE read/write không match được với cặp Port/DataElement trong ARXML. |
+| `missing_access_point_in_arxml` | `fail` | Một duplicate ARXML runnable definition thiếu access mà generated C đang dùng. |
+| `inconsistent_arxml_access_mode` | `fail` | Các duplicate ARXML definition không thống nhất direction hoặc access mode. |
+| `access_mode_mismatch` | `fail` | Generated API và ARXML không khớp read/write hoặc explicit/implicit access. |
+| `orphan_access` | `warn` | ARXML access point thuộc runnable đã resolve không có generated RTE access tương ứng. |
+
+Dùng `--consistency-config CONFIG.yaml` để override policy mặc định của CURRENT-tree mà không cần thêm PyYAML. Mọi section đều optional; giá trị bị bỏ qua sẽ giữ default:
+
+```yaml
+forbidden_rte_prefixes:
+  - Rte_IRead_
+  - Rte_IWrite_
+ignore_access_port_regex:
+  - ^Bsw_
+rules:
+  forbidden_rte_api: fail
+  no_matching_port_dataelement: fail
+  missing_access_point_in_arxml: fail
+  inconsistent_arxml_access_mode: fail
+  access_mode_mismatch: fail
+  orphan_access: warn
+```
+
+Rule severity gồm:
+
+- `fail`: in finding và trả exit code `1`;
+- `warn`: in finding nhưng không đổi exit code;
+- `skip`: bỏ finding và báo số finding đã skip theo config;
+- `off`: tắt rule mà không tăng skipped count.
+
+Ignore regex match với API payload phía sau `Rte_<verb>_`, ví dụ `Bsw_Port_Data`. Regex này ảnh hưởng Port/DataElement matching nhưng không tắt `forbidden_rte_api`. `--ignore-access-port-regex REGEX` thêm một pattern tạm thời vào cấu hình trong file.
+
+`--consistency-config` và `--ignore-access-port-regex` yêu cầu `--check-consistency`. Check không dùng được cùng `--arxml-only`, và finding chưa được đưa vào HTML report hoặc viewer.
+
+Old/new regeneration warning vẫn là advisory. CURRENT-tree finding mức `fail` trả exit code `1`, kể cả khi dùng `--exit-zero`; `warn` không đổi exit code. Lỗi đọc file, list folder hoặc parse ARXML làm consistency scan không hoàn tất và trả exit code `2`. Consistency result không thay đổi file verdict.
 
 ## HTML report
 
@@ -209,17 +254,19 @@ Dùng `--max-diff-lines N` nếu một lần regenerate lớn có thể tạo re
 ```bash
 python -m compare_tool baseline.zip current.zip \
     --report compare_report.html \
+    --check-consistency \
+    --consistency-config codegen_checker.yaml \
     --json compare_result.json \
     --sarif compare_result.sarif
 ```
 
 | Exit code | Ý nghĩa |
 |---:|---|
-| `0` | Không có real change |
-| `1` | Có real change |
-| `2` | Comparison không đầy đủ hoặc thất bại |
+| `0` | Không có real change và không có consistency rule đã bật bị fail |
+| `1` | Có real change hoặc CURRENT-tree consistency rule đã bật bị fail |
+| `2` | Comparison hoặc consistency scan đã bật không đầy đủ/thất bại |
 
-`--exit-zero` chỉ bỏ qua exit code `1`. Lỗi đọc, scan, compare hoặc ghi report luôn trả về `2`.
+`--exit-zero` chỉ bỏ qua exit code `1` khi code đó đến từ file difference. Cờ này không bỏ qua CURRENT-tree consistency `fail`. Lỗi đọc, scan, compare, consistency scan hoặc ghi report luôn trả về `2`.
 
 Nên publish HTML report và JSON/SARIF output thành CI artifact.
 

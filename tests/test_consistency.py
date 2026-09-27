@@ -5,7 +5,9 @@ calibration surface (A2L) must be reflected in the generated C. A code-only
 change is the ordinary case and is never flagged.
 """
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from compare_tool import consistency
 
@@ -202,6 +204,102 @@ class TestRteRegenAdvisories(unittest.TestCase):
             'A.c', ['Rte_Write_A_Torque'])
         self.assertEqual(
             _adv({'A': ['A.c'], 'B': ['B.c', 'B_data.c']}, results), [])
+
+
+class TestCurrentTreeCheck(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def _write(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding='utf-8')
+
+    def _arxml(self, container='DATA-RECEIVE-POINT-BY-ARGUMENTS'):
+        return '''<AUTOSAR>
+  <RUNNABLE-ENTITY>
+    <SHORT-NAME>Step</SHORT-NAME>
+    <{container}>
+      <VARIABLE-ACCESS>
+        <PORT-PROTOTYPE-REF>/Ports/Speed</PORT-PROTOTYPE-REF>
+        <TARGET-DATA-PROTOTYPE-REF>/Data/Value</TARGET-DATA-PROTOTYPE-REF>
+      </VARIABLE-ACCESS>
+    </{container}>
+  </RUNNABLE-ENTITY>
+</AUTOSAR>
+'''.format(container=container)
+
+    def _reasons(self, check):
+        return [item['reason'] for item in check.findings]
+
+    def test_matching_explicit_access_is_clean(self):
+        self._write('Step.c', '''void Step(void)
+{
+  (void)Rte_Read_Speed_Value();
+}
+''')
+        self._write('Step.arxml', self._arxml())
+        check = consistency.current_tree_check(self.root)
+        self.assertEqual(check.findings, [])
+        self.assertEqual(check.rte_calls_detected, 1)
+        self.assertEqual(check.access_points_detected, 1)
+
+    def test_forbidden_implicit_api_and_access_mode_are_reported(self):
+        self._write('Step.c', '''void Step(void)
+{
+  (void)Rte_IRead_Step_Speed_Value();
+}
+''')
+        self._write('Step.arxml', self._arxml())
+        check = consistency.current_tree_check(self.root)
+        self.assertIn('FORBIDDEN_RTE_API', self._reasons(check))
+        self.assertIn('ACCESS_MODE_MISMATCH', self._reasons(check))
+
+    def test_duplicate_arxml_definition_must_contain_the_same_access(self):
+        self._write('Step.c', '''void Step(void)
+{
+  (void)Rte_Read_Speed_Value();
+}
+''')
+        self._write('one.arxml', self._arxml())
+        self._write('two.arxml', '''<AUTOSAR><RUNNABLE-ENTITY>
+<SHORT-NAME>Step</SHORT-NAME>
+</RUNNABLE-ENTITY></AUTOSAR>''')
+        check = consistency.current_tree_check(self.root)
+        self.assertIn('MISSING_ACCESS_POINT_IN_ARXML', self._reasons(check))
+
+    def test_orphan_access_is_a_warning(self):
+        self._write('Step.c', 'void Step(void)\n{\n}\n')
+        self._write('Step.arxml', self._arxml())
+        check = consistency.current_tree_check(self.root)
+        orphan = next(item for item in check.findings
+                      if item['reason'] == 'ORPHAN_ACCESS')
+        self.assertEqual(orphan['severity'], 'warn')
+
+    def test_malformed_arxml_is_loud_not_a_clean_check(self):
+        self._write('Step.c', 'void Step(void)\n{\n}\n')
+        self._write('Step.arxml', '<AUTOSAR>')
+        check = consistency.current_tree_check(self.root)
+        self.assertIn('CONSISTENCY_SCAN_ERROR', self._reasons(check))
+
+    def test_config_can_disable_a_rule_without_third_party_yaml(self):
+        config_path = self.root / 'checker.yaml'
+        config_path.write_text('''rules:
+  forbidden_rte_api: off
+''', encoding='utf-8')
+        self._write('Step.c', '''void Step(void)
+{
+  (void)Rte_IRead_Step_Speed_Value();
+}
+''')
+        self._write(
+            'Step.arxml', self._arxml('DATA-READ-ACCESSS'))
+        config = consistency.load_checker_config(config_path)
+        check = consistency.current_tree_check(self.root, config)
+        self.assertNotIn('FORBIDDEN_RTE_API', self._reasons(check))
+        self.assertEqual(check.findings, [])
 
 
 if __name__ == '__main__':

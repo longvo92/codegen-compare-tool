@@ -44,6 +44,10 @@ class TestViewerRequested(unittest.TestCase):
         self.assertTrue(viewer_requested(['--report', 'out.html']))
         self.assertFalse(viewer_requested(['old', 'new', '--arxml-only']))
 
+    def test_consistency_flag_is_cli_only_and_keeps_the_console(self):
+        self.assertFalse(viewer_requested(['--check-consistency']))
+        self.assertFalse(viewer_requested(['--qt', '--check-consistency']))
+
     def test_help_and_bad_usage_keep_the_console(self):
         # both print to stdout; hiding the console would swallow the message
         self.assertFalse(viewer_requested(['--help']))
@@ -289,6 +293,63 @@ class TestNoReport(unittest.TestCase):
         self.assertTrue(any('regenerate the architecture' in msg for _, msg in advisories))
         for model, message in advisories:
             self.assertIn('!! {}: {}'.format(model, message), output)
+
+    def test_current_tree_check_is_opt_in_and_fail_always_sets_exit_one(self):
+        c_text = '''void Step(void)
+{
+  (void)Rte_Read_Speed_Value();
+}
+'''
+        arxml = '''<AUTOSAR><RUNNABLE-ENTITY>
+<SHORT-NAME>Step</SHORT-NAME>
+<DATA-READ-ACCESSS><VARIABLE-ACCESS>
+<PORT-PROTOTYPE-REF>/Ports/Speed</PORT-PROTOTYPE-REF>
+<TARGET-DATA-PROTOTYPE-REF>/Data/Value</TARGET-DATA-PROTOTYPE-REF>
+</VARIABLE-ACCESS></DATA-READ-ACCESSS>
+</RUNNABLE-ENTITY></AUTOSAR>'''
+        for side in (self.old, self.new):
+            self._file(side, 'Step.c', c_text)
+            self._file(side, 'Step.arxml', arxml)
+        code, output, errors = self._run()
+        self.assertEqual(code, 0)
+        self.assertEqual(errors, '')
+        self.assertNotIn('Current tree:', output)
+        code, output, errors = self._run('--check-consistency')
+        self.assertEqual(code, 1)
+        self.assertEqual(errors, '')
+        self.assertIn('Consistency check:', output)
+        self.assertIn('[FAIL] ACCESS_MODE_MISMATCH Step.c:3', output)
+        self.assertIn('FAIL findings set exit code 1', output)
+        self.assertEqual(
+            self._run('--check-consistency', '--exit-zero')[0], 1)
+
+    def test_consistency_scan_error_sets_exit_two(self):
+        for side in (self.old, self.new):
+            self._file(side, 'Step.c', 'void Step(void)\n{\n}\n')
+            self._file(side, 'Step.arxml', '<AUTOSAR>')
+        code, output, errors = self._run(
+            '--check-consistency', '--exit-zero')
+        self.assertEqual(code, 2)
+        self.assertEqual(errors, '')
+        self.assertIn('[FAIL] CONSISTENCY_SCAN_ERROR Step.arxml', output)
+
+    def test_invalid_consistency_regex_is_a_usage_error(self):
+        for side in (self.old, self.new):
+            self._file(side, 'Step.c', 'void Step(void)\n{\n}\n')
+        with self.assertRaises(SystemExit) as raised:
+            quiet(main, [str(self.old), str(self.new), '--no-report',
+                         '--check-consistency',
+                         '--ignore-access-port-regex', '['])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_consistency_options_require_the_enable_flag(self):
+        config = self.root / 'consistency.yaml'
+        config.write_text('rules:\n  orphan_access: warn\n', encoding='utf-8')
+        for option in (('--consistency-config', str(config)),
+                       ('--ignore-access-port-regex', '^Bsw_')):
+            with self.subTest(option=option), self.assertRaises(SystemExit) as raised:
+                quiet(main, [str(self.old), str(self.new), '--no-report', *option])
+            self.assertEqual(raised.exception.code, 2)
 
     def test_filters_and_no_report_work_together(self):
         self._file(self.old, 'model.c', 'int value = 1;\n')

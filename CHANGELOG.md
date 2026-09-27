@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-09-27
+
+### Added
+
+- Add opt-in current-tree RTE/ARXML consistency validation and CI gating to CLI comparisons.
+
 ## [1.17.0] — 2026-09-27
 
 ### Changed
