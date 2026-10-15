@@ -22,13 +22,9 @@ The reverse is **not** flagged. Code that changed while the ARXML and A2L did
 not is the ordinary case: an internal logic or gain edit touches no interface
 and no calibration variable, so there is nothing for them to follow.
 
-A second, cross-*model* advisory rides along here. When one model's generated C
-gains an RTE access point (``+ Rte_Write_...``) while a *peer* model's C stayed
-byte-identical, the batch was a single-model quick regen, not a full one: a full
-regenerate rewrites at least a timestamp banner in every model, so an identical
-peer is proof it was left untouched. A new RTE access widens the model's
-interface, and the RTE layer plus the peer SWCs have to be regenerated before
-the code will integrate -- so this ``+RTE`` cannot be shipped on its own.
+A cross-model advisory reports a new RTE access alongside a byte-identical
+peer. This is a prompt to inspect dependencies and generation records, not
+proof of stale code: unchanged output alone cannot establish generation history.
 
 This is an **advisory, never a verdict**. It never folds a file, moves a count
 or changes the exit code. It only reports which artifact families of a model
@@ -46,9 +42,10 @@ Stdlib only, no Qt: the report and the CLI both import this module.
 from __future__ import annotations
 
 import fnmatch
+import json
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -81,6 +78,19 @@ class FunctionInfo:
     """Generated C function used to resolve an AUTOSAR runnable."""
 
     name: str
+    file: str = ''
+
+
+@dataclass(frozen=True)
+class RunnableInfo:
+    """One definition, identified by its complete AUTOSAR short-name path."""
+
+    identity: str
+    name: str
+    swc: str
+    symbol: str
+    prefix: str
+    source_file: str
 
 
 @dataclass(frozen=True)
@@ -94,6 +104,9 @@ class AccessPoint:
     access_mode: str
     container: str
     source_file: str
+    swc: str = ''
+    port_ref: str = ''
+    data_ref: str = ''
 
 
 @dataclass
@@ -109,10 +122,33 @@ class CurrentTreeCheck:
     functions_detected: int
     rte_calls_detected: int
     access_points_detected: int
+    policy: str = 'standard'
+    checked_calls: int = 0
+    exemptions: List[Dict[str, Any]] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+    @property
+    def exit_code(self):
+        if any(f['reason'] in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE')
+               for f in self.findings):
+            return 2
+        if self.policy == 'delivery' and self.skipped_accesses:
+            return 2
+        return 1 if any(f['severity'] == 'fail' for f in self.findings) else 0
+
+    @property
+    def status(self):
+        if self.exit_code == 2 or self.skipped_accesses:
+            return 'INCOMPLETE'
+        if self.exit_code == 1:
+            return 'FAIL'
+        if self.ignored_accesses or self.skipped_rules or self.exemptions or self.notes:
+            return 'PASS WITH EXCEPTIONS'
+        return 'PASS'
 
 
 _RTE_CALL_RE = re.compile(
-    r'\b(Rte_(?:IRead|IWrite|Read|Write|Call)_[A-Za-z0-9_]+)\s*\('
+    r'\b(Rte_[A-Za-z0-9_]+)\s*\('
 )
 _AUTOSAR_FUNCTION_RE = re.compile(
     r'\bFUNC\s*\([^)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)'
@@ -161,6 +197,9 @@ def _checker_defaults():
         'ignore_access_port_regex': list(
             DEFAULT_CHECKER_CONFIG['ignore_access_port_regex']),
         'rules': dict(DEFAULT_CHECKER_CONFIG['rules']),
+        'function_mappings': [],
+        'exceptions': [],
+        'no_rte_expected': '',
     }
 
 
@@ -183,6 +222,22 @@ def load_checker_config(path: Optional[Path]) -> Dict[str, Any]:
     if path is None:
         return config
     raw = Path(path).read_text(encoding='utf-8')
+    if raw.lstrip().startswith('{') or Path(path).suffix.lower() == '.json':
+        supplied = json.loads(raw)
+        if not isinstance(supplied, dict):
+            raise ValueError('consistency config must be an object')
+        unknown = set(supplied) - set(config)
+        if unknown:
+            raise ValueError('unknown config sections: {}'.format(', '.join(sorted(unknown))))
+        for key, value in supplied.items():
+            if key == 'rules':
+                if not isinstance(value, dict):
+                    raise ValueError('rules must be an object')
+                config['rules'].update(value)
+            else:
+                config[key] = value
+        _validate_config(config)
+        return config
     section = None
     for raw_line in raw.splitlines():
         line = raw_line.strip()
@@ -222,6 +277,42 @@ def load_checker_config(path: Optional[Path]) -> Dict[str, Any]:
     return config
 
 
+def _validate_config(config):
+    for key in ('forbidden_rte_prefixes', 'ignore_access_port_regex'):
+        if not isinstance(config[key], list) or not all(
+                isinstance(value, str) for value in config[key]):
+            raise ValueError('{} must be a list of strings'.format(key))
+    for name, severity in config['rules'].items():
+        if name not in _CHECKER_RULES or severity not in ('fail', 'warn', 'skip', 'off'):
+            raise ValueError('invalid consistency rule or severity: {}'.format(name))
+    if not isinstance(config.get('no_rte_expected', ''), str):
+        raise ValueError('no_rte_expected must be a reason string')
+    for key, required, allowed in (
+        ('function_mappings', {'file', 'function', 'runnable', 'reason'},
+         {'file', 'function', 'runnable', 'reason'}),
+        ('exceptions', {'rule', 'reason'},
+         {'rule', 'reason', 'file', 'swc', 'runnable', 'port'}),
+    ):
+        entries = config.get(key, [])
+        if not isinstance(entries, list):
+            raise ValueError('{} must be a list'.format(key))
+        for entry in entries:
+            if (not isinstance(entry, dict) or not required <= set(entry)
+                    or set(entry) - allowed or not all(
+                        isinstance(v, str) and v.strip() for v in entry.values())):
+                raise ValueError('invalid {} entry; scopes and reason must be nonempty'.format(key))
+            if key == 'exceptions':
+                if not set(entry) & {'file', 'swc', 'runnable', 'port'}:
+                    raise ValueError('exception requires a file, swc, runnable or port scope')
+                if entry['rule'] not in _CHECKER_RULES | {
+                        'unsupported_rte_api', 'runnable_not_resolved',
+                        'ambiguous_port_dataelement', 'runnable_not_implemented'}:
+                    raise ValueError('unknown exception rule: {}'.format(entry['rule']))
+            for scope in ('swc', 'runnable'):
+                if scope in entry and not entry[scope].startswith('/'):
+                    raise ValueError('{} must be a full AUTOSAR path'.format(scope))
+
+
 def _local_name(tag):
     return tag.rsplit('}', 1)[-1]
 
@@ -231,10 +322,7 @@ def _ref_short_name(ref):
 
 
 def _api_type(api):
-    for name in ('IRead', 'IWrite', 'Read', 'Write', 'Call'):
-        if api.startswith('Rte_{}_'.format(name)):
-            return name
-    return 'Unknown'
+    return api.split('_', 2)[1]
 
 
 def _expected_access(api_type):
@@ -333,7 +421,7 @@ def _scan_code(root, rels):
             errors.append(_scan_error(rel, exc))
             continue
         detected = _discover_functions(content)
-        functions.extend(FunctionInfo(item['name']) for item in detected)
+        functions.extend(FunctionInfo(item['name'], rel) for item in detected)
         searchable = _mask_c_literals(strip_c_comments(content))
         for match in _RTE_CALL_RE.finditer(searchable):
             api = match.group(1)
@@ -347,243 +435,233 @@ def _scan_code(root, rels):
     return calls, functions, errors
 
 
+def _child_text(element, name):
+    return next(((child.text or '').strip() for child in element
+                 if _local_name(child.tag) == name), '')
+
+
 def _parse_variable_access(variable_access):
-    port_ref = data_ref = None
+    refs = {}
     for node in variable_access.iter():
         tag = _local_name(node.tag)
-        if tag == 'PORT-PROTOTYPE-REF':
-            port_ref = node.text
-        elif tag == 'TARGET-DATA-PROTOTYPE-REF':
-            data_ref = node.text
-    return _ref_short_name(port_ref), _ref_short_name(data_ref)
+        if tag in ('PORT-PROTOTYPE-REF', 'TARGET-DATA-PROTOTYPE-REF'):
+            refs[tag] = (node.text or '').strip().rstrip('/')
+    return refs.get('PORT-PROTOTYPE-REF', ''), refs.get('TARGET-DATA-PROTOTYPE-REF', '')
 
 
 def _parse_arxml(base, rels):
     accesses = []
-    runnable_files = {}
+    runnables = {}
     errors = []
     for rel in rels:
-        path = Path(base) / rel
         try:
+            path = Path(base) / rel
             if looks_binary(path):
                 raise UnicodeError('file is binary')
             xml_root = ET.fromstring(read_text(path))
-        except (OSError, UnicodeError, ET.ParseError) as exc:
+            if _local_name(xml_root.tag) != 'AUTOSAR':
+                raise ValueError('expected AUTOSAR root element')
+        except (OSError, UnicodeError, ET.ParseError, ValueError) as exc:
             errors.append(_scan_error(rel, exc))
             continue
-        for runnable_elem in xml_root.iter():
-            if _local_name(runnable_elem.tag) != 'RUNNABLE-ENTITY':
-                continue
-            runnable = next(((child.text or '').strip()
-                             for child in runnable_elem
-                             if _local_name(child.tag) == 'SHORT-NAME'), '')
-            if not runnable:
-                continue
-            runnable_files.setdefault(runnable, set()).add(rel)
-            for container_elem in runnable_elem:
-                container = _local_name(container_elem.tag)
-                if container not in _ARXML_ACCESS_CONTAINERS:
+        # Named ancestors preserve package, component and behavior ownership.
+        stack = [(xml_root, (), '', '')]
+        while stack:
+            element, ancestors, swc, prefix = stack.pop()
+            tag = _local_name(element.tag)
+            name = _child_text(element, 'SHORT-NAME')
+            names = ancestors + (name,) if name else ancestors
+            identity = '/' + '/'.join(names)
+            if tag.endswith('SW-COMPONENT-TYPE'):
+                swc = identity
+                prefix = next((_child_text(child, 'SYMBOL') for child in element
+                               if _local_name(child.tag) == 'SYMBOL-PROPS'), '')
+            if tag == 'RUNNABLE-ENTITY':
+                if not name:
+                    errors.append(_scan_error(rel, ValueError('runnable has no SHORT-NAME')))
                     continue
-                direction, mode = _ARXML_ACCESS_CONTAINERS[container]
-                for variable_access in container_elem.iter():
-                    if _local_name(variable_access.tag) != 'VARIABLE-ACCESS':
+                info = RunnableInfo(identity, name, swc,
+                                    _child_text(element, 'SYMBOL'), prefix, rel)
+                runnables.setdefault(identity, []).append(info)
+                for container_elem in element:
+                    container = _local_name(container_elem.tag)
+                    if container not in _ARXML_ACCESS_CONTAINERS:
                         continue
-                    port, data_element = _parse_variable_access(variable_access)
-                    if port and data_element:
+                    direction, mode = _ARXML_ACCESS_CONTAINERS[container]
+                    for variable in container_elem.iter():
+                        if _local_name(variable.tag) != 'VARIABLE-ACCESS':
+                            continue
+                        port_ref, data_ref = _parse_variable_access(variable)
+                        if not port_ref or not data_ref:
+                            errors.append(_scan_error(rel, ValueError(
+                                'incomplete VARIABLE-ACCESS in {}'.format(identity))))
+                            continue
                         accesses.append(AccessPoint(
-                            runnable, port, data_element, direction, mode,
-                            container, rel))
-    return accesses, runnable_files, errors
+                            identity, _ref_short_name(port_ref), _ref_short_name(data_ref),
+                            direction, mode, container, rel, swc, port_ref, data_ref))
+                continue
+            stack.extend((child, names, swc, prefix) for child in reversed(list(element)))
+    for identity, definitions in runnables.items():
+        if len({(item.symbol, item.prefix) for item in definitions}) > 1:
+            errors.append(_scan_error(definitions[0].source_file, ValueError(
+                'conflicting runnable symbols for {}'.format(identity))))
+    return accesses, runnables, errors
 
 
 def _scan_error(rel, exc):
     return {
-        'reason': 'CONSISTENCY_SCAN_ERROR',
-        'severity': 'fail',
-        'file': rel,
+        'reason': 'CONSISTENCY_SCAN_ERROR', 'severity': 'fail', 'file': rel,
         'error': '{}: {}'.format(type(exc).__name__, exc),
     }
 
 
-def _find_runnable(function_name, runnable_names):
+def _find_runnable(function_name, file, runnables, config):
     if not function_name:
         return None
-    if function_name in runnable_names:
-        return function_name
-    matches = [name for name in runnable_names
-               if function_name.endswith(name) or name.endswith(function_name)]
-    return matches[0] if len(matches) == 1 else None
+    mapped = {entry['runnable'] for entry in config.get('function_mappings', [])
+              if entry['function'] == function_name and _matches(file, [entry['file']])}
+    if mapped:
+        return next(iter(mapped)) if len(mapped) == 1 and mapped <= set(runnables) else None
+    matches = set()
+    for identity, definitions in runnables.items():
+        for info in definitions:
+            # An explicit symbol is authoritative. Do not guess with suffixes.
+            symbol = info.symbol or info.name
+            candidates = {info.prefix + symbol}
+            if not info.symbol and not info.prefix and info.swc:
+                candidates.add(_ref_short_name(info.swc) + '_' + info.name)
+            if function_name in candidates:
+                matches.add(identity)
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
-def _access_indexes(access_points):
-    by_file_runnable_pair = {}
-    all_pairs = set()
-    for access in access_points:
-        pair = (access.port, access.data_element)
-        all_pairs.add(pair)
-        by_file_runnable_pair.setdefault(access.source_file, {}).setdefault(
-            access.runnable, {}).setdefault(pair, []).append(access)
-    return by_file_runnable_pair, all_pairs
-
-
-def _match_pair(call, all_pairs):
-    prefix = 'Rte_{}_'.format(call.api_type)
-    payload = call.api[len(prefix):]
-    candidates = []
-    for port, data_element in all_pairs:
-        suffix = '{}_{}'.format(port, data_element)
-        if call.api_type in ('Read', 'Write'):
-            matched = payload == suffix
-        else:
-            matched = payload == suffix or payload.endswith('_' + suffix)
-        if matched:
-            candidates.append((port, data_element))
-    if not candidates:
-        return None
-    return max(candidates, key=lambda pair: len('{}_{}'.format(*pair)))
+def _candidate_pairs(call, access_points, runnable, runnables):
+    swc = runnables[runnable][0].swc
+    # Only the resolved component can supply a candidate. For legacy minimal
+    # ARXML without component ancestors, stay inside the resolved runnable.
+    scoped = [a for a in access_points if
+              (a.swc == swc if swc else a.runnable == runnable)]
+    payload = call.api[len('Rte_{}_'.format(call.api_type)):]
+    candidates = set()
+    for access in scoped:
+        suffix = '{}_{}'.format(access.port, access.data_element)
+        if payload == suffix or (call.api_type in ('IRead', 'IWrite')
+                                 and payload.endswith('_' + suffix)):
+            candidates.add((access.port_ref, access.data_ref))
+    return candidates
 
 
 def _duplicate_inconsistencies(access_points):
     grouped = {}
     for access in access_points:
-        key = (access.runnable, access.port, access.data_element)
-        grouped.setdefault(key, {}).setdefault(
-            access.source_file, []).append(access)
+        key = (access.runnable, access.port_ref, access.data_ref)
+        grouped.setdefault(key, {}).setdefault(access.source_file, []).append(access)
     findings = []
-    for (runnable, port, data_element), file_map in grouped.items():
-        if len(file_map) < 2:
-            continue
+    for (runnable, port_ref, data_ref), file_map in grouped.items():
         file_modes = {
-            source: sorted({'{}/{}'.format(item.direction, item.access_mode)
-                            for item in accesses})
+            source: sorted({'{}/{}'.format(a.direction, a.access_mode) for a in accesses})
             for source, accesses in file_map.items()
         }
         if len({tuple(modes) for modes in file_modes.values()}) > 1:
+            sample = next(iter(file_map.values()))[0]
             findings.append({
-                'reason': 'INCONSISTENT_ARXML_ACCESS_MODE',
-                'runnable': runnable,
-                'port': port,
-                'data_element': data_element,
-                'files': file_modes,
+                'reason': 'INCONSISTENT_ARXML_ACCESS_MODE', 'runnable': runnable,
+                'swc': sample.swc, 'port': _ref_short_name(port_ref),
+                'data_element': _ref_short_name(data_ref), 'files': file_modes,
             })
     return findings
 
 
-def _check_access_points(calls, access_points, runnable_files, ignore_pattern):
+def _check_access_points(calls, access_points, runnables, ignore_pattern, config):
     issues = _duplicate_inconsistencies(access_points)
-    ignored = 0
+    ignored = checked = 0
     skipped = []
-    by_file_runnable_pair, all_pairs = _access_indexes(access_points)
-    runnable_names = set(runnable_files)
-    issue_keys = set()
+    used = set()
     for call in calls:
+        runnable = _find_runnable(call.function, call.file, runnables, config)
+        context = {'call': call, 'runnable': runnable,
+                   'swc': runnables[runnable][0].swc if runnable else ''}
         if call.api_type not in ('Read', 'Write', 'IRead', 'IWrite'):
+            skipped.append(dict(context, reason='UNSUPPORTED_RTE_API'))
             continue
         payload = call.api[len('Rte_{}_'.format(call.api_type)):]
         if ignore_pattern and ignore_pattern.search(payload):
             ignored += 1
             continue
-        runnable = _find_runnable(call.function, runnable_names)
-        pair = _match_pair(call, all_pairs)
-        if pair is None:
-            issues.append({
-                'reason': 'NO_MATCHING_PORT_DATAELEMENT',
-                'call': call,
-                'runnable': runnable,
-            })
-            continue
         if runnable is None:
-            skipped.append({
-                'reason': 'RUNNABLE_NOT_RESOLVED',
-                'call': call,
-                'port': pair[0],
-                'data_element': pair[1],
-            })
+            skipped.append(dict(context, reason='RUNNABLE_NOT_RESOLVED'))
             continue
-        expected_direction, expected_mode = _expected_access(call.api_type)
-        for source_file in sorted(runnable_files.get(runnable, ())):
-            accesses = by_file_runnable_pair.get(source_file, {}).get(
-                runnable, {}).get(pair, [])
+        pairs = _candidate_pairs(call, access_points, runnable, runnables)
+        if len(pairs) > 1:
+            skipped.append(dict(context, reason='AMBIGUOUS_PORT_DATAELEMENT'))
+            continue
+        checked += 1
+        if not pairs:
+            issues.append(dict(context, reason='NO_MATCHING_PORT_DATAELEMENT'))
+            continue
+        port_ref, data_ref = next(iter(pairs))
+        expected = _expected_access(call.api_type)
+        used.add((runnable, port_ref, data_ref, expected))
+        context.update(port=_ref_short_name(port_ref), data_element=_ref_short_name(data_ref))
+        for source_file in sorted({r.source_file for r in runnables[runnable]}):
+            accesses = [a for a in access_points if a.runnable == runnable
+                        and a.source_file == source_file
+                        and (a.port_ref, a.data_ref) == (port_ref, data_ref)]
             if not accesses:
-                key = ('missing', source_file, runnable, pair, call.api)
-                if key not in issue_keys:
-                    issue_keys.add(key)
-                    issues.append({
-                        'reason': 'MISSING_ACCESS_POINT_IN_ARXML',
-                        'call': call,
-                        'arxml_file': source_file,
-                        'runnable': runnable,
-                        'port': pair[0],
-                        'data_element': pair[1],
-                    })
-                continue
-            actual_modes = sorted({(item.direction, item.access_mode)
-                                   for item in accesses})
-            if (expected_direction, expected_mode) not in actual_modes:
-                key = ('mode', source_file, runnable, pair, call.api,
-                       tuple(actual_modes))
-                if key not in issue_keys:
-                    issue_keys.add(key)
-                    issues.append({
-                        'reason': 'ACCESS_MODE_MISMATCH',
-                        'call': call,
-                        'arxml_file': source_file,
-                        'runnable': runnable,
-                        'port': pair[0],
-                        'data_element': pair[1],
-                        'expected': '{}/{}'.format(expected_direction,
-                                                  expected_mode),
-                        'actual': [
-                            '{}/{} [{}]'.format(item.direction,
-                                                item.access_mode,
-                                                item.container)
-                            for item in accesses
-                        ],
-                    })
-    return issues, ignored, skipped
+                issues.append(dict(context, reason='MISSING_ACCESS_POINT_IN_ARXML',
+                                   arxml_file=source_file))
+            elif expected not in {(a.direction, a.access_mode) for a in accesses}:
+                issues.append(dict(
+                    context, reason='ACCESS_MODE_MISMATCH', arxml_file=source_file,
+                    expected='/'.join(expected),
+                    actual=['{}/{} [{}]'.format(a.direction, a.access_mode, a.container)
+                            for a in accesses]))
+    return issues, ignored, skipped, checked, used
 
 
-def _orphan_accesses(calls, functions, access_points, runnable_files,
-                     ignore_pattern):
-    _by_file, all_pairs = _access_indexes(access_points)
-    runnable_names = set(runnable_files)
-    resolved = {
-        runnable for function in functions
-        for runnable in (_find_runnable(function.name, runnable_names),)
-        if runnable is not None
-    }
-    used = set()
-    for call in calls:
-        if call.api_type not in ('Read', 'Write', 'IRead', 'IWrite'):
-            continue
-        payload = call.api[len('Rte_{}_'.format(call.api_type)):]
-        if ignore_pattern and ignore_pattern.search(payload):
-            continue
-        pair = _match_pair(call, all_pairs)
-        direction, _mode = _expected_access(call.api_type)
-        if pair is not None and direction is not None:
-            used.add((direction, pair[0], pair[1]))
+def _orphan_accesses(functions, access_points, runnables, ignore_pattern, config, used):
+    resolved = {_find_runnable(f.name, f.file, runnables, config) for f in functions}
     findings = []
+    skipped = []
+    for identity, definitions in runnables.items():
+        if identity not in resolved:
+            skipped.append({'reason': 'RUNNABLE_NOT_IMPLEMENTED',
+                            'runnable': identity, 'swc': definitions[0].swc,
+                            'arxml_file': definitions[0].source_file})
     seen = set()
     for access in access_points:
-        key = (access.direction, access.port, access.data_element)
+        key = (access.runnable, access.port_ref, access.data_ref,
+               (access.direction, access.access_mode))
+        report_key = (access.source_file, key)
         payload = '{}_{}'.format(access.port, access.data_element)
-        report_key = (access.source_file, access.runnable, access.port,
-                      access.data_element, access.direction, access.access_mode)
         if (access.runnable not in resolved or key in used or report_key in seen
                 or (ignore_pattern and ignore_pattern.search(payload))):
             continue
         seen.add(report_key)
         findings.append({
-            'reason': 'ORPHAN_ACCESS',
-            'arxml_file': access.source_file,
-            'runnable': access.runnable,
-            'port': access.port,
+            'reason': 'ORPHAN_ACCESS', 'arxml_file': access.source_file,
+            'runnable': access.runnable, 'swc': access.swc, 'port': access.port,
             'data_element': access.data_element,
-            'access': '{}/{} [{}]'.format(
-                access.direction, access.access_mode, access.container),
+            'access': '{}/{} [{}]'.format(access.direction, access.access_mode, access.container),
         })
-    return findings
+    return findings, skipped
+
+
+def _apply_exceptions(items, exceptions):
+    kept, waived = [], []
+    for item in items:
+        call = item.get('call')
+        context = dict(item)
+        context['file'] = call.file if call else item.get('arxml_file', item.get('file', ''))
+        match = next((entry for entry in exceptions if entry['rule'] == item['reason'].lower()
+                      and all(_matches(context.get(key, '') or '', [value]) if key == 'file'
+                              else context.get(key) == value
+                              for key, value in entry.items() if key not in ('rule', 'reason'))), None)
+        if match:
+            waived.append(dict(item, justification=match['reason']))
+        else:
+            kept.append(item)
+    return kept, waived
 
 
 def _compile_ignore_pattern(config, cli_pattern):
@@ -609,7 +687,7 @@ def _classify(findings, config):
     out = []
     skipped = 0
     for finding in findings:
-        if finding['reason'] == 'CONSISTENCY_SCAN_ERROR':
+        if finding['reason'] in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE'):
             out.append(finding)
             continue
         severity = config['rules'].get(finding['reason'].lower(), 'fail')
@@ -626,7 +704,8 @@ def _classify(findings, config):
 
 def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
                        exclude: Sequence[str] = (),
-                       ignore_access_port_regex: Optional[str] = None
+                       ignore_access_port_regex: Optional[str] = None,
+                       policy: str = 'standard'
                        ) -> CurrentTreeCheck:
     """Validate CURRENT generated C calls against CURRENT ARXML declarations.
 
@@ -636,6 +715,9 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     """
     root = Path(root)
     config = config or _checker_defaults()
+    _validate_config(config)
+    if policy not in ('standard', 'delivery'):
+        raise ValueError('unknown consistency policy: {}'.format(policy))
     listing_errors: List[Tuple[str, str]] = []
     rels = sorted(rel for rel in list_files(root, listing_errors)
                   if not _matches(rel, exclude))
@@ -643,29 +725,73 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     arxml_rels = [rel for rel in rels
                   if Path(rel).suffix.lower() == '.arxml']
     calls, functions, code_errors = _scan_code(root, c_rels)
-    access_points, runnable_files, arxml_errors = _parse_arxml(root, arxml_rels)
+    access_points, runnables, arxml_errors = _parse_arxml(root, arxml_rels)
     listing_findings = [_scan_error(rel, RuntimeError(message))
                         for rel, message in listing_errors]
     validate_checker_regex(config, ignore_access_port_regex)
     ignore_pattern = _compile_ignore_pattern(config, ignore_access_port_regex)
 
     raw = list(code_errors) + list(arxml_errors) + listing_findings
+    notes = []
+    no_rte_reason = config.get('no_rte_expected', '').strip()
+    if no_rte_reason and not calls and not access_points:
+        notes.append('No RTE access expected: {}'.format(no_rte_reason))
+    missing = []
+    if not c_rels:
+        missing.append('no C files in the selected scope')
+    if not notes:
+        if not arxml_rels:
+            missing.append('no ARXML files in the selected scope')
+        elif not runnables:
+            missing.append('no ARXML runnable definitions in the selected scope')
+        if not calls and not access_points:
+            missing.append('no RTE calls or access points; declare no_rte_expected if intentional')
+    if missing:
+        raw.append({'reason': 'CONSISTENCY_INPUT_INCOMPLETE', 'severity': 'fail',
+                    'file': '.', 'error': '; '.join(missing)})
+    for entry in config.get('function_mappings', []):
+        if entry['runnable'] not in runnables:
+            raw.append({'reason': 'CONSISTENCY_INPUT_INCOMPLETE', 'severity': 'fail',
+                        'file': entry['file'], 'error': 'mapping target does not exist: {}'.format(
+                            entry['runnable'])})
+        if any(f.name == entry['function'] and _matches(f.file, [entry['file']])
+               for f in functions):
+            notes.append('Function mapping {} / {} -> {}: {}'.format(
+                entry['file'], entry['function'], entry['runnable'], entry['reason']))
     prefixes = tuple(config['forbidden_rte_prefixes'])
     for call in calls:
         if prefixes and call.api.startswith(prefixes):
-            raw.append({'reason': 'FORBIDDEN_RTE_API', 'call': call})
-    ignored = 0
-    skipped = []
-    if access_points or runnable_files:
-        issues, ignored, skipped = _check_access_points(
-            calls, access_points, runnable_files, ignore_pattern)
-        raw.extend(issues)
-        raw.extend(_orphan_accesses(
-            calls, functions, access_points, runnable_files, ignore_pattern))
+            identity = _find_runnable(call.function, call.file, runnables, config)
+            finding = {'reason': 'FORBIDDEN_RTE_API', 'call': call,
+                       'runnable': identity,
+                       'swc': runnables[identity][0].swc if identity else ''}
+            if identity and call.api_type in ('Read', 'Write', 'IRead', 'IWrite'):
+                pairs = _candidate_pairs(call, access_points, identity, runnables)
+                if len(pairs) == 1:
+                    finding['port'] = _ref_short_name(next(iter(pairs))[0])
+            raw.append(finding)
+    issues, ignored, skipped, checked, used = _check_access_points(
+        calls, access_points, runnables, ignore_pattern, config)
+    raw.extend(issues)
+    orphans, unresolved = _orphan_accesses(
+        functions, access_points, runnables, ignore_pattern, config, used)
+    raw.extend(orphans)
+    skipped.extend(unresolved)
+    raw, exemptions = _apply_exceptions(raw, config.get('exceptions', []))
+    skipped, waived_skips = _apply_exceptions(skipped, config.get('exceptions', []))
+    exemptions.extend(waived_skips)
+    for name, severity in sorted(config['rules'].items()):
+        if severity in ('skip', 'off'):
+            notes.append('Rule {} configured {}'.format(name, severity))
+    if exclude:
+        notes.append('Excluded file patterns: {}'.format(', '.join(exclude)))
+    if ignore_pattern:
+        notes.append('Ignored access regex: {}'.format(ignore_pattern.pattern))
     findings, skipped_rules = _classify(raw, config)
     return CurrentTreeCheck(
         findings, skipped, skipped_rules, ignored, len(c_rels),
-        len(arxml_rels), len(functions), len(calls), len(access_points))
+        len(arxml_rels), len(functions), len(calls), len(access_points),
+        policy, checked, exemptions, notes)
 
 
 def _iface_changed(r):
@@ -770,15 +896,11 @@ def _c_status(rels, results):
 
 
 def _rte_regen_advisories(groups, results, shared_group):
-    """``[(model, message)]`` for models that gained an RTE access point while a
-    peer model's C stayed byte-identical -- the tell of a single-model quick
-    regen. A ``+RTE`` cannot be integrated until the RTE layer and the peers are
-    regenerated too, so it is flagged even when the model's own files are all
-    self-consistent. Advisory only; see the module docstring.
+    """Suggest checking dependencies when a new RTE access has an unchanged peer.
+
+    File statuses alone cannot establish whether regeneration was required or
+    performed. This heuristic never gates delivery.
     """
-    # a model whose C is entirely identical was not regenerated in this batch:
-    # a real regenerate rewrites at least a timestamp banner (ignorable-only),
-    # so identical -- not merely noisy -- is the exact proof it was skipped.
     identical = set()
     rte_added = set()
     for model in groups:
@@ -793,9 +915,9 @@ def _rte_regen_advisories(groups, results, shared_group):
                 rte_added.add(model)
                 break
     if not identical:
-        return []  # no skipped peer, so nothing here is evidence of a quick regen
+        return []  # no unchanged peer to mention
     # a model carrying a +RTE always has a changed .c (that is where the access
     # point was found), so it can never be one of the identical peers itself
     return [(model, 'gained an RTE access while a peer model stayed identical '
-                    '-- regenerate the architecture before integrating')
+                    '-- review dependencies and generation records; regeneration need is unproven')
             for model in sorted(rte_added)]

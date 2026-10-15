@@ -113,6 +113,8 @@ A reorder is noise only when every line is a side-effect-free scalar assignment,
 
 `consistency.py` derives old/new regeneration advisories from the complete result. When CLI callers opt in with `--check-consistency`, it also performs a standard-library-only check of CURRENT generated RTE calls against CURRENT ARXML access-point declarations. Current-tree `fail` findings set exit code `1`; read, listing and parse failures set `2`; `warn` findings do not gate. Consistency never rewrites file verdicts. The viewer and HTML renderer do not run or render this optional check.
 
+`--check-current` invokes the same checker directly on one source, bypassing diff scanning and HTML. `CurrentTreeCheck` owns status and consistency exit codes; `main._exit_code` combines them with comparison errors/differences. Standard policy leaves unchecked items non-gating; delivery returns 2. Missing input always returns 2. Existing YAML stays supported; JSON adds scoped mappings and exceptions with reasons. Parsing retains full runnable paths, SWC, SYMBOL/prefix and full access references; orphan matching is runnable-specific. CURRENT finding exports remain a [P2 TODO](todo.md).
+
 File move pairing runs after verdicts are settled. A pair is presentation metadata: Added and Deleted verdicts remain in the result and counts.
 
 ## Shared presentation seams

@@ -32,6 +32,14 @@ cd codegen-compare-tool
 
 For downloaded builds, replace `python -m compare_tool` with `compare-tool.exe` or `python compare_tool.pyz`.
 
+Check consistency before delivery using one folder or ZIP (new in source; not released yet):
+
+```bash
+python -m compare_tool --check-current current
+```
+
+This mode runs no diff and writes no HTML. The `delivery` policy gates missing input and unchecked items; existing comparison commands and YAML remain supported. See [usage](docs/usage.md#consistency-check) for mappings and exceptions.
+
 Create a self-contained HTML report:
 
 ```bash
@@ -62,6 +70,7 @@ Folders and ZIP archives are accepted as inputs.
 |---|---|
 | Desktop viewer | Interactive side-by-side review |
 | HTML report | Sharing or publishing as a CI artifact |
+| `--check-current PATH` | CURRENT consistency and coverage before delivery |
 | `--no-report` | Detailed terminal review and diagnostics without generated files |
 | `--json` | Structured pipeline processing |
 | `--sarif` | Code-scanning annotations |
@@ -96,7 +105,7 @@ Old/new regeneration warnings remain advisory. The optional CURRENT-tree check i
 | `1` | Real changes found |
 | `2` | Comparison incomplete or failed |
 
-`--exit-zero` converts exit code `1` to `0`. It never suppresses exit code `2`.
+`--exit-zero` suppresses only file-difference failures, never consistency failures or incomplete scans. `--check-current` returns `0` for a policy pass, `1` for failed rules and `2` for incomplete input/scanning or unchecked items under delivery policy.
 
 ## Requirements
 

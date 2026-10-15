@@ -192,7 +192,7 @@ The tool warns about combinations that may indicate incomplete regeneration, inc
 
 - ARXML interface changes without corresponding generated C changes;
 - A2L changes without corresponding generated C changes;
-- a model gaining RTE access while a related model remains identical.
+- a model gaining RTE access while another model remains identical.
 
 The CURRENT-tree check is disabled by default, so existing CLI, viewer and HTML-report workflows are unchanged. Enable it for a CLI comparison with:
 
@@ -237,9 +237,82 @@ Rule severities are:
 
 The ignore regex is matched against the API payload after `Rte_<verb>_`, for example `Bsw_Port_Data`. It affects Port/DataElement matching but does not disable `forbidden_rte_api`. `--ignore-access-port-regex REGEX` adds one temporary pattern to the file configuration.
 
-`--consistency-config` and `--ignore-access-port-regex` require `--check-consistency`. The check is not available with `--arxml-only`, and its findings are not embedded in the HTML report or viewer.
+`--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. The check is not available with `--arxml-only`, and its findings are not embedded in the HTML report or viewer.
 
 Old/new regeneration warnings remain advisory. A CURRENT-tree `fail` finding sets exit code `1`, even with `--exit-zero`; `warn` does not change the exit code. A file read, folder listing or ARXML parse failure makes the consistency scan incomplete and sets exit code `2`. Consistency results never rewrite file verdicts.
+
+### Delivery check without a baseline
+
+```bash
+python -m compare_tool --check-current current
+python -m compare_tool --check-current delivery.zip --consistency-config project.json
+```
+
+`--check-current PATH` checks one folder or ZIP, without comparison, HTML or a viewer. It accepts `--exclude`, `--current-name`, `--consistency-config`, `--ignore-access-port-regex`, `--consistency-policy`, and the redundant `--no-report` / `--check-consistency` flags. `--exit-zero` never suppresses its failures. Comparison-only options and `--json` / `--sarif` are rejected; CURRENT finding exports are tracked in [TODO](todo.md).
+
+Existing two-folder commands and the YAML subset above remain valid. Comparison without `--check-consistency` is unchanged. Select stricter completeness checking on the old command explicitly:
+
+```bash
+python -m compare_tool baseline current --no-report --check-consistency --consistency-policy delivery --exit-zero
+```
+
+| Condition | `standard` (comparison default) | `delivery` (`--check-current` default) |
+|---|---:|---:|
+| Complete check, no failed rule | 0 | 0 |
+| Rule configured `fail` | 1 | 1 |
+| Read/list/parse error, missing required input | 2 | 2 |
+| Unsupported API, ambiguous reference, unresolved call/runnable | Non-gating; shown as INCOMPLETE | 2 |
+
+The terminal shows PASS, PASS WITH EXCEPTIONS, FAIL or INCOMPLETE, FAIL/WARN totals and coverage. In a comparison, file differences still affect the final process exit unless `--exit-zero` is used. Under standard policy INCOMPLETE coverage may be non-gating, so use delivery policy for completeness enforcement. WARN rules remain non-gating in both policies; set `orphan_access: fail` if your project requires it.
+
+Required input includes C files and ARXML runnable definitions. Empty folders, filters that remove all required input, or a tree with neither calls nor access declarations cannot silently pass. A documented `no_rte_expected` JSON reason permits a C-only utility with no detected RTE calls or access declarations; it cannot waive read/parse errors, absent C files, or real RTE usage.
+
+### Project policy and scoped exceptions
+
+The default prohibition on `Rte_IRead_` / `Rte_IWrite_` is an inherited **project policy**, not a universal AUTOSAR restriction. Keep existing YAML files, or use JSON for structured mappings and exceptions; both use only the standard library. Omitted settings retain existing defaults. This example allows implicit APIs, gates orphan accesses, and records two narrowly scoped decisions:
+
+```json
+{
+  "forbidden_rte_prefixes": [],
+  "rules": {"orphan_access": "fail"},
+  "function_mappings": [
+    {
+      "file": "Ctrl_autosar_rtw/Ctrl.c",
+      "function": "read_inputs",
+      "runnable": "/Pkg/Ctrl/IB/Step",
+      "reason": "Generated helper called only by Step; reviewed against generated C"
+    }
+  ],
+  "exceptions": [
+    {
+      "rule": "unsupported_rte_api",
+      "file": "Ctrl_autosar_rtw/Ctrl.c",
+      "runnable": "/Pkg/Ctrl/IB/Step",
+      "reason": "Client/server contract verified separately by integration"
+    }
+  ]
+}
+```
+
+Mappings require an exact function name, a file glob, an existing full runnable path and a reason. They are explicit project assertions, not inferred call-graph proof. Multiple matching targets remain unresolved. Mappings that refer to nonexistent runnables make the check incomplete. Applied mappings are printed in the terminal.
+
+Exceptions require a rule, a nonempty reason and at least one scope: `file` (glob), `swc` (exact full path), `runnable` (exact full path), or `port` (exact short name). All supplied scopes must match; unresolved fields cannot match a scope. Exceptions can waive the six configurable findings above, plus `unsupported_rte_api`, `runnable_not_resolved`, `runnable_not_implemented` and `ambiguous_port_dataelement`. They cannot waive scan errors or missing input. Each applied exception and reason is printed. Legacy ignore regexes, excluded files and disabled rules remain accepted and visible; scoped exceptions are preferable when the decision needs a reason.
+
+For a utility with no RTE contract:
+
+```json
+{"no_rte_expected": "Standalone math utility, reviewed to have no RTE contract"}
+```
+
+### Matching and coverage boundaries
+
+Runnable identity includes its package, SWC and internal behavior. Explicit `SYMBOL` plus the component symbol prefix determines the C entry point. When no symbol is supplied, only unambiguous short-name/component-name candidates are used; suffix guesses cannot establish ownership. Duplicate definitions are compared within the same full runnable path. Full port/data references are retained, and ambiguous short-name or underscore combinations are UNCHECKED. Orphan matching includes runnable, reference, direction and access mode.
+
+The checker reads `.c` files and validates `Rte_Read`, `Rte_Write`, `Rte_IRead` and `Rte_IWrite` against Sender/Receiver access declarations. Other detected `Rte_*` calls, including `Rte_Call`, `Rte_Send` and `Rte_Receive`, are explicitly UNCHECKED. Declared runnables without resolved C functions are also UNCHECKED. Helper calls require a documented mapping when ownership cannot be resolved.
+
+This is a source consistency check, not a full AUTOSAR schema validator or C compiler: it does not preprocess conditional compilation, expand macros, scan inline header implementations or infer helper call graphs. Select the intended generated sources and record applicable policy decisions. A policy pass applies only to this declared scope.
+
+Old/new unchanged-peer advisories ask for dependency and generation-record review. Byte-identical output does not prove whether regeneration occurred or was required; these advisories never gate delivery and use the same wording in CLI, HTML and viewer.
 
 ## HTML report
 
@@ -269,6 +342,8 @@ python -m compare_tool baseline.zip current.zip \
 `--exit-zero` suppresses exit code `1` only when it came from file differences. It never suppresses a CURRENT-tree consistency `fail`. A read, scan, comparison, consistency-scan or report-write failure always exits `2`.
 
 Publish the HTML report and any JSON/SARIF outputs as CI artifacts.
+
+CURRENT findings currently remain terminal-only. JSON/SARIF comparison exports contain the comparison results and old/new advisories, not CURRENT findings; see [TODO](todo.md).
 
 ## Single-file build
 

@@ -5,6 +5,19 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- Check one CURRENT folder or ZIP before delivery without a baseline or HTML, with coverage, delivery policy, documented helper mappings and scoped exceptions.
+
+### Fixed
+
+- Prevent missing consistency inputs from passing; resolve runnable symbols and component ownership, and check orphan accesses per runnable without borrowing another component's declarations.
+
+### Changed
+
+- Identify unsupported or unresolved RTE checks explicitly and gate them under delivery policy while retaining existing CLI syntax and YAML settings.
+- Present unchanged-peer regeneration warnings as dependency-review suggestions, without claiming regeneration history from file identity.
+
 ## [1.18.0] — 2026-09-27
 
 ### Added

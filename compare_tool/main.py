@@ -146,6 +146,8 @@ def _terminal_overview_lines(results):
 def _current_consistency_lines(check):
     """Compact terminal rendering for the CURRENT-tree RTE/ARXML check."""
     lines = [
+        '  Consistency: {} (policy: {}, exit: {})'.format(
+            check.status, check.policy, check.exit_code),
         '  Current tree: {} C file(s), {} ARXML file(s), {} RTE call(s), '
         '{} access point(s)'.format(
             check.c_files_scanned, check.arxml_files_scanned,
@@ -161,7 +163,7 @@ def _current_consistency_lines(check):
             detail = call.api
             if call.function:
                 detail += ' in {}'.format(call.function)
-        if reason == 'CONSISTENCY_SCAN_ERROR':
+        if reason in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE'):
             detail = finding['error']
         elif reason == 'NO_MATCHING_PORT_DATAELEMENT':
             detail += ' has no matching ARXML Port/DataElement'
@@ -186,10 +188,27 @@ def _current_consistency_lines(check):
         severity = finding['severity'].upper()
         lines.append('  !! [{}] {} {} -- {}'.format(
             severity, reason, location, detail))
-    if check.skipped_accesses:
-        lines.append('  !! {} RTE access(es) were not checked because their '
-                     'runnable could not be resolved.'.format(
-                         len(check.skipped_accesses)))
+    for item in check.skipped_accesses:
+        call = item.get('call')
+        location = '{}:{}'.format(call.file, call.line) if call else item.get('arxml_file', '-')
+        detail = call.api if call else item.get('runnable', '-')
+        lines.append('  !! [UNCHECKED] {} {} -- {}'.format(item['reason'], location, detail))
+    lines.append('  Coverage: {} / {} RTE call(s) checked; {} unchecked item(s); '
+                 '{} scoped exception(s).'.format(
+                     check.checked_calls, check.rte_calls_detected,
+                     len(check.skipped_accesses), len(check.exemptions)))
+    lines.append('  Findings: {} FAIL, {} WARN.'.format(
+        sum(f['severity'] == 'fail' for f in check.findings),
+        sum(f['severity'] == 'warn' for f in check.findings)))
+    lines.append('  Scope: .c calls to Rte_Read/Write/IRead/IWrite against ARXML '
+                 'Sender/Receiver access declarations. Other RTE APIs are UNCHECKED.')
+    for item in check.exemptions:
+        call = item.get('call')
+        target = '{}:{} {}'.format(call.file, call.line, call.api) if call else item.get('runnable', '-')
+        lines.append('  [EXCEPTION] {} {} -- {}'.format(
+            item['reason'], target, item['justification']))
+    for note in check.notes:
+        lines.append('  Policy: {}'.format(note))
     if check.skipped_rules:
         lines.append('  {} finding(s) skipped by rule configuration.'.format(
             check.skipped_rules))
@@ -200,6 +219,8 @@ def _current_consistency_lines(check):
         lines.append('  No current-tree RTE/ARXML consistency findings.')
     lines.append('  FAIL findings set exit code 1; consistency scan errors set '
                  'exit code 2; WARN findings do not change the exit code.')
+    lines.append('  Missing input always exits 2. UNCHECKED items exit 2 under '
+                 'delivery policy; standard policy leaves them non-gating.')
     return lines
 
 
@@ -508,11 +529,19 @@ def _parser():
                     help='enable the CLI-only CURRENT-tree RTE/ARXML '
                          'consistency check; disabled by default and not '
                          'included in the viewer or HTML report')
+    ap.add_argument('--check-current', metavar='PATH', default=None,
+                    help='check one CURRENT folder or ZIP without a baseline, '
+                         'diff or HTML; defaults to delivery policy')
+    ap.add_argument('--consistency-policy', choices=('standard', 'delivery'),
+                    default=None, help='delivery gates unchecked items; standard '
+                    'keeps them non-gating. Default: standard for comparisons, '
+                    'delivery for --check-current')
     ap.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
                     help='settings for --check-consistency: forbidden '
                          'RTE prefixes, ignored port regexes and per-rule '
                          'fail/warn/skip/off severities. Uses a small YAML '
-                         'subset and requires no third-party package')
+                         'subset, or JSON with scoped exceptions and function '
+                         'mappings; also accepted with --check-current')
     ap.add_argument('--ignore-access-port-regex', metavar='REGEX', default=None,
                     help='CLI-only extra regex for RTE Port/DataElement names '
                          'that the current-tree consistency check should skip; '
@@ -546,7 +575,8 @@ def _wants_viewer(args):
     """The viewer is the default front end: the terminal compare runs only
     when both folders are named. --no-report keeps the console even for usage
     errors, so a missing input or conflicting viewer flag can be reported."""
-    return not args.no_report and bool(args.qt or not (args.old_dir and args.new_dir))
+    return not args.check_current and not args.no_report and bool(
+        args.qt or not (args.old_dir and args.new_dir))
 
 
 def viewer_requested(argv):
@@ -560,7 +590,8 @@ def viewer_requested(argv):
         return False  # the help text belongs on a console the user can read
     try:
         args = _parser().parse_args(argv)
-        if (args.check_consistency or args.consistency_config or
+        if (args.check_current or args.consistency_policy or
+                args.check_consistency or args.consistency_config or
                 args.ignore_access_port_regex):
             return False  # CLI-only option: keep usage errors visible too
         return _wants_viewer(args)
@@ -628,7 +659,45 @@ def _load_user_rules(ap, args):
     return tuple(rules)
 
 
+def _run_current(ap, args, zip_temp):
+    """Single-source validation; old positional comparison syntax stays intact."""
+    incompatible = {
+        'old_dir/new_dir': args.old_dir or args.new_dir,
+        '--qt/--viewer': args.qt, '--report': args.report,
+        '--arxml-only': args.arxml_only, '--baseline-name': args.baseline_name,
+        '--review': args.review, '--rules': args.rules,
+        '--skip-var-renames': args.skip_var_renames,
+        '--max-diff-lines': args.max_diff_lines,
+        '--json/--sarif (CURRENT findings export is not implemented)': args.json or args.sarif,
+    }
+    conflicts = [name for name, value in incompatible.items() if value]
+    if conflicts:
+        ap.error('--check-current cannot be combined with {}'.format(', '.join(conflicts)))
+    try:
+        config = consistency.load_checker_config(
+            Path(args.consistency_config) if args.consistency_config else None)
+        consistency.validate_checker_regex(config, args.ignore_access_port_regex)
+    except (OSError, UnicodeError, ValueError) as exc:
+        ap.error('consistency configuration is invalid: {}'.format(exc))
+    root, label = _resolve_source(ap, args.check_current, zip_temp)
+    if not root.is_dir():
+        ap.error('CURRENT is not a directory or readable ZIP: {}'.format(args.check_current))
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='replace')
+    check = consistency.current_tree_check(
+        root, config, exclude=args.exclude,
+        ignore_access_port_regex=args.ignore_access_port_regex,
+        policy=args.consistency_policy or 'delivery')
+    print('CURRENT: {}'.format(args.current_name or label or args.check_current))
+    for line in _current_consistency_lines(check):
+        print(line)
+    return check.exit_code
+
+
 def _run(ap, args, zip_temp):
+    if args.check_current:
+        return _run_current(ap, args, zip_temp)
     if args.no_report:
         if args.qt:
             ap.error('--no-report cannot be combined with --qt/--viewer')
@@ -636,14 +705,14 @@ def _run(ap, args, zip_temp):
             ap.error('--no-report requires both old_dir and new_dir')
     user_rules = _load_user_rules(ap, args)
     wants_viewer = _wants_viewer(args)
-    if wants_viewer and (args.check_consistency or args.consistency_config or
+    if wants_viewer and (args.check_consistency or args.consistency_policy or args.consistency_config or
                          args.ignore_access_port_regex):
         ap.error('--check-consistency and its options are CLI-only; give both '
                  'folders without --qt/--viewer')
-    if not args.check_consistency and (args.consistency_config or
+    if not args.check_consistency and (args.consistency_policy or args.consistency_config or
                                        args.ignore_access_port_regex):
-        ap.error('--consistency-config and --ignore-access-port-regex require '
-                 '--check-consistency')
+        ap.error('--consistency-config, --consistency-policy and '
+                 '--ignore-access-port-regex require --check-consistency or --check-current')
     if args.check_consistency and args.arxml_only:
         ap.error('--check-consistency cannot be combined with --arxml-only '
                  'because generated C is outside that comparison scope')
@@ -715,7 +784,8 @@ def _run(ap, args, zip_temp):
         try:
             current_check = consistency.current_tree_check(
                 new_root, checker_config, exclude=args.exclude,
-                ignore_access_port_regex=args.ignore_access_port_regex)
+                ignore_access_port_regex=args.ignore_access_port_regex,
+                policy=args.consistency_policy or 'standard')
         except ValueError as e:
             ap.error(str(e))
 
@@ -797,12 +867,8 @@ def _exit_code(counts, exit_zero, current_check=None):
     if counts['error']:
         return 2
     if current_check is not None:
-        if any(item['reason'] == 'CONSISTENCY_SCAN_ERROR'
-               for item in current_check.findings):
-            return 2
-        if any(item['severity'] == 'fail'
-               for item in current_check.findings):
-            return 1
+        if current_check.exit_code:
+            return current_check.exit_code
     if exit_zero:
         return 0
     return 1 if counts['real-change'] or counts['added'] or counts['deleted'] else 0
