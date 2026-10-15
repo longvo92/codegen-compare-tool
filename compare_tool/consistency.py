@@ -535,20 +535,20 @@ def _find_runnable(function_name, file, runnables, config):
     return next(iter(matches)) if len(matches) == 1 else None
 
 
+def _api_matches_access(call, access):
+    payload = call.api[len('Rte_{}_'.format(call.api_type)):]
+    suffix = '{}_{}'.format(access.port, access.data_element)
+    return payload == suffix or (call.api_type in ('IRead', 'IWrite')
+                                 and payload.endswith('_' + suffix))
+
+
 def _candidate_pairs(call, access_points, runnable, runnables):
     swc = runnables[runnable][0].swc
     # Only the resolved component can supply a candidate. For legacy minimal
     # ARXML without component ancestors, stay inside the resolved runnable.
     scoped = [a for a in access_points if
               (a.swc == swc if swc else a.runnable == runnable)]
-    payload = call.api[len('Rte_{}_'.format(call.api_type)):]
-    candidates = set()
-    for access in scoped:
-        suffix = '{}_{}'.format(access.port, access.data_element)
-        if payload == suffix or (call.api_type in ('IRead', 'IWrite')
-                                 and payload.endswith('_' + suffix)):
-            candidates.add((access.port_ref, access.data_ref))
-    return candidates
+    return {(a.port_ref, a.data_ref) for a in scoped if _api_matches_access(call, a)}
 
 
 def _duplicate_inconsistencies(access_points):
@@ -589,6 +589,11 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
             ignored += 1
             continue
         if runnable is None:
+            # Preserve the existing missing-pair failure even without ownership.
+            # A global absence proves a mismatch; a global match never proves
+            # ownership, so this call still remains explicitly unchecked.
+            if not any(_api_matches_access(call, a) for a in access_points):
+                issues.append(dict(context, reason='NO_MATCHING_PORT_DATAELEMENT'))
             skipped.append(dict(context, reason='RUNNABLE_NOT_RESOLVED'))
             continue
         pairs = _candidate_pairs(call, access_points, runnable, runnables)

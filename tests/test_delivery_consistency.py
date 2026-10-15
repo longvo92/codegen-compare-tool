@@ -147,6 +147,16 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.assertEqual(check.status, 'INCOMPLETE')
         self.assertEqual(self.check().exit_code, 2)
 
+    def test_unresolved_helper_cannot_weaken_existing_missing_pair_failure(self):
+        self.fixture('void helper(void) { Rte_Read_Unknown_Value(); }\n'
+                     'void Ctrl_Step(void) { helper(); }')
+        check = self.check(policy='standard')
+        self.assertEqual(check.exit_code, 1)
+        self.assertIn('NO_MATCHING_PORT_DATAELEMENT', [f['reason'] for f in check.findings])
+        self.assertEqual(self.cli(str(self.root), str(self.root), '--no-report',
+                                 '--check-consistency', '--exit-zero')[0], 1)
+        self.assertEqual(self.check().exit_code, 2)
+
     def test_helper_mapping_is_scoped_and_has_a_reason(self):
         self.fixture('void helper(void) { Rte_Read_Speed_Value(); }\n'
                      'void Ctrl_Step(void) { helper(); }')
