@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-10-16
+
 ### Added
 
 - Print the tool version at the start of CLI comparisons and CURRENT-only checks.
