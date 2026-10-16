@@ -69,10 +69,12 @@ Diagnostics không in source content và không thay đổi verdict hoặc exit 
 
 ## Viewer side-by-side
 
+PySide6 6.12.0 bị loại khỏi dependency do crash trong Qt highlighting/teardown với Python 3.11; CLI không phụ thuộc Qt.
+
 Cài PySide6 rồi mở viewer:
 
 ```bash
-pip install PySide6
+pip install "PySide6>=6.5,!=6.12.0"
 python -m compare_tool
 ```
 

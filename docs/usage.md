@@ -69,10 +69,12 @@ The diagnostics do not print source content and do not change verdicts or exit c
 
 ## Side-by-side viewer
 
+PySide6 6.12.0 is excluded because Qt highlighting/teardown crashes with Python 3.11; the CLI does not depend on Qt.
+
 Install PySide6, then start the viewer:
 
 ```bash
-pip install PySide6
+pip install "PySide6>=6.5,!=6.12.0"
 python -m compare_tool
 ```
 

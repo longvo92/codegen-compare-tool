@@ -93,7 +93,7 @@ jobs:
 
       - name: Install the viewer dependency
         if: matrix.python-version == '3.11'
-        run: python -m pip install "PySide6>=6.5"
+        run: python -m pip install "PySide6>=6.5,!=6.12.0"
 
       # A wheel that installs but cannot load (a missing system library) would
       # otherwise turn straight back into silent skips. Fail here instead.

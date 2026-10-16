@@ -11,6 +11,7 @@ All notable changes to this project are documented here. Versions follow
 
 ### Fixed
 
+- Exclude PySide6 6.12.0 from viewer installs and builds after reproducing Qt crashes on Python 3.11.
 - Prevent missing consistency inputs from passing; resolve runnable symbols and component ownership, and check orphan accesses per runnable without borrowing another component's declarations.
 
 ### Changed
