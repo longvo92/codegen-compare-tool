@@ -1003,7 +1003,7 @@ def _counts_html(rels, results):
     fallback still has to be TRUE of the scan, though -- a model whose files
     all changed by UUID/timestamp alone is the everyday regenerated case, and
     calling it 'Identical' would be the report claiming something the hunks
-    say otherwise (see CLAUDE.md, "the record is never the filtered view").
+    say otherwise (see AGENTS.md, the raw-result invariant).
     'Identical' is the verdict word the folder tree and the tags already use,
     so the two surfaces name the same state the same way."""
     c = _group_counts(rels, results)

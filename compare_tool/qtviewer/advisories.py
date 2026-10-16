@@ -5,7 +5,7 @@ section (last of the three panes in the left column).
 Display only, exactly like the report's block -- it names the model and the
 caution, never folds a file, moves a count or changes the exit code. The text
 comes from :func:`compare_tool.report.consistency_advisories`, so all three
-surfaces say the same thing (see CLAUDE.md, "one seam per shared decision"); the
+surfaces say the same thing (see AGENTS.md, shared comparison/view-model decisions); the
 colours are theme roles, matching the report's ``if-chg`` marker, so a literal
 here cannot make the viewer and the report disagree.
 """
