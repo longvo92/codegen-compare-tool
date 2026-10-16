@@ -137,9 +137,7 @@ class TestModelAdvisories(unittest.TestCase):
 
 
 class TestRteRegenAdvisories(unittest.TestCase):
-    """A +RTE in one model while a peer model's C is byte-identical means the
-    batch was a single-model quick regen -- the architecture (RTE layer + peer
-    SWCs) was not rebuilt, so the change cannot be integrated as-is."""
+    """A +RTE alongside an unchanged peer suggests inspecting dependencies."""
 
     def _rte(self, results, rel, added):
         results[rel]['rte'] = {'added': list(added), 'removed': []}
@@ -152,11 +150,11 @@ class TestRteRegenAdvisories(unittest.TestCase):
         adv = _adv({'A': ['A.c'], 'B': ['B.c']}, results)
         self.assertEqual(len(adv), 1)
         self.assertEqual(adv[0][0], 'A')
-        self.assertIn('regenerate the architecture', adv[0][1])
+        self.assertIn('review dependencies and generation records', adv[0][1])
 
     def test_rte_added_but_peer_regenerated_is_quiet(self):
-        # B's C churned a timestamp (ignorable-only) -> it WAS regenerated, so
-        # this is a normal full regen, not a stale one
+        # Only byte-identical peers trigger this heuristic. Timestamp churn is
+        # not itself proof of a complete or correct regeneration.
         results = self._rte(
             _results(**{'A.c': 'real-change', 'B.c': 'ignorable-only'}),
             'A.c', ['Rte_Write_A_Torque'])

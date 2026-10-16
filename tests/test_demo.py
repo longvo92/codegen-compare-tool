@@ -53,9 +53,9 @@ class TestDemoTree(unittest.TestCase):
         self.assertEqual(by_model['StaleGen'],
                          'ARXML and A2L changed but the generated C did not')
         # Ctrl's C gained an RTE access (Rte_Write_Out2_Diag) while StaleGen's
-        # C stayed identical -- the tell of a single-model quick regen that did
-        # not rebuild the architecture, so the +RTE cannot be integrated as-is.
-        self.assertIn('regenerate the architecture', by_model['Ctrl'])
+        # C stayed identical. This suggests checking dependencies, but does not
+        # prove that regeneration was skipped or that integration must fail.
+        self.assertIn('review dependencies and generation records', by_model['Ctrl'])
         # nothing else is out of step
         self.assertEqual(set(by_model), {'StaleGen', 'Ctrl'})
 

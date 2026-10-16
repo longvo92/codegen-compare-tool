@@ -50,7 +50,7 @@ sys.exit(main())
 
 # --- PyInstaller onefile (.exe): CLI + viewer in one binary ---
 if (-not $PyzOnly) {
-    python -m pip install --upgrade pyinstaller "PySide6>=6.5"
+    python -m pip install --upgrade pyinstaller "PySide6>=6.5,!=6.12.0"
     if ($LASTEXITCODE -ne 0) { throw 'installing build dependencies failed' }
     python -m PyInstaller --noconfirm --clean packaging\compare-tool.spec
     if ($LASTEXITCODE -ne 0) { throw 'pyinstaller build failed' }

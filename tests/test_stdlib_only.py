@@ -2,7 +2,7 @@
 
 `compare_tool.pyz` is the documented fallback for machines where antivirus
 blocks the .exe: ~110 KB, nothing installed, stdlib only. That promise is
-stated in the README and in CLAUDE.md, and until now nothing checked it -- a
+stated in the README and in AGENTS.md, and until now nothing checked it -- a
 single third-party import in `scanner.py` would keep every test green here and
 break the tool on exactly the machines the zipapp exists for.
 
@@ -21,7 +21,7 @@ PKG = Path(__file__).resolve().parent.parent / 'compare_tool'
 # review store and gitsource -- everything except the Qt viewer
 CORE = sorted(p for p in PKG.glob('*.py'))
 ALL_MODULES = sorted(PKG.rglob('*.py'))
-# named in CLAUDE.md as Qt-free on purpose, so the suite runs on a box with no
+# named in AGENTS.md as Qt-free on purpose, so the suite runs on a box with no
 # Qt installed. They walk a model; only the widgets import PySide6.
 QT_FREE_IN_VIEWER = ('tree.py', 'summary_model.py')
 

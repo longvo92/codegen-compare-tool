@@ -32,6 +32,14 @@ cd codegen-compare-tool
 
 Với single-file build, thay `python -m compare_tool` bằng `compare-tool.exe` hoặc `python compare_tool.pyz`.
 
+Kiểm tra consistency trước delivery, chỉ cần một folder hoặc ZIP (tính năng mới trên source, chưa phát hành):
+
+```bash
+python -m compare_tool --check-current current
+```
+
+Mode này không chạy diff hoặc tạo HTML. Policy `delivery` chặn khi thiếu dữ liệu hoặc còn mục chưa kiểm tra được; YAML và lệnh compare cũ vẫn được hỗ trợ. Xem [usage](usage.md#consistency-check) để cấu hình mapping và ngoại lệ.
+
 Tạo HTML report độc lập:
 
 ```bash
@@ -62,6 +70,7 @@ Input có thể là folder hoặc ZIP archive.
 |---|---|
 | Desktop viewer | Review side-by-side |
 | HTML report | Chia sẻ hoặc publish thành CI artifact |
+| `--check-current PATH` | Kiểm tra consistency CURRENT trước delivery |
 | `--no-report` | Review nhanh trên terminal, không tạo file |
 | `--json` | Xử lý dữ liệu trong pipeline |
 | `--sarif` | Tạo code-scanning annotations |
@@ -96,7 +105,7 @@ Old/new regeneration warning vẫn là advisory. CURRENT-tree check mặc địn
 | `1` | Có real change |
 | `2` | Comparison không đầy đủ hoặc thất bại |
 
-`--exit-zero` chuyển exit code `1` thành `0`, nhưng không bao giờ bỏ qua exit code `2`.
+`--exit-zero` chỉ bỏ qua real-change từ diff; không bỏ qua consistency failure hoặc incomplete. `--check-current` trả `0` khi policy pass, `1` khi rule fail và `2` khi scan thiếu dữ liệu hoặc còn mục UNCHECKED theo policy delivery.
 
 ## Yêu cầu
 

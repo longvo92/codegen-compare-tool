@@ -18,6 +18,8 @@ Tài liệu này dành cho người sử dụng CodeGen Compare Tool. Chạy `py
 
 Cả hai input đều có thể là folder hoặc ZIP archive.
 
+CLI compare và `--check-current` in `codegen-compare-tool <version>` trước khi xử lý input. Dùng `--version` để chỉ in version của tool.
+
 ### HTML report
 
 ```bash
@@ -69,10 +71,12 @@ Diagnostics không in source content và không thay đổi verdict hoặc exit 
 
 ## Viewer side-by-side
 
+PySide6 6.12.0 bị loại khỏi dependency do crash trong Qt highlighting/teardown với Python 3.11; CLI không phụ thuộc Qt.
+
 Cài PySide6 rồi mở viewer:
 
 ```bash
-pip install PySide6
+pip install "PySide6>=6.5,!=6.12.0"
 python -m compare_tool
 ```
 
@@ -237,9 +241,82 @@ Rule severity gồm:
 
 Ignore regex match với API payload phía sau `Rte_<verb>_`, ví dụ `Bsw_Port_Data`. Regex này ảnh hưởng Port/DataElement matching nhưng không tắt `forbidden_rte_api`. `--ignore-access-port-regex REGEX` thêm một pattern tạm thời vào cấu hình trong file.
 
-`--consistency-config` và `--ignore-access-port-regex` yêu cầu `--check-consistency`. Check không dùng được cùng `--arxml-only`, và finding chưa được đưa vào HTML report hoặc viewer.
+`--consistency-config` và `--ignore-access-port-regex` yêu cầu `--check-consistency` hoặc `--check-current`. Check không dùng được cùng `--arxml-only`, và finding chưa được đưa vào HTML report hoặc viewer.
 
 Old/new regeneration warning vẫn là advisory. CURRENT-tree finding mức `fail` trả exit code `1`, kể cả khi dùng `--exit-zero`; `warn` không đổi exit code. Lỗi đọc file, list folder hoặc parse ARXML làm consistency scan không hoàn tất và trả exit code `2`. Consistency result không thay đổi file verdict.
+
+### Kiểm tra delivery không cần baseline
+
+```bash
+python -m compare_tool --check-current current
+python -m compare_tool --check-current delivery.zip --consistency-config project.json
+```
+
+`--check-current PATH` kiểm tra một folder hoặc ZIP, không chạy comparison, HTML hay viewer. Mode hỗ trợ `--exclude`, `--current-name`, `--consistency-config`, `--ignore-access-port-regex`, `--consistency-policy` và chấp nhận thêm `--no-report` / `--check-consistency` dù không bắt buộc. `--exit-zero` không bỏ qua lỗi. Các option chỉ dành cho comparison và `--json` / `--sarif` bị từ chối; export CURRENT finding được ghi trong [TODO](todo.md).
+
+Lệnh hai folder và YAML subset cũ vẫn hợp lệ. Comparison không bật `--check-consistency` giữ nguyên hành vi. Có thể bật kiểm tra completeness nghiêm ngặt trên lệnh cũ:
+
+```bash
+python -m compare_tool baseline current --no-report --check-consistency --consistency-policy delivery --exit-zero
+```
+
+| Điều kiện | `standard` (mặc định comparison) | `delivery` (mặc định `--check-current`) |
+|---|---:|---:|
+| Kiểm tra đầy đủ, không có rule fail | 0 | 0 |
+| Rule cấu hình `fail` | 1 | 1 |
+| Lỗi đọc/list/parse hoặc thiếu đầu vào bắt buộc | 2 | 2 |
+| API chưa hỗ trợ, reference mơ hồ, call/runnable chưa resolve | Không gate; hiện INCOMPLETE | 2 |
+
+Terminal hiển thị PASS, PASS WITH EXCEPTIONS, FAIL hoặc INCOMPLETE, tổng FAIL/WARN và coverage. Trong comparison, file difference vẫn ảnh hưởng process exit trừ khi dùng `--exit-zero`. Policy standard có thể không gate coverage INCOMPLETE; dùng delivery để bắt buộc kiểm tra đầy đủ. Rule WARN không gate trong cả hai policy; đặt `orphan_access: fail` nếu dự án yêu cầu.
+
+Đầu vào bắt buộc gồm C file và ARXML runnable definition. Folder rỗng, filter loại hết đầu vào cần thiết, hoặc cây không có cả call lẫn access declaration không thể âm thầm pass. Lý do JSON `no_rte_expected` cho phép utility chỉ có C, không phát hiện RTE call hoặc access declaration; không bỏ qua lỗi đọc/parse, thiếu C hay RTE usage thực tế.
+
+### Policy dự án và ngoại lệ có phạm vi
+
+Mặc định cấm `Rte_IRead_` / `Rte_IWrite_` là **policy dự án** được giữ từ trước, không phải hạn chế chung của AUTOSAR. Có thể giữ YAML cũ hoặc dùng JSON cho mapping và ngoại lệ có cấu trúc; cả hai chỉ dùng standard library. Setting không khai báo giữ default cũ. Ví dụ sau cho phép implicit API, gate orphan access và ghi hai quyết định có phạm vi cụ thể:
+
+```json
+{
+  "forbidden_rte_prefixes": [],
+  "rules": {"orphan_access": "fail"},
+  "function_mappings": [
+    {
+      "file": "Ctrl_autosar_rtw/Ctrl.c",
+      "function": "read_inputs",
+      "runnable": "/Pkg/Ctrl/IB/Step",
+      "reason": "Generated helper called only by Step; reviewed against generated C"
+    }
+  ],
+  "exceptions": [
+    {
+      "rule": "unsupported_rte_api",
+      "file": "Ctrl_autosar_rtw/Ctrl.c",
+      "runnable": "/Pkg/Ctrl/IB/Step",
+      "reason": "Client/server contract verified separately by integration"
+    }
+  ]
+}
+```
+
+Mapping cần tên function chính xác, file glob, full runnable path đang tồn tại và lý do. Đây là xác nhận của dự án, không phải bằng chứng call graph do tool tự suy luận. Nhiều target cùng match vẫn là unresolved. Target không tồn tại làm check incomplete. Mapping được áp dụng sẽ được in trên terminal.
+
+Ngoại lệ cần rule, lý do không rỗng và ít nhất một scope: `file` (glob), `swc` (full path chính xác), `runnable` (full path chính xác) hoặc `port` (short name chính xác). Tất cả scope khai báo phải match; field chưa resolve không match scope. Ngoại lệ áp dụng cho sáu finding có cấu hình ở trên và `unsupported_rte_api`, `runnable_not_resolved`, `runnable_not_implemented`, `ambiguous_port_dataelement`. Không được bỏ qua scan error hay thiếu đầu vào. Mỗi ngoại lệ được áp dụng cùng lý do đều được in. Ignore regex cũ, file exclude và rule bị tắt vẫn được hỗ trợ và hiển thị; nên dùng ngoại lệ có scope khi cần lưu lý do.
+
+Với utility không có RTE contract:
+
+```json
+{"no_rte_expected": "Standalone math utility, reviewed to have no RTE contract"}
+```
+
+### Matching và giới hạn coverage
+
+Runnable identity gồm package, SWC và internal behavior. `SYMBOL` khai báo cùng component symbol prefix xác định C entry point. Khi thiếu symbol, chỉ dùng candidate short-name/component-name không mơ hồ; không dùng suffix để đoán ownership. Duplicate definition chỉ được so trong cùng full runnable path. Tool giữ đầy đủ port/data reference; short name hoặc tổ hợp dấu gạch dưới mơ hồ được đánh dấu UNCHECKED. Orphan matching xét runnable, reference, direction và access mode.
+
+Checker đọc `.c` và đối chiếu `Rte_Read`, `Rte_Write`, `Rte_IRead`, `Rte_IWrite` với Sender/Receiver access declaration. Các `Rte_*` khác phát hiện được, gồm `Rte_Call`, `Rte_Send`, `Rte_Receive`, được ghi rõ UNCHECKED. Runnable đã khai báo nhưng không resolve được C function cũng là UNCHECKED. Helper cần mapping có lý do khi chưa resolve được ownership.
+
+Đây là source consistency check, không phải AUTOSAR schema validator đầy đủ hay C compiler: không preprocess conditional compilation, expand macro, scan inline implementation trong header hay suy luận helper call graph. Chọn đúng generated source và ghi policy phù hợp. Kết quả pass chỉ áp dụng cho phạm vi đã khai báo này.
+
+Old/new advisory về peer giữ nguyên chỉ đề nghị xem dependency và generation record. Output byte-identical không chứng minh đã hoặc cần regenerate; advisory không gate delivery và dùng chung wording trên CLI, HTML, viewer.
 
 ## HTML report
 
@@ -269,6 +346,8 @@ python -m compare_tool baseline.zip current.zip \
 `--exit-zero` chỉ bỏ qua exit code `1` khi code đó đến từ file difference. Cờ này không bỏ qua CURRENT-tree consistency `fail`. Lỗi đọc, scan, compare, consistency scan hoặc ghi report luôn trả về `2`.
 
 Nên publish HTML report và JSON/SARIF output thành CI artifact.
+
+CURRENT finding hiện chỉ có trên terminal. JSON/SARIF comparison export chứa comparison result và old/new advisory, chưa chứa CURRENT finding; xem [TODO](todo.md).
 
 ## Single-file build
 

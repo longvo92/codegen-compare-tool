@@ -104,6 +104,8 @@ Reorder chỉ là noise khi toàn bộ line là scalar assignment không side ef
 
 `consistency.py` tạo old/new regeneration advisory từ toàn bộ result. Khi CLI caller opt in bằng `--check-consistency`, module này còn kiểm tra generated RTE call của CURRENT với access-point declaration trong ARXML của CURRENT mà chỉ dùng Python standard library. Current-tree finding mức `fail` trả exit code `1`; lỗi đọc, list hoặc parse trả `2`; finding mức `warn` không gate. Consistency không đổi file verdict. Viewer và HTML renderer không chạy hoặc render optional check này.
 
+`--check-current` gọi trực tiếp cùng checker trên một source, bỏ qua scanner diff và HTML. `CurrentTreeCheck` sở hữu status và consistency exit code; `main._exit_code` kết hợp với comparison errors/differences. Policy standard giữ unchecked item không gate; delivery trả 2. Thiếu đầu vào luôn trả 2. YAML cũ giữ nguyên; JSON thêm mapping và ngoại lệ có scope/lý do. Parser giữ full runnable path, SWC, SYMBOL/prefix và full access references; orphan được xét theo runnable. CURRENT finding export vẫn là [P2 TODO](todo.md).
+
 File move được ghép sau khi verdict đã chốt. Pairing chỉ là presentation metadata; Added và Deleted vẫn giữ nguyên trong count và exit code.
 
 ## Seam dùng chung

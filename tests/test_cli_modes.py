@@ -290,7 +290,7 @@ class TestNoReport(unittest.TestCase):
         code, output, _ = self._run('--exit-zero')
         self.assertEqual(code, 0)
         self.assertTrue(any('generated C did not' in msg for _, msg in advisories))
-        self.assertTrue(any('regenerate the architecture' in msg for _, msg in advisories))
+        self.assertTrue(any('review dependencies and generation records' in msg for _, msg in advisories))
         for model, message in advisories:
             self.assertIn('!! {}: {}'.format(model, message), output)
 
