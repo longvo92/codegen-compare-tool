@@ -7,6 +7,7 @@ All notable changes to this project are documented here. Versions follow
 
 ### Added
 
+- Print the tool version at the start of CLI comparisons and CURRENT-only checks.
 - Check one CURRENT folder or ZIP before delivery without a baseline or HTML, with coverage, delivery policy, documented helper mappings and scoped exceptions.
 
 ### Fixed

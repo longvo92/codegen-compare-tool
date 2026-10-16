@@ -18,6 +18,8 @@ Tài liệu này dành cho người sử dụng CodeGen Compare Tool. Chạy `py
 
 Cả hai input đều có thể là folder hoặc ZIP archive.
 
+CLI compare và `--check-current` in `codegen-compare-tool <version>` trước khi xử lý input. Dùng `--version` để chỉ in version của tool.
+
 ### HTML report
 
 ```bash

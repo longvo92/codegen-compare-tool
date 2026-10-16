@@ -18,6 +18,8 @@ This guide is for people running CodeGen Compare Tool. Run `python -m compare_to
 
 Both inputs can be folders or ZIP archives.
 
+CLI comparisons and `--check-current` print `codegen-compare-tool <version>` before processing inputs. Use `--version` to print only the tool version.
+
 ### HTML report
 
 ```bash

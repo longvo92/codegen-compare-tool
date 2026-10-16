@@ -629,6 +629,8 @@ def _viewer_source(ap, arg, zip_temp):
 def main(argv=None):
     ap = _parser()
     args = ap.parse_args(argv)
+    if not _wants_viewer(args):
+        print('codegen-compare-tool {}'.format(__version__))
     # boxed so _resolve_source can create the extraction dir lazily; removed in
     # the finally whichever way this run exits
     zip_temp = [None]
