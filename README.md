@@ -1,6 +1,16 @@
+<div align="center">
+
 # CodeGen Compare Tool
 
-[Tiếng Việt](docs/vi/README.md)
+**Compare AUTOSAR codegen baselines and review changes offline.**
+
+[![CI](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22A699.svg)](LICENSE)
+
+[Download](https://github.com/longvo92/codegen-compare-tool/releases/latest) · [Quick start](#quick-start) · [Features](#features-and-outputs) · [User Guide](docs/usage.md) · [Tiếng Việt](docs/vi/README.md)
+
+</div>
 
 Compare AUTOSAR MATLAB/Simulink codegen folders or ZIPs and review C/C++, ARXML, RTE and A2L changes. Only proven generator noise is filtered; unexplained differences remain real changes.
 
@@ -36,8 +46,12 @@ python -m compare_tool baseline current --no-report
 python -m compare_tool --check-current current
 ```
 
-| Output | Use it to |
+## Features and outputs
+
+| Feature / output | Use it to |
 |---|---|
+| Folder or ZIP comparison | Compare C/C++, ARXML, RTE and A2L baselines |
+| Noise filtering | Filter proven generator noise while retaining unexplained changes |
 | Desktop viewer | Review changes side by side |
 | HTML report | Share results offline or as a CI artifact |
 | `--no-report` | Review summaries and diagnostics in the terminal |

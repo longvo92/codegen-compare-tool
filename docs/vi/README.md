@@ -1,6 +1,16 @@
+<div align="center">
+
 # CodeGen Compare Tool
 
-[English](../../README.md)
+**So sánh baseline codegen AUTOSAR và review thay đổi offline.**
+
+[![CI](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](../../pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22A699.svg)](../../LICENSE)
+
+[Tải về](https://github.com/longvo92/codegen-compare-tool/releases/latest) · [Bắt đầu](#bắt-đầu) · [Tính năng](#tính-năng-và-output) · [Hướng dẫn](usage.md) · [English](../../README.md)
+
+</div>
 
 So sánh folder hoặc ZIP codegen AUTOSAR MATLAB/Simulink và review thay đổi C/C++, ARXML, RTE, A2L. Tool chỉ lọc generator noise đã chứng minh; khác biệt chưa giải thích được vẫn là real change.
 
@@ -36,8 +46,12 @@ python -m compare_tool baseline current --no-report
 python -m compare_tool --check-current current
 ```
 
-| Output | Dùng để |
+## Tính năng và output
+
+| Tính năng / output | Dùng để |
 |---|---|
+| So sánh folder hoặc ZIP | So sánh baseline C/C++, ARXML, RTE và A2L |
+| Lọc noise | Lọc generator noise đã chứng minh, giữ khác biệt chưa giải thích được |
 | Desktop viewer | Review side-by-side |
 | HTML report | Chia sẻ offline hoặc làm CI artifact |
 | `--no-report` | Xem summary và diagnostics trên terminal |
