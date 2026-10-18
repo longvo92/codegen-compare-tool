@@ -1,126 +1,68 @@
-<p align="center">
-  <img src="../../resources/logo/logo-full.png" alt="CodeGen Compare Tool" width="360">
-</p>
-
-<p align="center">
-<a href="https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml"><img src="https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml/badge.svg" alt="Test"></a>
-<a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8%2B-blue.svg" alt="Python 3.8+"></a>
-<a href="../../LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"></a>
-<a href="https://github.com/longvo92/codegen-compare-tool/releases/latest"><img src="https://img.shields.io/github/v/release/longvo92/codegen-compare-tool?label=release&color=blue" alt="Release"></a>
-</p>
-
-<p align="center">🇬🇧 <a href="../../README.md">English</a></p>
-
 # CodeGen Compare Tool
 
-So sánh hai snapshot AUTOSAR MATLAB/Simulink code generation và tập trung vào các thay đổi cần review.
+[English](../../README.md)
 
-Tool lọc những generator noise có thể chứng minh là không ảnh hưởng chức năng, sau đó tóm tắt thay đổi trong generated C/C++, ARXML, RTE access và A2L objects.
+So sánh folder hoặc ZIP codegen AUTOSAR MATLAB/Simulink và review thay đổi C/C++, ARXML, RTE, A2L. Tool chỉ lọc generator noise đã chứng minh; khác biệt chưa giải thích được vẫn là real change.
 
-> Nếu không chứng minh được một khác biệt là noise, tool giữ nó lại như real change.
+## Bắt đầu
 
-## Quick start
+1. Tải `compare-tool.exe` từ [Releases](https://github.com/longvo92/codegen-compare-tool/releases/latest) và mở. Không cần cài Python.
+2. Chọn BASELINE và CURRENT, rồi chạy compare.
+3. Review trong viewer hoặc export HTML report để mở offline.
 
-Tải `compare-tool.exe` hoặc `compare_tool.pyz` từ [release mới nhất](https://github.com/longvo92/codegen-compare-tool/releases/latest). Cả hai hỗ trợ các options bên dưới.
+Để dùng CLI, tải `compare_tool.pyz` và chạy bằng Python 3.8+, hoặc dùng source như bên dưới. Với bản tải về, thay `python -m compare_tool` bằng `compare-tool.exe` hoặc `python compare_tool.pyz`.
 
-Để chạy từ source:
+## Chạy từ source
 
 ```bash
 git clone https://github.com/longvo92/codegen-compare-tool.git
 cd codegen-compare-tool
-```
-
-Với single-file build, thay `python -m compare_tool` bằng `compare-tool.exe` hoặc `python compare_tool.pyz`.
-
-Kiểm tra consistency trước delivery, chỉ cần một folder hoặc ZIP (tính năng mới trên source, chưa phát hành):
-
-```bash
-python -m compare_tool --check-current current
-```
-
-Mode này không chạy diff hoặc tạo HTML. Policy `delivery` chặn khi thiếu dữ liệu hoặc còn mục chưa kiểm tra được; YAML và lệnh compare cũ vẫn được hỗ trợ. Xem [usage](usage.md#consistency-check) để cấu hình mapping và ngoại lệ.
-
-Tạo HTML report độc lập:
-
-```bash
 python -m compare_tool baseline current --report report.html
 ```
 
-Chỉ in summary trên terminal:
+CLI chỉ dùng Python standard library. Để mở desktop viewer:
 
 ```bash
-python -m compare_tool baseline current --no-report
-```
-
-Terminal mode hiển thị Overview theo model, toàn bộ file cùng verdict, AUTOSAR/A2L changes và consistency warnings. Thêm `--check-consistency` để kiểm tra generated RTE call của CURRENT với ARXML declaration trong CURRENT. Mode này không in source diff và không tạo HTML.
-
-Mở desktop viewer:
-
-```bash
+python -m pip install -e ".[viewer]"
 python -m compare_tool
 ```
 
-Viewer cần PySide6. CLI và `compare_tool.pyz` chỉ dùng Python standard library.
+Input mẫu: [tests/fixtures/demo](../../tests/fixtures/demo).
 
-Input có thể là folder hoặc ZIP archive.
+## Sử dụng
 
-## Output
+```bash
+python -m compare_tool baseline current --no-report
+python -m compare_tool --check-current current
+```
 
-| Output | Dùng khi |
+| Output | Dùng để |
 |---|---|
 | Desktop viewer | Review side-by-side |
-| HTML report | Chia sẻ hoặc publish thành CI artifact |
-| `--check-current PATH` | Kiểm tra consistency CURRENT trước delivery |
-| `--no-report` | Review nhanh trên terminal, không tạo file |
-| `--json` | Xử lý dữ liệu trong pipeline |
-| `--sarif` | Tạo code-scanning annotations |
+| HTML report | Chia sẻ offline hoặc làm CI artifact |
+| `--no-report` | Xem summary và diagnostics trên terminal |
+| `--check-current PATH` | Kiểm tra RTE/ARXML trong CURRENT trước delivery |
+| `--json` / `--sarif` | Export comparison result cho pipeline |
 
-Comparison engine còn báo cáo:
+CURRENT consistency finding chỉ có trên terminal; JSON/SARIF chứa comparison result và old/new advisory.
 
-- model/SWC ownership;
-- port, port interface, runnable và event;
-- `Rte_*` access point;
-- A2L `CHARACTERISTIC` và `MEASUREMENT`;
-- dấu hiệu regenerate chưa đầy đủ giữa ARXML, A2L và generated C;
-- generated RTE call không khớp với access declaration trong ARXML của CURRENT khi bật `--check-consistency`.
+## Đọc kết quả
 
-Old/new regeneration warning vẫn là advisory. CURRENT-tree check mặc định tắt; khi được bật, finding mức `fail` trả exit code `1`, consistency scan không hoàn tất trả `2`, còn `warn` không đổi exit code. Consistency result không thay đổi file verdict.
-
-## Verdict
-
-| Verdict | Ý nghĩa |
-|---|---|
-| Modified | Có real change cần review |
-| Comment | Chỉ comment thay đổi |
-| Unimportant | Chỉ có generator noise đã được chứng minh |
-| Added / Deleted | File chỉ tồn tại ở một phía |
-| Identical | Không có khác biệt |
-| Not compared | Không thể đọc hoặc compare file |
-
-## CI exit code
-
-| Code | Ý nghĩa |
-|---:|---|
-| `0` | Không có real change |
-| `1` | Có real change |
-| `2` | Comparison không đầy đủ hoặc thất bại |
-
-`--exit-zero` chỉ bỏ qua real-change từ diff; không bỏ qua consistency failure hoặc incomplete. `--check-current` trả `0` khi policy pass, `1` khi rule fail và `2` khi scan thiếu dữ liệu hoặc còn mục UNCHECKED theo policy delivery.
-
-## Yêu cầu
-
-- Python 3.8 trở lên
-- Không cần server, database hoặc network khi chạy
-- Chỉ cần PySide6 cho desktop viewer
-- HTML report độc lập, không dùng CDN hoặc external asset
+- **Modified**, **Added**, **Deleted** cần review. **Comment**, **Unimportant** chỉ có comment hoặc noise đã chứng minh. **Not compared** báo lỗi.
+- Overview nhóm thay đổi theo model/SWC, gồm port, runnable, event, RTE access và A2L object.
+- Old/new regeneration warning là advisory; output giữ nguyên không chứng minh lịch sử regenerate.
+- `--check-current` dùng policy delivery: rule fail trả `1`; thiếu input, scan error hoặc mục chưa kiểm tra được trả `2`. Xem [Hướng dẫn sử dụng](usage.md#consistency-check) để biết scope và ngoại lệ.
+- Compare trả `0` khi sạch, `1` khi có real change hoặc consistency failure đã bật, `2` khi lỗi/scan không đầy đủ. `--exit-zero` chỉ bỏ qua failure do file difference.
 
 ## Tài liệu
 
-- [Hướng dẫn sử dụng](usage.md) — command, viewer, noise rules và CI
-- [English documentation](../../README.md)
+- [Hướng dẫn sử dụng](usage.md) — viewer, CLI, noise rules và CI
+- [Kiến trúc](architecture.md) — module, contract, verification và build
+- [Contributing](../../CONTRIBUTING.md) — setup và yêu cầu khi sửa tool
+- [Changelog](../../CHANGELOG.md) — release notes
 
-Chạy `python -m compare_tool --help` để xem đầy đủ CLI options.
+Chạy `python -m compare_tool --help` để xem toàn bộ CLI options. HTML report mở offline, không cần server hoặc external asset.
 
 ## License
 
-[MIT](../../LICENSE) © 2026 Long Vo Thien
+[MIT](../../LICENSE) · Long Vo Thien

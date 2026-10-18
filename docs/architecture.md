@@ -1,188 +1,110 @@
 # Architecture
 
-This is the implementation map for maintainers and code agents. Read [AGENTS.md](../AGENTS.md) first; it contains the project invariants and required checks. This file explains where behavior lives and which contracts must remain stable.
+[Tiếng Việt](vi/architecture.md) · [AGENTS.md](../AGENTS.md) · [Contributing](../CONTRIBUTING.md)
 
-The English document is authoritative.
+The CLI, HTML report and Qt viewer share one scan result. The core and zipapp support Python 3.8+ using only the standard library; Qt is optional and loaded lazily.
 
-## Non-negotiable contracts
+## Components
 
-1. If a difference cannot be proven to be noise, it is a real change.
-2. A scan, read or comparison failure produces `error`; it never looks identical.
-3. File verdicts are `identical`, `comment-only`, `ignorable-only`, `real-change`, `added`, `deleted` or `error`.
-4. Only `comment-only` and `ignorable-only` may be folded or muted.
-5. CLI, report and viewer consume the same raw scan result.
-6. The comparison core and zipapp use only the Python standard library and support Python 3.8.
-7. Qt imports stay inside `compare_tool/qtviewer/` and are loaded lazily.
-8. HTML reports are self-contained and make no network requests.
-9. Exit codes are `0` for no real changes, `1` for real changes and `2` for incomplete comparison. `--exit-zero` never suppresses `2`.
-
-## Data flow
-
-```mermaid
-flowchart LR
-    A[Folder, ZIP or Git commit] --> B[Source adapter]
-    B --> C[scanner.scan]
-    C --> D[diff_engine.compare_pair]
-    D --> E[Raw result dict]
-    C --> F[Semantic extractors]
-    F --> E
-    E --> G[CLI summary]
-    E --> H[HTML report]
-    E --> I[Qt viewer]
-    E --> J[JSON / SARIF]
-```
-
-Source adapters materialize inputs as directories. Everything after that uses the same scanner and result contract.
-
-## Module map
+Paths are relative to `compare_tool/`.
 
 | Module | Responsibility |
 |---|---|
-| `main.py` | CLI parsing, front-end selection, exit codes and terminal output |
-| `scanner.py` | Tree walk, file comparison, move pairing and semantic rollups |
-| `diff_engine.py` | Two-pass comparison, hunk classification and the single verdict decision |
-| `linediff.py` | Patience-based line matching |
-| `c_rules.py` | C/C++ comments, generated renames and safe reorder checks |
-| `arxml_rules.py` | ARXML/XML noise rules and semantic extraction |
-| `a2l_rules.py` | A2L noise rules and semantic extraction |
-| `langspec.py` | Shared comment/string grammar and whitespace-safe shadows |
-| `filepair.py` | Conservative Added/Deleted move pairing |
-| `consistency.py` | Cross-file regeneration advisories |
-| `view_model.py` | Renderer-neutral labels, row alignment and visual modes |
-| `report.py` | Self-contained HTML and shared Overview data |
-| `serialize.py` | JSON and SARIF output |
-| `review.py` | Stable review IDs, notes and sign-offs |
-| `gitsource.py` | Read-only Git snapshot materialization |
-| `zipsource.py` | Safe ZIP extraction and wrapper-folder handling |
-| `theme.py` | Named color roles for HTML and Qt |
-| `resources.py` | Optional packaged UI resources |
-| `qtviewer/` | The only Qt-dependent package |
+| `main.py` | Arguments, front-end selection, terminal output and exit codes |
+| `scanner.py` | File discovery/comparison, move pairing and semantic rollups |
+| `diff_engine.py`, `linediff.py` | Two-pass diff, patience matching, hunk classification and verdicts |
+| `c_rules.py`, `arxml_rules.py`, `a2l_rules.py` | Language noise rules and semantic extraction |
+| `langspec.py`, `userrules.py` | Comment/string grammar, safe whitespace shadows and custom rules |
+| `filepair.py` | Conservative Added/Deleted file pairing |
+| `consistency.py` | Old/new advisories and opt-in CURRENT RTE/ARXML checks |
+| `view_model.py`, `funcname.py` | Shared labels, aligned rows, muting and object captions |
+| `report.py`, `serialize.py` | Offline HTML, shared model Overview, JSON and SARIF |
+| `review.py` | Review identity, notes and sign-offs |
+| `gitsource.py`, `zipsource.py` | Read-only Git snapshots and safe temporary ZIP extraction |
+| `theme.py`, `resources.py` | Shared color roles and optional packaged assets |
+| `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package |
 
-## Comparison contract
+## Data flow
 
-`scanner.scan` returns a dict keyed by relative path. Each value has at least a verdict and comparison metadata:
+1. Source adapters materialize folders, ZIPs or Git snapshots as directories.
+2. `scanner.scan` compares file pairs through `diff_engine.compare_pair` and attaches semantic data.
+3. Move pairing and semantic rollups enrich the raw result.
+4. CLI, HTML, JSON/SARIF and viewer consume that result.
 
-```python
-{
-    "status": "real-change",
-    "hunks": [
-        {
-            "kind": "real",
-            "old_range": [12, 15],
-            "new_range": [12, 14],
-        }
-    ],
-    "renames": {},
-    "notes": [],
-    "binary": False,
-}
-```
+Git uses `git archive` without changing HEAD, index or working files. ZIP extraction rejects unreadable/empty archives and path traversal, then cleans temporary directories.
 
-Semantic keys such as `ifaces`, `swc`, `rte` and `a2l` are added only when applicable. Move pairs add `moved_from` or `moved_to`, `move_status` and `move_similarity`.
+## Comparison contracts
 
-Ranges are zero-based and end-exclusive indexes into raw file lines. Do not convert the stored coordinates to shadow lines or rendered rows.
+- Unexplained differences remain real; scan/read/compare failures produce errors.
+- Verdicts: `identical`, `comment-only`, `ignorable-only`, `real-change`, `added`, `deleted`, `error`.
+- `diff_engine._status_of` owns verdict decisions; `scanner.FOLDABLE` permits only comment/noise folding. Filters never change raw verdicts, counts or exports.
+- `scanner.scan` returns a dict keyed by relative path. Records contain `status`, `hunks`, `renames`, `notes` and `binary`; applicable records add `ifaces`, `swc`, `rte` or `a2l`.
+- Hunk `old_range` / `new_range` coordinates are zero-based, end-exclusive indexes into raw file lines, never shadow or rendered rows.
+- File moves add `moved_from` / `moved_to`, `move_status` and `move_similarity`. Original Added/Deleted verdicts remain.
 
-Hunk kinds currently include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace` and `mixed`.
+## Diff and noise safety
 
-### Verdict ownership
+Both passes use `linediff.hunks`, with patience anchors and exact gap matching:
 
-`diff_engine._status_of` is the only place that decides a file verdict. `scanner.FOLDABLE` names the only foldable verdicts.
+1. **Truth:** compare normalized shadows while preserving literals and significant Python/YAML indentation. Remaining differences are real.
+2. **Display:** diff raw lines. Non-real hunks receive a single-rule kind, or `mixed` when several rules are needed.
 
-A UI filter may change paint, navigation or visibility. It must not rewrite `status`, counts or exported data. Reports and summaries must always use the raw result.
+Hunk kinds include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace` and `mixed`.
 
-## Two-pass diff
+Generated renames require a verified one-to-one mapping; function callees need matching generated checksum roots. Reorders require identical side-effect-free scalar assignments with dependency order preserved. Calls, increments, nested assignments, declarations, control flow and indirect writes disqualify reorder folding.
 
-`diff_engine.compare_pair` uses `linediff.hunks` for both passes so coordinates stay aligned.
+`--skip-var-renames` deliberately relaxes rename proof. Its hunks use `assumed-rename`; every output surface must disclose the option.
 
-1. **Truth pass:** compare normalized shadows. Comments and supported generator noise are removed while literal contents and significant Python/YAML indentation are preserved. Anything left is real.
-2. **Display pass:** diff raw lines and label each hunk. A raw hunk that does not overlap a real hunk is classified by the one-rule variants. If several rules are needed, its kind is `mixed`.
+## Consistency
 
-The matcher uses patience anchors, then an exact matcher for remaining gaps. This avoids poor alignment in generated files with many repeated structural lines.
+`consistency.py` derives advisory regeneration findings from the raw comparison. CURRENT checking runs only when requested by CLI; HTML/viewer do not run or render that check.
 
-### Rename and reorder safety
+`--check-current` bypasses diff/HTML and checks one source. `CurrentTreeCheck` owns consistency status/exit codes; `main._exit_code` combines them with comparison results:
 
-A generated rename is applied only after a one-to-one mapping is inferred and rechecked against the shadow. Function callees require matching generated checksum roots. Literal contents are never rewritten.
-
-A reorder is noise only when every line is a side-effect-free scalar assignment, both sides contain the same statements and all data dependencies keep their order. Calls, increments, nested assignments, control flow, declarations and indirect writes disqualify the block.
-
-`--skip-var-renames` is the only intentionally unsafe comparison mode. Its hunks use `assumed-rename`, and every output surface must disclose that the option was used.
-
-## Semantic extraction
-
-`scanner.compare_file` attaches semantic data for real changes and one-sided files. The `summarize_*` functions aggregate interfaces, SWCs, RTE access and A2L objects.
-
-`consistency.py` derives old/new regeneration advisories from the complete result. When CLI callers opt in with `--check-consistency`, it also performs a standard-library-only check of CURRENT generated RTE calls against CURRENT ARXML access-point declarations. Current-tree `fail` findings set exit code `1`; read, listing and parse failures set `2`; `warn` findings do not gate. Consistency never rewrites file verdicts. The viewer and HTML renderer do not run or render this optional check.
-
-`--check-current` invokes the same checker directly on one source, bypassing diff scanning and HTML. `CurrentTreeCheck` owns status and consistency exit codes; `main._exit_code` combines them with comparison errors/differences. Standard policy leaves unchecked items non-gating; delivery returns 2. Missing input always returns 2. Existing YAML stays supported; JSON adds scoped mappings and exceptions with reasons. Parsing retains full runnable paths, SWC, SYMBOL/prefix and full access references; orphan matching is runnable-specific. CURRENT finding exports remain a [P2 TODO](todo.md).
-
-File move pairing runs after verdicts are settled. A pair is presentation metadata: Added and Deleted verdicts remain in the result and counts.
-
-## Shared presentation seams
-
-Keep facts shared by two front ends outside their renderers:
-
-| Shared decision | Owner |
+| Result | Exit |
 |---|---|
-| Hunk kind to display mode | `view_model.mode_of` |
-| Intra-line highlight span | `view_model.char_span` |
-| Side-by-side row alignment and muting | `view_model.aligned_rows`, `mute_rows` |
-| AUTOSAR display vocabulary | `view_model.SWC_DISPLAY` |
-| Model Overview grouping and counts | `report.model_overview` |
-| Function/object caption per line | `funcname.enclosing` |
-| Color roles | `theme.py` |
-| Review identity | `review.py` |
+| Clean | 0 |
+| Real changes or enabled consistency failures | 1 |
+| Input/scan/parse/output error or missing required input | 2 |
+| Unchecked coverage | Non-gating under standard; 2 under delivery |
 
-Do not copy mappings or rollup logic into CLI, HTML or Qt code.
+`--exit-zero` suppresses file-difference failures only. Checks preserve full runnable/SWC identity, SYMBOL/prefix and access references; orphan matching is per runnable. YAML supports the existing settings; JSON adds scoped mappings/exceptions. See [User Guide](usage.md#consistency-check) for policy and coverage boundaries.
 
-## Front ends
+## Shared presentation
 
-### CLI and report
+| Decision | Owner |
+|---|---|
+| Hunk display mode and character spans | `view_model.mode_of`, `char_span` |
+| Alignment and muting | `view_model.aligned_rows`, `mute_rows` |
+| AUTOSAR labels | `view_model.SWC_DISPLAY` |
+| Model grouping and counts | `report.model_overview` |
+| Function/object captions | `funcname.enclosing` |
+| Color roles / review identity | `theme.py` / `review.py` |
 
-`main.viewer_requested` decides whether the process opens Qt or runs a terminal comparison.
+Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Exports use the raw scan.
 
-`run_compare` removes a stale target report before scanning. A report-write failure preserves the scan for terminal output and exits `2`.
-
-With `--no-report`, `run_compare` skips HTML rendering. `summary_lines(..., terminal=True)` prints the Overview, semantic details and warnings without source hunks. `diagnostic_lines` adds effective settings, aggregate hunk-kind totals and one summary per non-identical file. Both consume the raw result and never change verdicts, counts or exit codes. `report.model_overview` supplies the same structured rows to HTML and terminal renderers.
-
-### Viewer
-
-The scanner runs in `qtviewer/worker.py` on a `QThread`. Results cross into widgets through signals. Renderer-independent Qt models must remain importable without PySide6 so headless tests still run.
-
-Report export uses the raw scan, not the filtered tree. Muted noise remains part of the verdict and exported counts.
-
-### Input adapters
-
-`gitsource.py` uses `git archive` and never changes HEAD, the index or the working tree.
-
-`zipsource.py` rejects unreadable/empty archives, prevents path traversal and removes temporary extraction directories after use.
-
-## Change map
-
-| Change | Start here | Required proof |
-|---|---|---|
-| Noise rule | Relevant `*_rules.py`, then `diff_engine.py` | Rule alone becomes noise; adjacent real change stays real |
-| Generic comment language | `langspec.py`, `diff_engine.RULES`, `syntax.py` | String/comment boundaries agree in diff and highlighting |
-| File verdict | `diff_engine._status_of` | Every renderer/count/exit path handles it; folding is explicit |
-| Semantic object | Extractor, `scanner.compare_file`, `summarize_*` | Added, removed and modified cases |
-| Shared label or rollup | `view_model.py` or a renderer-neutral report helper | HTML, terminal and Qt stay consistent |
-| Color | `theme.py` | Role exists in both themes |
-| CLI behavior | `main.py` | Exit codes, stale-output behavior and docs |
-| Viewer behavior | `qtviewer/` | Headless model test plus a rendered check |
-| JSON/SARIF schema | `serialize.py` | Schema/version compatibility and error representation |
+`main.viewer_requested` selects the front end. `run_compare` removes stale target HTML before scanning; write failures preserve terminal results and exit 2. `--no-report` skips HTML and leaves existing reports untouched. `summary_lines` and `diagnostic_lines` consume the raw scan without changing results.
 
 ## Verification
 
-Run before commit:
+For code changes:
 
-```bash
+```powershell
 python -m unittest discover -s tests -v
 python -m ruff check .
+python -m mypy compare_tool
+python -m compare_tool tests/fixtures/demo/old tests/fixtures/demo/new --report "$env:TEMP\codegen-smoke.html"
 ```
 
-For a release:
+The demo contains real changes, so its comparison exits 1. Verify affected viewer behavior with a rendered check; skipped Qt tests do not prove execution. Noise-rule tests must prove noise-only classification and preservation of a nearby real change. Semantic changes need added/removed/modified cases; schema changes need compatibility/error coverage.
 
-```bash
-python packaging/release_check.py X.Y.Z
+## Build and release
+
+```powershell
+.\build.ps1 -Pyz
+.\build.ps1 -PyzOnly
 ```
 
-Qt tests may skip without PySide6. A green run in that environment does not verify the viewer.
+The first builds the Windows executable and CLI zipapp; the second builds only the zipapp. See [GUI resources](../resources/README.md) for packaged assets.
+
+For an authorized release, bump `compare_tool.__version__`, date the changelog section and empty `[Unreleased]`. Run `python packaging/release_check.py X.Y.Z`, merge the version change, then run `release.yml` from `main`. The workflow verifies tests/builds and refuses existing tags; publishing requires `publish=true`.

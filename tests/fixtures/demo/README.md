@@ -1,69 +1,39 @@
-# Demo tree
+# Demo inputs
 
-One before/after pair that shows the whole tool in a single compare, laid out
-the way an Embedded Coder AUTOSAR export actually lands on disk: each model owns
-a `<Model>_autosar_rtw/` folder of generated C, the ARXML export sits under
-`arxml/`, and the calibration files under `a2l/`.
-
-This is also the suite's only fixture pair — every test scans this tree, so a
-path in an assertion is a path a reviewer would really see.
+Compare the synthetic before/after AUTOSAR export:
 
 ```bash
-python -m compare_tool tests/fixtures/demo/old tests/fixtures/demo/new \
-  --report demo.html --json demo.json --sarif demo.sarif
+python -m compare_tool tests/fixtures/demo/old tests/fixtures/demo/new --report demo.html --json demo.json --sarif demo.sarif
 ```
 
-```
-old/
-  Ctrl_autosar_rtw/           Ctrl.c  Ctrl.h  Ctrl_private.h  Ctrl_types.h
-                              Rte_Ctrl.h  rtwtypes.h
-  NoiseDemo_autosar_rtw/      NoiseDemo.c  NoiseDemo_data.c  ert_main.c  …
-  PedalMap_autosar_rtw/
-  SpeedCtrl_autosar_rtw/
-  StaleGen_autosar_rtw/
-  TorqueLimiter_autosar_rtw/
-  arxml/                      one _component.arxml per model, plus NoiseDemo's
-                              modular _interface / _datatype / _implementation
-  a2l/                        Ctrl.a2l  NoiseDemo.a2l  PedalMap.a2l  StaleGen.a2l
-```
+Expected exit: `1` because the inputs contain real changes. C files live under `<Model>_autosar_rtw/`, ARXML under `arxml/`, and calibration data under `a2l/`.
 
-Grouping keys off the **file stem**, not the folder, so a model's C, its ARXML
-under `arxml/` and its A2L under `a2l/` still land in one group in the Overview.
+## Cases
 
-## Six models, each making one point
-
-| Model | What it shows |
+| Model | Review focus |
 |---|---|
-| **SpeedCtrl** | **Reordered statements are noise.** `SpeedCtrl.c` emits the same three independent gains in a different order (and a new timestamp), so it is filed under **Unimportant**, not Modified — the values are identical, and the tool proves it before hiding it. Its `SpeedCtrl_data.c` is **Added**: a file the regenerate started emitting. |
-| **StaleGen** | **Cross-artifact consistency.** The ARXML gained a port and the A2L gained a characteristic, but `StaleGen.c` is byte-for-byte unchanged — the interface and calibration moved without the code. The report and the terminal flag *"ARXML and A2L changed but the generated C did not"*, the usual sign of a stale regenerate. |
-| **TorqueLimiter** | **A code-only change is normal.** `TorqueLimiter.c` changed (a gain went 1.25 → 1.45) while its ARXML did not, so it is **not** flagged — the check only fires when a surface changed without the code following. Its `TorqueLimiter_data.c` carries a rename the mapping cannot fully explain, which therefore stays **Modified**. |
-| **PedalMap** | **The healthy case, plus machine output.** The C, the ARXML (a new `Scaled` port) and the A2L (a new `K_PedalOffset`) all changed together, so no flag — and the AUTOSAR summary lists the new port and characteristic. |
-| **Ctrl** | **The +RTE quick-regen advisory.** `Ctrl.c` gains an `Rte_Write_Out2_Diag` while StaleGen's C stays identical, and its `TIMING-EVENT` period goes `0.01s → 0.02s`. Flagged *"gained an RTE access while a peer model stayed identical"*. |
-| **NoiseDemo** | **Every ignorable kind in one model**, so the noise rules can be read side by side with what is real. |
+| SpeedCtrl | Independent assignments reordered as noise; a generated data file added |
+| StaleGen | ARXML/A2L changes with identical C; advisory to review dependencies and generation records |
+| TorqueLimiter | A real gain change and an unproven rename; both remain Modified |
+| PedalMap | C, ARXML and A2L changes together, including a port and calibration object |
+| Ctrl | Added RTE access and a timing-event period change from 0.01 s to 0.02 s |
+| NoiseDemo | Comments, generated renames, UUIDs and timestamps beside real changes |
 
-## Where each noise rule lives
+Identical C output does not establish whether regeneration occurred or was required. Old/new advisories never gate delivery.
+
+## Representative verdicts
 
 | Path | Verdict |
 |---|---|
-| `NoiseDemo_autosar_rtw/ert_main.c` | **Comment** — banner churn only |
-| `NoiseDemo_autosar_rtw/NoiseDemo_data.c` | **Unimportant** — a consistent 1-to-1 identifier rename |
-| `NoiseDemo_autosar_rtw/NoiseDemo.c` | **Modified** — a real change beside a comment change |
-| `NoiseDemo_autosar_rtw/NoiseDemo_types.h` | **Deleted** |
-| `SpeedCtrl_autosar_rtw/SpeedCtrl_data.c` | **Added** |
-| `TorqueLimiter_autosar_rtw/TorqueLimiter_data.c` | **Modified** — a rename the mapping cannot explain stays real |
-| `arxml/NoiseDemo_component.arxml` | **Unimportant** — `UUID="…"` churn only |
-| `arxml/NoiseDemo_implementation.arxml` | **Unimportant** — `<ADMIN-DATA>` timestamp churn |
-| `arxml/NoiseDemo_interface.arxml` | **Modified** — a port-interface change, alongside a UUID bump |
-| `arxml/NoiseDemo_datatype.arxml` | **Modified** — a data type renamed |
-| `a2l/Ctrl.a2l` | **Comment** |
-| `a2l/NoiseDemo.a2l` | **Modified** — a calibration object change |
-| every `rtwtypes.h`, `*_private.h`, `Rte_*.h` | **Identical** — the bulk a real compare is made of |
+| `NoiseDemo_autosar_rtw/ert_main.c` | Comment |
+| `NoiseDemo_autosar_rtw/NoiseDemo_data.c` | Unimportant |
+| `NoiseDemo_autosar_rtw/NoiseDemo.c` | Modified |
+| `NoiseDemo_autosar_rtw/NoiseDemo_types.h` | Deleted |
+| `SpeedCtrl_autosar_rtw/SpeedCtrl_data.c` | Added |
+| `arxml/NoiseDemo_component.arxml` | Unimportant |
+| `arxml/NoiseDemo_interface.arxml` | Modified |
+| `a2l/NoiseDemo.a2l` | Modified |
 
-## What the outputs carry
+HTML contains the review view and old/new advisories. JSON carries the versioned comparison result; SARIF contains actionable file findings. CURRENT RTE/ARXML checking is separate and terminal-only; see the [User Guide](../../../docs/usage.md#consistency-check).
 
-- **`demo.html`** — the human report: a *Consistency check* section (below the AUTOSAR changes) names StaleGen (surfaces changed, C did not) and Ctrl (+RTE while a peer stayed identical), `SpeedCtrl.c` sits under Unimportant with its rows greyed until you click, and the folder tree / Overview show every verdict at once.
-- **`demo.json`** — the whole scan under a versioned schema, including the same exit code the process returns.
-- **`demo.sarif`** — only the files that need action. Unimportant, Comment and identical files are *not* findings.
-
-`test_demo.py` asserts every one of these claims, so the demo cannot drift out of
-step with what it says it does.
+[Demo tests](../../test_demo.py) verify verdicts, semantic summaries, advisories and exports.
