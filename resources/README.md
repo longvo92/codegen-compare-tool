@@ -1,35 +1,22 @@
 # GUI resources
 
-Maintainer reference for the icons and logos shipped with the desktop viewer.
+Icons and logos bundled with the desktop viewer.
 
-## Layout
+| Path | Content |
+|---|---|
+| `icons/svg/` | Source toolbar icons |
+| `icons/png/24/`, `icons/png/48/` | Raster fallbacks |
+| `logo/` | Viewer, report and Windows assets |
+| `gen/` | Asset definitions and generator |
+| `resources.qrc` | Qt resource manifest |
 
-```text
-resources/
-├── icons/svg/       source toolbar icons
-├── icons/png/24/    raster fallback
-├── icons/png/48/    HiDPI raster fallback
-├── logo/            viewer, report and Windows assets
-├── gen/             asset definitions and generator
-└── resources.qrc    Qt resource manifest
-```
+`compare_tool/resources.py` resolves source/frozen assets; `compare_tool/qtviewer/icons.py` loads and tints them. Missing assets fall back to text or empty icons without preventing startup or comparison.
 
-## Runtime behavior
+## Editing
 
-`compare_tool/resources.py` resolves assets in both a source checkout and a frozen executable. `compare_tool/qtviewer/icons.py` loads and tints them for the active theme.
+- Use a 24×24 SVG grid with `stroke="currentColor"`; define app colors in `compare_tool/theme.py`.
+- Keep PNG/ICO fallbacks synchronized with SVG sources.
+- Update `resources.qrc` and the PyInstaller spec when adding packaged assets.
+- Commit generated assets so runtime needs no generator dependencies or network.
 
-Missing assets must degrade to text labels or an empty icon; they must not prevent comparison or viewer startup.
-
-## Editing rules
-
-- Keep SVG icons on a 24×24 grid with `stroke="currentColor"`.
-- Put application colors in `compare_tool/theme.py`; do not add viewer color literals here.
-- Keep PNG and ICO fallbacks in sync with their SVG sources.
-- Add new packaged assets to `resources.qrc` and the PyInstaller spec when required.
-- Generated assets are committed so runtime use never needs CairoSVG, Pillow or network access.
-
-Verify resource lookup with:
-
-```bash
-python -m unittest tests.test_resources -v
-```
+Verify lookup with `python -m unittest tests.test_resources -v`.

@@ -1,163 +1,110 @@
 # Kiến trúc
 
-Đây là bản đồ implementation dành cho maintainer. AI/code agent phải dùng [bản tiếng Anh](../architecture.md) làm nguồn chuẩn và đọc [AGENTS.md](../../AGENTS.md) trước khi sửa code.
+[English](../architecture.md) · [AGENTS.md](../../AGENTS.md) · [Contributing](../../CONTRIBUTING.md)
 
-## Contract bắt buộc
+CLI, HTML report và Qt viewer dùng chung một scan result. Core và zipapp hỗ trợ Python 3.8+, chỉ dùng standard library; Qt là tùy chọn và load lazy. Bản tiếng Anh là nguồn chuẩn cho maintainer và code agent.
 
-1. Nếu không chứng minh được khác biệt là noise, đó là real change.
-2. Lỗi scan, đọc hoặc compare tạo verdict `error`; không được trông giống identical.
-3. File verdict gồm `identical`, `comment-only`, `ignorable-only`, `real-change`, `added`, `deleted` và `error`.
-4. Chỉ `comment-only` và `ignorable-only` được fold hoặc mute.
-5. CLI, report và viewer dùng cùng raw scan result.
-6. Comparison core và zipapp chỉ dùng Python standard library, hỗ trợ Python 3.8.
-7. Qt import chỉ nằm trong `compare_tool/qtviewer/` và được load lazy.
-8. HTML report độc lập, không gọi network.
-9. Exit code: `0` không có real change, `1` có real change, `2` comparison không đầy đủ. `--exit-zero` không được bỏ qua `2`.
+## Module
 
-## Data flow
-
-```mermaid
-flowchart LR
-    A[Folder, ZIP hoặc Git commit] --> B[Source adapter]
-    B --> C[scanner.scan]
-    C --> D[diff_engine.compare_pair]
-    D --> E[Raw result dict]
-    C --> F[Semantic extractor]
-    F --> E
-    E --> G[CLI summary]
-    E --> H[HTML report]
-    E --> I[Qt viewer]
-    E --> J[JSON / SARIF]
-```
-
-Source adapter đưa input về dạng directory. Từ scanner trở đi, mọi front end dùng chung result contract.
-
-## Bản đồ module
+Path tương đối với `compare_tool/`.
 
 | Module | Trách nhiệm |
 |---|---|
-| `main.py` | CLI parsing, chọn front end, exit code và terminal output |
-| `scanner.py` | Scan tree, compare file, ghép file move và semantic rollup |
-| `diff_engine.py` | Two-pass diff, phân loại hunk và quyết định verdict |
-| `linediff.py` | Patience-based line matching |
-| `c_rules.py` | C/C++ comment, generated rename và safe reorder |
-| `arxml_rules.py` | ARXML/XML noise rules và semantic extraction |
-| `a2l_rules.py` | A2L noise rules và semantic extraction |
-| `langspec.py` | Comment/string grammar và whitespace-safe shadow |
-| `filepair.py` | Ghép Added/Deleted thành file move một cách bảo thủ |
-| `consistency.py` | Cross-file regeneration advisory |
-| `view_model.py` | Label, aligned row và visual mode dùng chung |
-| `report.py` | HTML độc lập và dữ liệu Overview dùng chung |
-| `serialize.py` | JSON và SARIF |
-| `review.py` | Stable review ID, note và sign-off |
-| `gitsource.py` | Tạo Git snapshot read-only |
-| `zipsource.py` | Giải nén ZIP an toàn |
-| `theme.py` | Named color role cho HTML và Qt |
-| `qtviewer/` | Package duy nhất phụ thuộc Qt |
+| `main.py` | Argument, chọn front end, terminal output và exit code |
+| `scanner.py` | Tìm/compare file, ghép file move và semantic rollup |
+| `diff_engine.py`, `linediff.py` | Two-pass diff, patience matching, phân loại hunk và verdict |
+| `c_rules.py`, `arxml_rules.py`, `a2l_rules.py` | Noise rule theo ngôn ngữ và semantic extraction |
+| `langspec.py`, `userrules.py` | Comment/string grammar, whitespace shadow an toàn và custom rule |
+| `filepair.py` | Ghép Added/Deleted file một cách bảo thủ |
+| `consistency.py` | Old/new advisory và CURRENT RTE/ARXML check tùy chọn |
+| `view_model.py`, `funcname.py` | Label, aligned row, mute và object caption dùng chung |
+| `report.py`, `serialize.py` | HTML offline, model Overview dùng chung, JSON và SARIF |
+| `review.py` | Review identity, note và sign-off |
+| `gitsource.py`, `zipsource.py` | Git snapshot read-only và giải nén ZIP an toàn vào temp |
+| `theme.py`, `resources.py` | Color role dùng chung và packaged asset tùy chọn |
+| `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt |
 
-## Result contract
+## Data flow
 
-`scanner.scan` trả về dict theo relative path:
+1. Source adapter đưa folder, ZIP hoặc Git snapshot về directory.
+2. `scanner.scan` compare từng cặp file qua `diff_engine.compare_pair` và gắn semantic data.
+3. Move pairing và semantic rollup bổ sung raw result.
+4. CLI, HTML, JSON/SARIF và viewer dùng result này.
 
-```python
-{
-    "status": "real-change",
-    "hunks": [
-        {
-            "kind": "real",
-            "old_range": [12, 15],
-            "new_range": [12, 14],
-        }
-    ],
-    "renames": {},
-    "notes": [],
-    "binary": False,
-}
-```
+Git dùng `git archive`, không đổi HEAD, index hoặc working file. ZIP extraction từ chối archive không đọc được/rỗng và path traversal, rồi dọn temp directory.
 
-Các key `ifaces`, `swc`, `rte` và `a2l` chỉ xuất hiện khi phù hợp. File move có thêm `moved_from` hoặc `moved_to`, `move_status` và `move_similarity`.
+## Comparison contract
 
-Range dùng index zero-based, end-exclusive trên raw line. Không đổi chúng sang shadow line hoặc rendered row.
+- Khác biệt chưa giải thích vẫn là real; lỗi scan/đọc/compare tạo error.
+- Verdict: `identical`, `comment-only`, `ignorable-only`, `real-change`, `added`, `deleted`, `error`.
+- `diff_engine._status_of` quyết định verdict; `scanner.FOLDABLE` chỉ cho fold comment/noise. Filter không đổi raw verdict, count hoặc export.
+- `scanner.scan` trả dict theo relative path. Record có `status`, `hunks`, `renames`, `notes`, `binary`; thêm `ifaces`, `swc`, `rte`, `a2l` khi phù hợp.
+- `old_range` / `new_range` của hunk là index zero-based, end-exclusive trên raw line; không dùng shadow hay rendered row.
+- File move thêm `moved_from` / `moved_to`, `move_status`, `move_similarity`. Verdict Added/Deleted gốc giữ nguyên.
 
-`diff_engine._status_of` là nơi duy nhất quyết định file verdict. `scanner.FOLDABLE` khai báo hai verdict được phép fold.
+## Diff và noise safety
 
-UI filter chỉ được thay đổi paint, navigation hoặc visibility. Không được sửa `status`, count hoặc exported data.
+Hai pass đều dùng `linediff.hunks`, với patience anchor và exact gap matching:
 
-## Two-pass diff
+1. **Truth:** compare normalized shadow, giữ literal và indentation có ý nghĩa của Python/YAML. Khác biệt còn lại là real.
+2. **Display:** diff raw line. Hunk không real nhận single-rule kind, hoặc `mixed` khi cần nhiều rule.
 
-`diff_engine.compare_pair` gọi `linediff.hunks` cho cả hai pass để giữ alignment:
+Hunk kind gồm `real`, `moved`, `comment`, `rename`, `assumed-rename`, `reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`, `mixed`.
 
-1. **Truth pass:** compare normalized shadow. Phần còn khác sau khi bỏ supported generator noise là real.
-2. **Display pass:** diff raw line và gắn kind cho từng hunk. Hunk không overlap real hunk được phân loại bằng single-rule variant; nếu cần nhiều rule thì dùng `mixed`.
+Generated rename cần mapping một-một đã verify; function callee cần cùng generated checksum root. Reorder cần cùng scalar assignment không side effect và giữ dependency order. Call, increment, nested assignment, declaration, control flow, indirect write không được fold như reorder.
 
-Shadow phải giữ nguyên literal content và indentation có ý nghĩa trong Python/YAML.
+`--skip-var-renames` chủ động nới điều kiện chứng minh rename. Hunk dùng `assumed-rename`; mọi output phải ghi rõ đã bật option.
 
-Generated rename chỉ được áp dụng sau khi mapping một-một được suy ra và verify lại. Function callee cần cùng generated checksum root. Literal không được rewrite.
+## Consistency
 
-Reorder chỉ là noise khi toàn bộ line là scalar assignment không side effect, hai phía có cùng statement và mọi data dependency giữ nguyên thứ tự.
+`consistency.py` tạo regeneration advisory từ raw comparison. CURRENT check chỉ chạy khi CLI yêu cầu; HTML/viewer không chạy hoặc render check này.
 
-`--skip-var-renames` là mode cố ý không an toàn duy nhất. Hunk của nó dùng `assumed-rename`, và mọi output phải báo option này đã được bật.
+`--check-current` bỏ qua diff/HTML và check một source. `CurrentTreeCheck` sở hữu consistency status/exit code; `main._exit_code` kết hợp với comparison result:
 
-## Semantic và file move
-
-`scanner.compare_file` gắn semantic data cho real change và one-sided file. Các hàm `summarize_*` tổng hợp interface, SWC, RTE access và A2L object.
-
-`consistency.py` tạo old/new regeneration advisory từ toàn bộ result. Khi CLI caller opt in bằng `--check-consistency`, module này còn kiểm tra generated RTE call của CURRENT với access-point declaration trong ARXML của CURRENT mà chỉ dùng Python standard library. Current-tree finding mức `fail` trả exit code `1`; lỗi đọc, list hoặc parse trả `2`; finding mức `warn` không gate. Consistency không đổi file verdict. Viewer và HTML renderer không chạy hoặc render optional check này.
-
-`--check-current` gọi trực tiếp cùng checker trên một source, bỏ qua scanner diff và HTML. `CurrentTreeCheck` sở hữu status và consistency exit code; `main._exit_code` kết hợp với comparison errors/differences. Policy standard giữ unchecked item không gate; delivery trả 2. Thiếu đầu vào luôn trả 2. YAML cũ giữ nguyên; JSON thêm mapping và ngoại lệ có scope/lý do. Parser giữ full runnable path, SWC, SYMBOL/prefix và full access references; orphan được xét theo runnable. CURRENT finding export vẫn là [P2 TODO](todo.md).
-
-File move được ghép sau khi verdict đã chốt. Pairing chỉ là presentation metadata; Added và Deleted vẫn giữ nguyên trong count và exit code.
-
-## Seam dùng chung
-
-| Quyết định dùng chung | Owner |
+| Kết quả | Exit |
 |---|---|
-| Hunk kind → display mode | `view_model.mode_of` |
-| Intra-line highlight | `view_model.char_span` |
-| Aligned row và muting | `view_model.aligned_rows`, `mute_rows` |
-| AUTOSAR display vocabulary | `view_model.SWC_DISPLAY` |
-| Model Overview | `report.model_overview` |
+| Sạch | 0 |
+| Real change hoặc consistency failure đã bật | 1 |
+| Lỗi input/scan/parse/output hoặc thiếu input bắt buộc | 2 |
+| Coverage chưa kiểm tra được | Không gate với standard; 2 với delivery |
+
+`--exit-zero` chỉ bỏ qua failure do file difference. Check giữ full runnable/SWC identity, SYMBOL/prefix và access reference; orphan match theo runnable. YAML hỗ trợ setting cũ; JSON thêm mapping/ngoại lệ có scope. Xem [Hướng dẫn sử dụng](usage.md#consistency-check) về policy và giới hạn coverage.
+
+## Presentation dùng chung
+
+| Quyết định | Owner |
+|---|---|
+| Hunk display mode và character span | `view_model.mode_of`, `char_span` |
+| Alignment và mute | `view_model.aligned_rows`, `mute_rows` |
+| AUTOSAR label | `view_model.SWC_DISPLAY` |
+| Model grouping và count | `report.model_overview` |
 | Function/object caption | `funcname.enclosing` |
-| Color role | `theme.py` |
-| Review identity | `review.py` |
+| Color role / review identity | `theme.py` / `review.py` |
 
-Không copy mapping hoặc rollup logic vào CLI, HTML hay Qt renderer.
+Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Export dùng raw scan.
 
-## Front end và input
+`main.viewer_requested` chọn front end. `run_compare` xóa target HTML cũ trước scan; lỗi ghi vẫn giữ terminal result và trả 2. `--no-report` bỏ qua HTML, không đụng report cũ. `summary_lines` và `diagnostic_lines` dùng raw scan, không đổi kết quả.
 
-`main.viewer_requested` chọn Qt hoặc terminal comparison. `run_compare` xóa stale report trước khi scan; lỗi ghi report vẫn in được scan result và trả exit code `2`.
+## Verification
 
-Với `--no-report`, tool bỏ qua HTML rendering. `summary_lines(..., terminal=True)` in Overview, semantic details và warnings mà không in source hunk. `diagnostic_lines` bổ sung effective settings, tổng số hunk theo kind và một summary cho mỗi file không identical. Cả hai đều dùng raw result và không thay đổi verdict, count hoặc exit code. `report.model_overview` cấp cùng structured rows cho HTML và terminal.
+Với code change:
 
-Viewer chạy scanner trong `qtviewer/worker.py` bằng `QThread`. Export report luôn dùng raw scan, không dùng filtered tree.
-
-`gitsource.py` dùng `git archive`, không đổi HEAD, index hoặc working tree. `zipsource.py` chặn path traversal, báo lỗi archive hỏng/rỗng và xóa temp directory sau khi chạy.
-
-## Sửa gì, bắt đầu ở đâu
-
-| Change | Bắt đầu | Bằng chứng cần có |
-|---|---|---|
-| Noise rule | `*_rules.py`, rồi `diff_engine.py` | Rule đứng một mình là noise; cạnh real change vẫn là real |
-| Generic comment language | `langspec.py`, `RULES`, `syntax.py` | Diff và highlighting hiểu comment/string giống nhau |
-| File verdict | `diff_engine._status_of` | Mọi renderer, count và exit path xử lý rõ ràng |
-| Semantic object | Extractor, `scanner.compare_file`, `summarize_*` | Added, removed và modified cases |
-| Shared label/rollup | `view_model.py` hoặc renderer-neutral helper | HTML, terminal và Qt cho cùng kết quả |
-| Color | `theme.py` | Role có trong cả hai theme |
-| CLI behavior | `main.py` | Exit code, stale output và docs |
-| Viewer behavior | `qtviewer/` | Headless model test và rendered check |
-| JSON/SARIF schema | `serialize.py` | Schema compatibility và error representation |
-
-## Verify
-
-```bash
+```powershell
 python -m unittest discover -s tests -v
 python -m ruff check .
+python -m mypy compare_tool
+python -m compare_tool tests/fixtures/demo/old tests/fixtures/demo/new --report "$env:TEMP\codegen-smoke.html"
 ```
 
-Trước release:
+Demo có real change nên compare trả 1. Verify viewer bị ảnh hưởng bằng rendered check; Qt test skip không chứng minh execution. Noise-rule test cần case chỉ noise và case giữ real change ở gần. Semantic change cần case added/removed/modified; schema change cần kiểm tra compatibility/error.
 
-```bash
-python packaging/release_check.py X.Y.Z
+## Build và release
+
+```powershell
+.\build.ps1 -Pyz
+.\build.ps1 -PyzOnly
 ```
 
-Qt tests có thể skip nếu thiếu PySide6.
+Lệnh đầu build Windows executable và CLI zipapp; lệnh sau chỉ build zipapp. Xem [GUI resources](../../resources/README.md) về packaged asset.
+
+Khi được yêu cầu release, tăng `compare_tool.__version__`, ghi ngày cho changelog section và để trống `[Unreleased]`. Chạy `python packaging/release_check.py X.Y.Z`, merge version change, rồi chạy `release.yml` từ `main`. Workflow kiểm tra test/build và từ chối tag đã có; publish cần `publish=true`.

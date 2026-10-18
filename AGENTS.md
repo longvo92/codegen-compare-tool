@@ -2,7 +2,7 @@
 Compare AUTOSAR MATLAB/Simulink codegen folders while filtering proven generator noise.
 Package: compare_tool. Read docs/architecture.md for module ownership and contracts.
 
-## Invariants
+## Constraints
 - An unproven difference is a real change. Scan/read/parse/compare failures are errors, never empty or clean results.
 - Verdicts: identical, comment-only, ignorable-only, real-change, added, deleted, error. Only noise may be hidden; filtering must not change verdicts, counts or raw report results.
 - New noise rules must prove both noise-only handling and preservation of a nearby real change.
@@ -11,7 +11,15 @@ Package: compare_tool. Read docs/architecture.md for module ownership and contra
 - HTML reports contain local/inline assets and work offline.
 - Exit codes: 0 clean, 1 real changes or configured consistency failures, 2 incomplete/error. --exit-zero must never suppress errors.
 - Graceful UI fallback must not disguise comparison failures.
-- Update task-oriented English docs and corresponding docs/vi/ with documented behavior changes.
+
+## Documentation
+
+- Write short, direct sentences. Lead with the task or result, avoid marketing language, and link to existing guidance instead of repeating it.
+- Keep user guides focused on user tasks, options, constraints, and interpreting results.
+- Do not describe transient GUI status text, progress-bar timing or visibility, widget layout, implementation details, or bug-fix history in user guides.
+- Put implementation details in maintainer documentation and user-visible fixes in CHANGELOG.md. Update a user guide only when usage, options, constraints, or result interpretation changes.
+- Keep architecture documentation focused on the current design, contracts, constraints, and verification entry points. Exclude update history, completed-work lists, validation snapshots, TODOs, and roadmaps.
+- Keep English docs and corresponding docs/vi/ synchronized.
 
 ## Verification
 For code changes:
