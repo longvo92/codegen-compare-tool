@@ -61,7 +61,7 @@ CURRENT consistency findings are terminal-only; JSON/SARIF exports contain compa
 - [Contributing](CONTRIBUTING.md) — setup and change requirements
 - [Changelog](CHANGELOG.md) — release notes
 
-Run `python -m compare_tool --help` for all CLI options. HTML reports work offline without a server or external assets.
+See [CLI flags](docs/usage.md#cli-flags) for defaults and supported combinations, or run `python -m compare_tool --help`. HTML reports work offline without a server or external assets.
 
 ## License
 

@@ -61,7 +61,7 @@ CURRENT consistency finding chỉ có trên terminal; JSON/SARIF chứa comparis
 - [Contributing](../../CONTRIBUTING.md) — setup và yêu cầu khi sửa tool
 - [Changelog](../../CHANGELOG.md) — release notes
 
-Chạy `python -m compare_tool --help` để xem toàn bộ CLI options. HTML report mở offline, không cần server hoặc external asset.
+Xem [CLI flags](usage.md#cli-flags) về mặc định và cách kết hợp, hoặc chạy `python -m compare_tool --help`. HTML report mở offline, không cần server hoặc external asset.
 
 ## License
 

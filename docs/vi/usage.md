@@ -4,31 +4,100 @@
 
 ## Command line
 
-Input có thể là folder hoặc ZIP. Compare cần đủ hai path.
+Input có thể là folder hoặc ZIP. Đặt BASELINE trước, CURRENT sau:
 
 ```bash
 python -m compare_tool baseline current --report report.html
 python -m compare_tool baseline current --no-report
 ```
 
-Report mặc định là `compare_report.html`, hoặc `arxml_update.html` khi dùng `--arxml-only`. Report độc lập và mở offline. Terminal mode in summary theo model/SWC, semantic changes, warning, cấu hình thực tế và diagnostics từng file; không in source hunk hay tạo HTML. Report cũ không bị thay đổi trong terminal mode; JSON/SARIF vẫn được tạo nếu yêu cầu.
+Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. Dùng `--qt` / `--viewer` để mở input đã truyền trong viewer, hoặc `--check-current PATH` để check một input trên terminal. Đặt path, label, glob và regex trong dấu nháy nếu có khoảng trắng hoặc ký tự shell.
 
-| Option | Công dụng |
+### CLI flags
+
+#### Mode và phạm vi input
+
+| Argument / flag | Công dụng và mặc định |
 |---|---|
-| `--report OUT.html` / `--no-report` | Tạo HTML hoặc chỉ in terminal; không dùng cùng nhau |
-| `--arxml-only` | Chỉ compare ARXML, XML và A2L |
-| `--exclude PATTERN` | Bỏ qua path hoặc file name; có thể lặp |
-| `--baseline-name NAME` / `--current-name NAME` | Đặt label input |
-| `--theme dark\|light` | Chọn theme ban đầu |
-| `--rules RULES.json` | Thêm noise rule của dự án |
-| `--skip-var-renames` | Chạy quick check rename không an toàn bên dưới |
-| `--max-diff-lines N` | Giới hạn diff line nhúng cho từng file; không đổi verdict |
-| `--review FILE` | Đọc review note cho HTML report |
-| `--json OUT.json` / `--sarif OUT.sarif` | Export comparison result |
-| `--exit-zero` | Chỉ bỏ qua failure do file difference |
-| `--version` | Chỉ in version |
+| `old_dir new_dir` | Path BASELINE và CURRENT; bắt buộc khi CLI comparison. Mỗi input có thể là folder hoặc ZIP. |
+| `--qt`, `--viewer` | Hai tên cho cùng flag: mở desktop viewer thay CLI comparison. Cần PySide6; input path không bắt buộc. |
+| `--arxml-only` | Chỉ compare ARXML/XML/A2L và tạo compact update report. Mặc định tắt. |
+| `--exclude PATTERN` | Bỏ qua relative path hoặc file name khớp glob ở cả hai phía. Lặp để thêm glob, ví dụ `--exclude "*.tmp" --exclude "cache/*"`. Mặc định không exclude. |
 
-Chạy `python -m compare_tool --help` để xem toàn bộ options.
+#### Report và kết quả
+
+| Flag | Công dụng và mặc định |
+|---|---|
+| `--report OUT.html` | Path HTML output. Mặc định: `compare_report.html`, hoặc `arxml_update.html` khi dùng `--arxml-only`. Report mở offline. |
+| `--no-report` | In summary model/SWC, semantic changes, warning, cấu hình thực tế và diagnostics từng file; không in source hunk hay tạo HTML. Cần đủ hai input; giữ nguyên HTML đã có. |
+| `--json OUT.json` | Xuất thêm comparison result có schema version, gồm file verdict, hunk, semantic data, old/new advisory và exit code. Mặc định không tạo JSON. |
+| `--sarif OUT.sarif` | Xuất thêm SARIF 2.1.0 finding cho file Modified, Added, Deleted và error. Mặc định không tạo SARIF. |
+| `--baseline-name NAME` | Đặt label hiển thị BASELINE, ví dụ `"build 4821"`; không đổi input path. Mặc định: label lấy từ input. |
+| `--current-name NAME` | Đặt label hiển thị CURRENT; cùng cách hoạt động với `--baseline-name`. |
+| `--theme dark\|light` | Theme ban đầu của viewer/HTML. Mặc định: `dark`; HTML vẫn chứa cả hai theme. Không ảnh hưởng terminal output. |
+| `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
+| `--review REVIEW.json` | Đọc review note/sign-off từ viewer vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
+| `--exit-zero` | Trả `0` khi có file difference để CI thu report mà không fail vì thay đổi. Mặc định tắt; không bỏ qua consistency failure đã bật (`1`), lỗi input/scan/output hoặc thiếu coverage theo delivery (`2`). |
+
+#### CURRENT consistency
+
+Các check này chỉ dùng trên CLI. Xem [Consistency check](#consistency-check) về policy, rule, cấu hình và giới hạn coverage.
+
+| Flag | Công dụng và mặc định |
+|---|---|
+| `--check-consistency` | Check generated RTE call với ARXML trong CURRENT khi compare hai input. Mặc định tắt; finding hiện trên terminal. |
+| `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. Mặc định dùng policy `delivery`. |
+| `--consistency-policy standard\|delivery` | Chọn cách gate coverage. Mặc định: `standard` cho comparison check, `delivery` cho `--check-current`. Delivery trả `2` khi còn mục chưa check được; standard chỉ báo, không gate. |
+| `--consistency-config FILE` | Đọc policy từ YAML subset được hỗ trợ hoặc JSON. Cấu hình forbidden prefix, ignored port và rule severity; JSON thêm mapping/ngoại lệ. Setting bỏ qua giữ default có sẵn. |
+| `--ignore-access-port-regex REGEX` | Thêm một regex ignored-port tạm thời, kết hợp OR với pattern trong config. Match payload sau `Rte_<verb>_`; không tắt forbidden-API check. Mặc định không thêm regex. |
+
+#### Noise rule và trợ giúp
+
+| Flag | Công dụng và mặc định |
+|---|---|
+| `--rules RULES.json` | Thêm noise pattern của dự án vào built-in rule cho CLI/viewer. Mặc định không có custom rule; xem format tại [Custom noise rules](#custom-noise-rules). |
+| `--skip-var-renames` | Quick check rename C/C++ không an toàn; mặc định tắt. Có thể ẩn rewiring thật, gắn nhãn Assumed rename cho hunk bị fold. Không dùng để sign off review; xem [giới hạn noise](#cái-gì-được-tính-là-noise). |
+| `-h`, `--help` | In cú pháp/options CLI rồi thoát; không cần input. |
+| `--version` | Chỉ in version của tool rồi thoát; không cần input. |
+
+### Kết hợp flag
+
+- `--report` và `--no-report` không dùng cùng nhau. JSON/SARIF là output bổ sung; thêm `--no-report` để tránh tạo HTML mặc định. Nội dung chưa chứa CURRENT finding.
+- `--no-report` cần đủ hai input, không dùng cùng `--qt` / `--viewer`. Dùng report/export flag trong CLI comparison; viewer xuất HTML qua thao tác Export riêng.
+- `--consistency-policy`, `--consistency-config` và `--ignore-access-port-regex` cần `--check-consistency` hoặc `--check-current`. Consistency check không dùng cùng viewer hoặc `--arxml-only`.
+- `--check-current` lấy input từ PATH, không nhận positional argument. Chấp nhận `--exclude`, `--current-name` và consistency options; `--no-report` / `--check-consistency` không bắt buộc. Option compare/report và JSON/SARIF bị từ chối. `--exit-zero` không bỏ qua failure của mode này.
+
+### Ví dụ
+
+Đặt tên build input và chọn report theme sáng:
+
+```bash
+python -m compare_tool baseline current --report report.html --baseline-name "build 4821" --current-name "working tree" --theme light
+```
+
+Xuất machine result không tạo HTML, bỏ qua file tạm:
+
+```bash
+python -m compare_tool baseline current --no-report --exclude "*.tmp" --exclude "cache/*" --json result.json --sarif result.sarif --exit-zero
+```
+
+Chỉ review AUTOSAR/calibration surface:
+
+```bash
+python -m compare_tool baseline current --arxml-only --report autosar.html
+```
+
+Sau khi lưu rules file và review note từ viewer, đưa chúng vào HTML report có giới hạn diff:
+
+```bash
+python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
+```
+
+Gate consistency và coverage của CURRENT, cho phép file difference thông thường:
+
+```bash
+python -m compare_tool baseline current --no-report --check-consistency --consistency-policy delivery --exit-zero
+```
 
 ## Viewer side-by-side
 
@@ -151,6 +220,12 @@ rules:
 Severity: `fail` gate, `warn` chỉ báo, `skip` bỏ qua và đếm finding theo cấu hình, `off` tắt rule. WARN không gate trong cả hai policy.
 
 Mặc định cấm implicit API là policy dự án, không phải hạn chế chung của AUTOSAR. Đặt `forbidden_rte_prefixes: []` để cho phép implicit API. Ignore regex match payload sau `Rte_<verb>_`, ảnh hưởng port/data matching và không tắt forbidden-API check. `--ignore-access-port-regex REGEX` thêm pattern tạm thời.
+
+Sau khi lưu YAML trên thành `project.yaml`, thêm ignore tạm thời bên cạnh `^Bsw_`:
+
+```bash
+python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
+```
 
 Consistency options yêu cầu `--check-consistency` hoặc `--check-current`. Không dùng check cùng `--arxml-only` hoặc viewer.
 

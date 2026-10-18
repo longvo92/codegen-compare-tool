@@ -4,31 +4,100 @@
 
 ## Command line
 
-Inputs may be folders or ZIP archives. Both paths are required for a comparison.
+Inputs may be folders or ZIP archives. Put BASELINE first and CURRENT second:
 
 ```bash
 python -m compare_tool baseline current --report report.html
 python -m compare_tool baseline current --no-report
 ```
 
-The default report is `compare_report.html`, or `arxml_update.html` with `--arxml-only`. Reports are self-contained and open offline. Terminal mode prints model/SWC summaries, semantic changes, warnings, effective settings and per-file diagnostics without source hunks or HTML. Existing reports remain untouched in terminal mode; requested JSON/SARIF files are still written.
+Two input paths select CLI comparison; without both paths, the tool opens the viewer. Use `--qt` / `--viewer` to open supplied inputs in the viewer, or `--check-current PATH` to check one input in the terminal. Quote paths, labels, globs and regexes that contain spaces or shell characters.
 
-| Option | Purpose |
+### CLI flags
+
+#### Mode and input scope
+
+| Argument / flag | Use and defaults |
 |---|---|
-| `--report OUT.html` / `--no-report` | Write HTML or use terminal-only output; mutually exclusive |
-| `--arxml-only` | Compare ARXML, XML and A2L only |
-| `--exclude PATTERN` | Exclude a path or file name; repeatable |
-| `--baseline-name NAME` / `--current-name NAME` | Set input labels |
-| `--theme dark\|light` | Select the initial theme |
-| `--rules RULES.json` | Add project noise rules |
-| `--skip-var-renames` | Run the unsafe rename quick check described below |
-| `--max-diff-lines N` | Limit embedded diff lines per file; verdicts remain unchanged |
-| `--review FILE` | Load review notes for the HTML report |
-| `--json OUT.json` / `--sarif OUT.sarif` | Export comparison results |
-| `--exit-zero` | Suppress file-difference failures only |
-| `--version` | Print only the version |
+| `old_dir new_dir` | BASELINE and CURRENT paths; required for CLI comparison. Each may be a folder or ZIP. |
+| `--qt`, `--viewer` | Aliases: open the desktop viewer instead of CLI comparison. Requires PySide6; input paths are optional. |
+| `--arxml-only` | Restrict comparison to ARXML/XML/A2L and produce a compact update report. Off by default. |
+| `--exclude PATTERN` | Skip matching relative paths or bare file names on both sides. Repeat for multiple globs, e.g. `--exclude "*.tmp" --exclude "cache/*"`. No exclusions by default. |
 
-Run `python -m compare_tool --help` for all options.
+#### Reports and results
+
+| Flag | Use and defaults |
+|---|---|
+| `--report OUT.html` | HTML output path. Default: `compare_report.html`, or `arxml_update.html` with `--arxml-only`. Reports open offline. |
+| `--no-report` | Print model/SWC summaries, semantic changes, warnings, effective settings and per-file diagnostics without source hunks or HTML. Requires both input paths; leaves existing HTML untouched. |
+| `--json OUT.json` | Also write the versioned comparison result, including file verdicts, hunks, semantic data, old/new advisories and exit code. No JSON by default. |
+| `--sarif OUT.sarif` | Also write SARIF 2.1.0 findings for Modified, Added, Deleted and error files. No SARIF by default. |
+| `--baseline-name NAME` | Set the BASELINE display label, e.g. `"build 4821"`; does not change the input path. Default: label derived from the input. |
+| `--current-name NAME` | Set the CURRENT display label; same behavior as `--baseline-name`. |
+| `--theme dark\|light` | Initial viewer/HTML theme. Default: `dark`; both themes remain available in HTML. Does not affect terminal output. |
+| `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
+| `--review REVIEW.json` | Load viewer review notes/sign-offs into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
+| `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Off by default; never suppresses enabled consistency failures (`1`), input/scan/output errors or delivery coverage gaps (`2`). |
+
+#### CURRENT consistency
+
+These checks are CLI-only. See [Consistency check](#consistency-check) for policy, rules, configuration and coverage limits.
+
+| Flag | Use and defaults |
+|---|---|
+| `--check-consistency` | Check generated RTE calls against ARXML in CURRENT during a two-input comparison. Off by default; findings appear in the terminal. |
+| `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. Uses `delivery` policy by default. |
+| `--consistency-policy standard\|delivery` | Select coverage enforcement. Default: `standard` for comparison checks, `delivery` for `--check-current`. Delivery gates unchecked items with exit `2`; standard reports them without gating. |
+| `--consistency-config FILE` | Load the supported YAML subset or JSON policy. Controls forbidden prefixes, ignored ports and rule severities; JSON also supports mappings/exceptions. Omitted settings keep built-in defaults. |
+| `--ignore-access-port-regex REGEX` | Add one temporary ignored-port regex, OR-ed with configured patterns. Matches the payload after `Rte_<verb>_`; does not disable forbidden-API checks. No extra regex by default. |
+
+#### Noise rules and help
+
+| Flag | Use and defaults |
+|---|---|
+| `--rules RULES.json` | Add project noise patterns to built-in rules for CLI/viewer. No custom rules by default; see [Custom noise rules](#custom-noise-rules) for the file format. |
+| `--skip-var-renames` | Unsafe C/C++ rename quick check; off by default. Can hide real rewiring and labels folded hunks as Assumed rename. Do not use it to sign off a review; see [noise limits](#what-counts-as-noise). |
+| `-h`, `--help` | Print CLI syntax/options and exit; no inputs needed. |
+| `--version` | Print only the tool version and exit; no inputs needed. |
+
+### Flag combinations
+
+- `--report` and `--no-report` are mutually exclusive. JSON/SARIF are additional outputs; add `--no-report` to avoid default HTML. Their contents exclude CURRENT findings.
+- `--no-report` requires both inputs and cannot run with `--qt` / `--viewer`. Use report/export flags in CLI comparisons; the viewer exports HTML through its own Export action.
+- `--consistency-policy`, `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. Consistency checks cannot run with the viewer or `--arxml-only`.
+- `--check-current` takes its input from PATH, not positional arguments. It accepts `--exclude`, `--current-name` and consistency options; `--no-report` / `--check-consistency` are redundant. Comparison/report options and JSON/SARIF are rejected. `--exit-zero` does not suppress its failures.
+
+### Examples
+
+Name the input builds and select a light report theme:
+
+```bash
+python -m compare_tool baseline current --report report.html --baseline-name "build 4821" --current-name "working tree" --theme light
+```
+
+Export machine results without HTML, excluding temporary files:
+
+```bash
+python -m compare_tool baseline current --no-report --exclude "*.tmp" --exclude "cache/*" --json result.json --sarif result.sarif --exit-zero
+```
+
+Review only the AUTOSAR/calibration surface:
+
+```bash
+python -m compare_tool baseline current --arxml-only --report autosar.html
+```
+
+After saving a rules file and viewer review notes, include them in a capped HTML report:
+
+```bash
+python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
+```
+
+Gate CURRENT consistency and coverage while allowing ordinary file differences:
+
+```bash
+python -m compare_tool baseline current --no-report --check-consistency --consistency-policy delivery --exit-zero
+```
 
 ## Side-by-side viewer
 
@@ -151,6 +220,12 @@ rules:
 Severities: `fail` gates, `warn` reports only, `skip` omits and counts configured findings, `off` disables the rule. WARN never gates under either policy.
 
 The default implicit-API prohibition is a project policy, not a universal AUTOSAR restriction. Set `forbidden_rte_prefixes: []` to allow implicit APIs. Ignore regexes match the payload after `Rte_<verb>_`, affect port/data matching and do not disable forbidden-API checks. `--ignore-access-port-regex REGEX` adds a temporary pattern.
+
+After saving the YAML above as `project.yaml`, add a temporary ignore alongside `^Bsw_`:
+
+```bash
+python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
+```
 
 Consistency options require `--check-consistency` or `--check-current`. Checks cannot run with `--arxml-only` or the viewer.
 
