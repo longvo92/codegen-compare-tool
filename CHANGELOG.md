@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- Add a standalone Code Check workspace alongside Compare in the desktop viewer, with folder/ZIP inputs, coverage policies, YAML/JSON configuration, searchable findings and source context.
+
+### Changed
+
+- Label comparison-only consistency warnings as Regeneration advisories, separate from CURRENT code checks.
+
 ## [1.19.0] — 2026-10-16
 
 ### Added

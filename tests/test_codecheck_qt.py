@@ -1,0 +1,238 @@
+"""Exercise the standalone workspace with the real checker and Qt worker."""
+
+import contextlib
+import io
+import json
+import os
+import tempfile
+import time
+import unittest
+import zipfile
+from pathlib import Path
+from unittest import mock
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+
+try:
+    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtGui import QDropEvent
+    from PySide6.QtCore import QUrl
+    from PySide6.QtWidgets import QApplication
+    HAVE_QT = True
+except ImportError:
+    HAVE_QT = False
+
+from compare_tool.consistency import current_tree_check
+from compare_tool.main import main
+
+_APP = None
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestCodeCheckWorkspace(unittest.TestCase):
+    def setUp(self):
+        global _APP
+        from compare_tool.qtviewer.app import MainWindow, apply_theme
+        _APP = QApplication.instance() or QApplication([])
+        self.app = _APP
+        apply_theme(self.app)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'current'
+        self.root.mkdir()
+        self.code = self.root / 'Ctrl.c'
+        self.code.write_text('void Ctrl_Step(void) { Rte_Read_Speed_Value(); }', encoding='utf-8')
+        (self.root / 'Ctrl.arxml').write_text('''<AUTOSAR><AR-PACKAGES><AR-PACKAGE>
+<SHORT-NAME>Pkg</SHORT-NAME><ELEMENTS><APPLICATION-SW-COMPONENT-TYPE>
+<SHORT-NAME>Ctrl</SHORT-NAME><INTERNAL-BEHAVIORS><SWC-INTERNAL-BEHAVIOR>
+<SHORT-NAME>IB</SHORT-NAME><RUNNABLES><RUNNABLE-ENTITY><SHORT-NAME>Step</SHORT-NAME>
+<DATA-RECEIVE-POINT-BY-ARGUMENTS><VARIABLE-ACCESS><ACCESSED-VARIABLE><AUTOSAR-VARIABLE-IREF>
+<PORT-PROTOTYPE-REF>/Pkg/Ctrl/Speed</PORT-PROTOTYPE-REF>
+<TARGET-DATA-PROTOTYPE-REF>/If/Value</TARGET-DATA-PROTOTYPE-REF>
+</AUTOSAR-VARIABLE-IREF></ACCESSED-VARIABLE></VARIABLE-ACCESS></DATA-RECEIVE-POINT-BY-ARGUMENTS>
+</RUNNABLE-ENTITY></RUNNABLES></SWC-INTERNAL-BEHAVIOR></INTERNAL-BEHAVIORS>
+</APPLICATION-SW-COMPONENT-TYPE></ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>''', encoding='utf-8')
+        self.win = MainWindow()
+        self.addCleanup(self.win.close)
+        self.win.show()
+        self.win.modes.setCurrentIndex(1)
+        self.page = self.win.code_check
+        self.page.source.setText(str(self.root))
+        self.app.processEvents()
+
+    def settle(self, predicate):
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            self.app.processEvents()
+            if predicate():
+                for _ in range(5):
+                    self.app.processEvents()
+                return
+            time.sleep(0.005)
+        self.fail('Qt worker did not finish')
+
+    def run_check(self):
+        self.page.run_button.click()
+        self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
+
+    def test_standalone_pass_matches_cli_without_starting_compare(self):
+        self.assertEqual([self.win.modes.tabText(i) for i in range(2)], ['Compare', 'Code Check'])
+        self.assertIsNone(self.win.worker)
+        self.assertFalse(self.win.act_export.isEnabled())
+        self.assertFalse(self.win.act_open.isVisible())
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'PASS')
+        self.assertEqual(self.page.check, current_tree_check(self.root, policy='delivery'))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(['--check-current', str(self.root)])
+        self.assertEqual(code, self.page.check.exit_code)
+        self.assertIn('1 / 1 RTE call(s) checked', self.page.coverage.toPlainText())
+        self.assertIn('No findings', self.page.visible_count.text())
+
+    def test_failed_finding_filter_source_and_stale_inputs(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'FAIL')
+        self.page.search.setText('ACCESS_MODE_MISMATCH')
+        self.assertEqual(self.page.findings.topLevelItemCount(), 1)
+        self.assertIn('Rte_Write_Speed_Value', self.page.details.toPlainText())
+        self.assertIn('>     1', self.page.source_preview.toPlainText())
+        self.assertIn('Ctrl.c', self.page.source_preview.toPlainText())
+        check = self.page.check
+        self.page.severity.setCurrentText('WARN')
+        self.assertEqual(self.page.findings.topLevelItemCount(), 0)
+        self.assertIs(self.page.check, check)
+        self.assertEqual(self.page.status.text(), 'FAIL')
+        self.page.ignore.setText('^Bsw_')
+        self.assertIn('STALE', self.page.status.text())
+        self.assertIn('Policy: delivery', self.page.result_source.text())
+
+    def test_unsupported_api_incomplete_in_both_policies(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Call_Service_Run(); }', encoding='utf-8')
+        for index, expected_exit in ((0, 2), (1, 0)):
+            self.page.policy.setCurrentIndex(index)
+            self.run_check()
+            self.assertEqual(self.page.status.text(), 'INCOMPLETE')
+            self.assertEqual(self.page.check.exit_code, expected_exit)
+            self.page.severity.setCurrentText('UNCHECKED')
+            self.assertIn('UNSUPPORTED_RTE_API', self.page.findings.topLevelItem(0).text(1))
+
+    def test_exceptions_remain_visible_with_justification(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Call_Service_Run(); }', encoding='utf-8')
+        config = Path(self.temp.name) / 'policy.json'
+        config.write_text(json.dumps({'exceptions': [{'rule': 'unsupported_rte_api',
+            'file': 'Ctrl.c', 'reason': 'Reviewed separately with service declarations'}]}), encoding='utf-8')
+        self.page.config.setText(str(config))
+        self.run_check()
+        self.page.severity.setCurrentText('EXCEPTION')
+        self.assertEqual(self.page.findings.topLevelItemCount(), 1)
+        self.assertIn('Reviewed separately', self.page.details.toPlainText())
+        self.assertIn('Reviewed separately', self.page.coverage.toPlainText())
+
+    def test_missing_input_and_parse_errors_never_pass(self):
+        for path in (self.root / 'Ctrl.arxml',):
+            path.write_text('<broken', encoding='utf-8')
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'INCOMPLETE')
+        self.assertIn('CONSISTENCY_SCAN_ERROR', self.page.coverage.toPlainText())
+        self.page.excludes.setPlainText('*.c\n*.arxml')
+        self.run_check()
+        self.assertEqual(self.page.check.exit_code, 2)
+        self.assertIn('no C files', self.page.details.toPlainText())
+
+    def test_bad_source_config_regex_and_worker_crash_clear_previous_pass(self):
+        self.run_check()
+        self.page.source.setText(str(self.root / 'missing'))
+        self.run_check()
+        self.assertIsNone(self.page.check)
+        self.assertEqual(self.page.status.text(), 'INCOMPLETE')
+        self.assertEqual(self.page.findings.topLevelItemCount(), 0)
+        self.page.source.setText(str(self.root))
+        bad = Path(self.temp.name) / 'bad.json'
+        bad.write_text('{broken', encoding='utf-8')
+        self.page.config.setText(str(bad))
+        self.run_check()
+        self.assertIn('JSONDecodeError', self.page.summary.text())
+        self.page.config.clear()
+        self.page.ignore.setText('[')
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'INCOMPLETE')
+        self.page.ignore.clear()
+        with mock.patch('compare_tool.qtviewer.worker.current_tree_check', side_effect=RuntimeError('test crash')):
+            self.run_check()
+        self.assertIn('test crash', self.page.summary.text())
+
+    def test_zip_source_survives_for_inspection_and_is_cleaned_on_rerun(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
+        archive = Path(self.temp.name) / 'delivery.zip'
+        with zipfile.ZipFile(archive, 'w') as out:
+            for path in self.root.iterdir():
+                out.write(path, 'delivery/' + path.name)
+        self.page.source.setText(str(archive))
+        self.run_check()
+        extracted = self.page.root
+        self.assertTrue(extracted.is_dir())
+        self.assertIn('Rte_Write', self.page.source_preview.toPlainText())
+        self.page.source.setText(str(self.root))
+        self.run_check()
+        self.assertFalse(extracted.exists())
+
+    def test_switching_modes_preserves_compare_and_check_results(self):
+        demo = Path(__file__).parent / 'fixtures' / 'demo'
+        self.win.old, self.win.new = str(demo / 'old'), str(demo / 'new')
+        self.win._start_scan()
+        self.settle(lambda: bool(self.win._raw_results) and not self.win.worker.isRunning())
+        raw = self.win._raw_results.copy()
+        self.run_check()
+        check = self.page.check
+        self.win.modes.setCurrentIndex(0)
+        self.app.processEvents()
+        self.assertTrue(self.win.act_open.isVisible())
+        self.assertTrue(self.win.act_export.isEnabled())
+        self.assertEqual(self.win._raw_results, raw)
+        self.assertTrue(self.win.tree.isVisible())
+        self.win.modes.setCurrentIndex(1)
+        self.assertIs(self.page.check, check)
+        self.assertIn('Code Check', self.win.windowTitle())
+        self.page._use_current()
+        self.assertEqual(self.page.source.text(), str(demo / 'new'))
+
+    def test_drop_in_code_check_does_not_replace_comparison_sources(self):
+        data = QMimeData()
+        data.setUrls([QUrl.fromLocalFile(str(self.root))])
+        event = QDropEvent(QPointF(20, 20), Qt.CopyAction, data, Qt.LeftButton, Qt.NoModifier)
+        self.win.dropEvent(event)
+        self.assertEqual(Path(self.page.source.text()), self.root)
+        self.assertIsNone(self.win.old)
+        self.assertIsNone(self.win.new)
+
+    def test_theme_switch_keeps_selection_and_results(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
+        self.run_check()
+        before = self.page.details.toPlainText()
+        for name in ('light', 'dark'):
+            self.win._set_theme(name)
+            self.assertEqual(self.page.details.toPlainText(), before)
+            self.assertEqual(self.page.status.text(), 'FAIL')
+
+    def test_close_during_check_waits_for_worker_before_cleanup(self):
+        import threading
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_check(*args):
+            entered.set()
+            release.wait(5)
+            return current_tree_check(*args)
+
+        with mock.patch('compare_tool.qtviewer.worker.current_tree_check', side_effect=slow_check):
+            self.page.start_check()
+            self.assertTrue(entered.wait(2))
+            self.assertFalse(self.win.close())
+            self.assertTrue(self.win.isVisible())
+            release.set()
+            self.settle(lambda: not self.win.isVisible())
+
+
+if __name__ == '__main__':
+    unittest.main()

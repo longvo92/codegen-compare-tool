@@ -17,6 +17,20 @@ from .icons import app_icon, logo_pixmap
 GUIDE = """
 # Using the side-by-side viewer
 
+Choose **Compare** for baseline review or **Code Check** for one CURRENT snapshot.
+
+## Code Check
+
+- Select a CURRENT folder or ZIP, or use **Use Compare CURRENT**.
+- Choose delivery or standard coverage policy and an optional YAML/JSON config.
+- Scope overrides accept excluded globs (one per line) and an ignored-port regex.
+- Run **Code Check**, filter findings by severity or text, and select a result
+  to inspect its evidence and source context.
+- **Coverage & policy** includes unchecked items, exceptions and effective settings.
+- Checks cover generated .c Sender/Receiver calls against ARXML. Other RTE APIs
+  remain UNCHECKED. The same rules and policy apply as CLI `--check-current`.
+- Compare and Code Check retain separate inputs and results.
+
 ## 1. Two folders
 
 - `Open folders…` -- both sides in one dialog, change either one, `Compare`
@@ -37,10 +51,10 @@ GUIDE = """
 ## 3. Read the tree
 
 - The left column is three panes -- **Files**, **Quick changes**,
-  **Consistency**. Click a bar to fold that pane away and give its height to
+  **Regeneration advisories**. Click a bar to fold that pane away and give its height to
   the ones still open; click again and it comes back the size it was
 - Drag any bar to resize -- all three share one splitter
-- **Consistency** only appears when the scan has a heads-up, and its bar says
+- **Regeneration advisories** only appears when the scan has a heads-up, and its bar says
   how many even while folded
 - Every file listed -- a verdict never removes a row on its own
 - A folder shows its heaviest child verdict

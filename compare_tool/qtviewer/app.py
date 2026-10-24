@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
                                QProgressBar, QSizePolicy, QSplitter, QStyle,
-                               QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
 from .. import gitsource, review, theme, zipsource
@@ -27,6 +27,7 @@ from ..main import default_report_name
 from ..report import build_arxml_report, build_report, consistency_advisories
 from ..scanner import summarize
 from .advisories import AdvisoryPanel
+from .codecheck import CodeCheckPage
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .icons import ACCENT, app_icon, icon, std_icon
@@ -224,7 +225,7 @@ class MainWindow(QMainWindow):
         # one that could not be resized.
         self.sec_files = Section('FILES', tree_box)
         self.sec_changes = Section('QUICK CHANGES', self.summary)
-        self.sec_consistency = Section('CONSISTENCY', self.advisories)
+        self.sec_consistency = Section('REGENERATION ADVISORIES', self.advisories)
         self._sections = (self.sec_files, self.sec_changes,
                           self.sec_consistency)
 
@@ -282,7 +283,13 @@ class MainWindow(QMainWindow):
         self.review_box = self._review_bar()
         self.review_box.setVisible(False)
         v.addWidget(self.review_box)
-        self.setCentralWidget(central)
+        self.modes = QTabWidget()
+        self.modes.setObjectName('workspaces')
+        self.modes.tabBar().setObjectName('workspaceModes')
+        self.modes.addTab(central, 'Compare')
+        self.code_check = CodeCheckPage(lambda: self.new, self)
+        self.modes.addTab(self.code_check, 'Code Check')
+        self.setCentralWidget(self.modes)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
         # incomplete), the verdict counts as a permanent widget on the right so
@@ -300,6 +307,7 @@ class MainWindow(QMainWindow):
         self._set_state('idle', 'Ready')
 
         self._build_toolbar()
+        self.modes.currentChanged.connect(self._switch_workspace)
         self._style_widgets()
 
         if self.old and self.new:
@@ -312,6 +320,22 @@ class MainWindow(QMainWindow):
             # on the landing screen in the middle, in bigger type
             self.diff.show_drop_hint(self.old)
             self._set_state('idle', 'Ready')
+
+    def _switch_workspace(self, index):
+        comparing = index == 0
+        for action in self._compare_toolbar_actions:
+            action.setVisible(comparing)
+        for action in (self.act_first, self.act_prev, self.act_next, self.act_last,
+                       self.act_reviewed, self.act_file_reviewed):
+            action.setEnabled(comparing)
+        self.act_export.setEnabled(comparing and bool(self._raw_results))
+        self.statusBar().setVisible(comparing)
+        self.code_check.refresh_current()
+        if comparing:
+            self.setWindowTitle(getattr(self, '_compare_title', 'AUTOSAR CodeGen Compare — viewer'))
+        else:
+            self._compare_title = self.windowTitle()
+            self.setWindowTitle('AUTOSAR CodeGen Compare — Code Check')
 
     # tool-state chip on the status bar: a coloured dot plus a word, so the
     # reviewer can tell at a glance whether a result is final or still coming
@@ -365,6 +389,7 @@ class MainWindow(QMainWindow):
             self._apply_icons()
             self.summary.apply_theme()
             self.advisories.apply_theme()
+            self.code_check.apply_theme()
             self.diff.apply_theme()
             self._refresh_tree_keep_selection()  # verdict colours are per item
             self.diff.restore_reading_position(at)
@@ -509,6 +534,7 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction(self.act_review_mode)
         tb.addWidget(self._tool_button(self.act_export, primary=True))
+        self._compare_toolbar_actions = list(tb.actions())
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -771,6 +797,17 @@ class MainWindow(QMainWindow):
                     self._reviews.path, type(e).__name__, e), 12000)
 
     def closeEvent(self, event):
+        running = [w for w in (self.worker, self.code_check.worker) if w and w.isRunning()]
+        if running:
+            # Keep source directories and QThreads alive until their reads finish.
+            event.ignore()
+            if not getattr(self, '_close_pending', False):
+                self._close_pending = True
+                self.setEnabled(False)
+                for worker in running:
+                    worker.finished.connect(self.close)
+            return
+        self.code_check.cleanup()
         self._commit_review()
         if self._src_temp:
             # checkouts and unpacked zips are scratch: they live as long as the
@@ -823,6 +860,11 @@ class MainWindow(QMainWindow):
         if not paths:
             return
         event.acceptProposedAction()
+        if self.modes.currentWidget() is self.code_check:
+            if not self.code_check.is_running():
+                self.code_check.source.setText(paths[0])
+            self._front()
+            return
         if len(paths) >= 2:
             if not (self._use_source('old', paths[0])
                     and self._use_source('new', paths[1])):
@@ -989,7 +1031,9 @@ class MainWindow(QMainWindow):
         # window: it changed what the scan judged, so the reviewer has to see
         # which mode produced the tree they are reading
         quick = ' — QUICK CHECK: variable renames skipped' if self.skip_var_renames else ''
-        self.setWindowTitle('AUTOSAR CodeGen Compare — {}{}'.format(name, quick))
+        self._compare_title = 'AUTOSAR CodeGen Compare — {}{}'.format(name, quick)
+        if self.modes.currentIndex() == 0:
+            self.setWindowTitle(self._compare_title)
         self._load_reviews()
         self.counts_label.setText('')
         self._set_state('busy', 'Scanning…')
@@ -1020,7 +1064,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setVisible(False)
-        self.act_export.setEnabled(bool(results))
+        self.act_export.setEnabled(bool(results) and self.modes.currentIndex() == 0)
         errs = sorted(rel for rel, r in results.items() if r['status'] == 'error')
         if errs:
             shown = ', '.join(errs[:20]) + (' …' if len(errs) > 20 else '')
@@ -1525,6 +1569,11 @@ class MainWindow(QMainWindow):
 # items would override those verdict colours. Colours are named as theme roles
 # and filled in by apply_theme, so there is one QSS for both schemes.
 _QSS = """
+QTabBar#workspaceModes::tab {{ padding:10px 28px; font-size:13px;
+                             font-weight:600; color:{fg-dim}; background:{chrome-bg}; }}
+QTabBar#workspaceModes::tab:selected {{ color:{fg-strong}; background:{panel-3};
+                                      border-bottom:3px solid {accent-2}; }}
+QTabWidget#workspaces::pane {{ border:0; border-top:1px solid {border}; }}
 QToolBar#main {{ background:{chrome-bg}; border:0; border-bottom:1px solid {border};
                 padding:4px 12px 4px 6px; spacing:2px; }}
 /* the Help button carries a menu: without room for it the arrow is clipped

@@ -41,7 +41,7 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 
 #### CURRENT consistency
 
-These checks are CLI-only. See [Consistency check](#consistency-check) for policy, rules, configuration and coverage limits.
+These flags control CLI checks. The viewer offers the same checker in **Code Check**. See [Consistency check](#consistency-check) for policy, rules, configuration and coverage limits.
 
 | Flag | Use and defaults |
 |---|---|
@@ -64,7 +64,7 @@ These checks are CLI-only. See [Consistency check](#consistency-check) for polic
 
 - `--report` and `--no-report` are mutually exclusive. JSON/SARIF are additional outputs; add `--no-report` to avoid default HTML. Their contents exclude CURRENT findings.
 - `--no-report` requires both inputs and cannot run with `--qt` / `--viewer`. Use report/export flags in CLI comparisons; the viewer exports HTML through its own Export action.
-- `--consistency-policy`, `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. Consistency checks cannot run with the viewer or `--arxml-only`.
+- `--consistency-policy`, `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. These CLI flags cannot run with the viewer or `--arxml-only`; configure viewer checks in **Code Check** instead.
 - `--check-current` takes its input from PATH, not positional arguments. It accepts `--exclude`, `--current-name` and consistency options; `--no-report` / `--check-consistency` are redundant. Comparison/report options and JSON/SARIF are rejected. `--exit-zero` does not suppress its failures.
 
 ### Examples
@@ -129,6 +129,16 @@ Select folders or ZIPs, or use **Git compare** to compare a commit with the curr
 
 Review notes are saved in `codegen-review.json` beside CURRENT. The CLI loads them only with `--review FILE`.
 
+### Code Check workspace
+
+Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
+
+1. Select a folder or ZIP, drop one onto Code Check, or choose **Use Compare CURRENT**.
+2. Choose `delivery` (default) or `standard` coverage policy and an optional YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
+3. Select **Run Code Check**. Filter results by severity or text; select a finding to inspect its evidence and source context.
+
+**Coverage & policy** shows checked calls, unchecked items, exceptions, configured skips and effective settings. Inputs and results stay separate from Compare. Both workspaces retain results when switching. Code Check uses the [same rules and coverage limits](#consistency-check) as CLI `--check-current`; changing inputs requires a new run. **Regeneration advisories** in Compare remain non-gating old/new warnings.
+
 ## What counts as noise
 
 A rule must explain the whole difference; anything left remains real.
@@ -170,7 +180,7 @@ Old/new consistency advisories suggest reviewing dependencies and generation rec
 
 ## Consistency check
 
-Check one CURRENT folder or ZIP without a baseline, HTML or viewer:
+Use the viewer's **Code Check** workspace, or check one CURRENT folder or ZIP in the terminal without a baseline or HTML:
 
 ```bash
 python -m compare_tool --check-current current
@@ -192,7 +202,7 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Use `--consistency-policy delivery` to enforce coverage on comparison checks. The terminal shows PASS, PASS WITH EXCEPTIONS, FAIL or INCOMPLETE, findings and coverage. Comparison differences also affect exit status; `--exit-zero` suppresses only those differences, never consistency failures or errors.
 
-`--check-current` accepts `--exclude`, `--current-name`, consistency options and the redundant `--no-report` / `--check-consistency` flags. Comparison-only options and JSON/SARIF are rejected. CURRENT findings are terminal-only, including during comparisons; capture terminal output for a delivery record.
+`--check-current` accepts `--exclude`, `--current-name`, consistency options and the redundant `--no-report` / `--check-consistency` flags. Comparison-only options and JSON/SARIF are rejected. CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
 
 ### Policy configuration
 
@@ -227,7 +237,7 @@ After saving the YAML above as `project.yaml`, add a temporary ignore alongside 
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
 
-Consistency options require `--check-consistency` or `--check-current`. Checks cannot run with `--arxml-only` or the viewer.
+CLI consistency options require `--check-consistency` or `--check-current` and cannot be combined with `--arxml-only` or viewer flags. Configure viewer checks directly in **Code Check**.
 
 ### Mappings and exceptions
 

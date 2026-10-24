@@ -53,12 +53,13 @@ python -m compare_tool --check-current current
 | So sánh folder hoặc ZIP | So sánh baseline C/C++, ARXML, RTE và A2L |
 | Lọc noise | Lọc generator noise đã chứng minh, giữ khác biệt chưa giải thích được |
 | Desktop viewer | Review side-by-side |
+| Workspace Code Check | Check một folder/ZIP CURRENT với finding, source context và policy coverage |
 | HTML report | Chia sẻ offline hoặc làm CI artifact |
 | `--no-report` | Xem summary và diagnostics trên terminal |
 | `--check-current PATH` | Kiểm tra RTE/ARXML trong CURRENT trước delivery |
 | `--json` / `--sarif` | Export comparison result cho pipeline |
 
-CURRENT consistency finding chỉ có trên terminal; JSON/SARIF chứa comparison result và old/new advisory.
+CURRENT consistency finding hiện trong Code Check hoặc terminal; JSON/SARIF chứa comparison result và old/new advisory.
 
 ## Đọc kết quả
 
