@@ -4,7 +4,7 @@ from pathlib import Path
 from pprint import pformat
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QFontDatabase
+from PySide6.QtGui import QBrush, QColor, QFontDatabase, QTextCursor
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QPlainTextEdit, QProgressBar,
@@ -14,6 +14,9 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
 from .. import theme
 from ..main import _current_consistency_lines
 from ..scanner import read_text
+from ..syntax import language_for
+from .diffpane import DiffEditor
+from .highlight import CodeHighlighter
 from .worker import CodeCheckWorker
 
 
@@ -152,9 +155,20 @@ class CodeCheckPage(QWidget):
         split.addWidget(self.findings)
         inspect = QSplitter(Qt.Horizontal)
         self.details = self._text_box('Select a finding to inspect its evidence.')
-        self.source_preview = self._text_box('Source context appears here.')
+        source_box = QWidget()
+        source_layout = QVBoxLayout(source_box)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        self.source_location = QLabel('Source')
+        self.source_location.setTextFormat(Qt.PlainText)
+        self.source_location.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.source_preview = DiffEditor()
+        self.source_preview.setPlaceholderText('Source context appears here.')
+        self.source_preview.zoomStep.connect(self.source_preview.zoom_by)
+        self.source_highlighter = CodeHighlighter(self.source_preview.document())
+        source_layout.addWidget(self.source_location)
+        source_layout.addWidget(self.source_preview, 1)
         inspect.addWidget(self.details)
-        inspect.addWidget(self.source_preview)
+        inspect.addWidget(source_box)
         inspect.setSizes([280, 480])
         split.addWidget(inspect)
         split.setSizes([300, 240])
@@ -234,7 +248,7 @@ class CodeCheckPage(QWidget):
         self._rows = []
         self.findings.clear()
         self.details.clear()
-        self.source_preview.clear()
+        self._clear_source()
         self.coverage.clear()
         self.visible_count.setText('Checking…')
         self.summary.setText('Checking CURRENT C and ARXML…')
@@ -290,7 +304,7 @@ class CodeCheckPage(QWidget):
     def _filter_rows(self):
         self.findings.clear()
         self.details.clear()
-        self.source_preview.clear()
+        self._clear_source()
         wanted = self.severity.currentText()
         query = self.search.text().casefold().strip()
         for severity, finding in self._rows:
@@ -330,20 +344,34 @@ class CodeCheckPage(QWidget):
         self.details.setPlainText('\n\n'.join(lines))
         rel = item.text(2)
         if not self.root or not rel or rel == '.':
-            self.source_preview.setPlainText('No source location for this result.')
+            self._clear_source('No source location for this result.')
             return
         try:
             path = (self.root / rel).resolve()
             if self.root.resolve() not in path.parents:
                 raise ValueError('source location is outside CURRENT')
-            source = read_text(path).splitlines()
+            source = read_text(path)
             line = call.line if call else 1
-            start, end = max(0, line - 31), min(len(source), line + 30)
-            self.source_preview.setPlainText('{}\n\n{}'.format(rel, '\n'.join(
-                '{} {:5d}  {}'.format('>' if i + 1 == line else ' ', i + 1, source[i])
-                for i in range(start, end))))
+            self.source_location.setText('{}:{}'.format(rel, line) if call else rel)
+            self.source_location.setToolTip(str(path))
+            self.source_highlighter.configure(language_for(rel), repaint=False)
+            self.source_preview.setPlainText(source)
+            self.source_preview.set_numbers([str(i + 1) for i in range(len(source.splitlines()))])
+            self.source_preview.set_current_rows([line - 1] if call else [])
+            block = self.source_preview.document().findBlockByNumber(line - 1)
+            if block.isValid():
+                self.source_preview.setTextCursor(QTextCursor(block))
+                self.source_preview.centerCursor()
         except Exception as e:
-            self.source_preview.setPlainText('Source could not be read: {}'.format(e))
+            self._clear_source('Source could not be read: {}'.format(e))
+
+    def _clear_source(self, message=''):
+        self.source_highlighter.configure(None, repaint=False)
+        self.source_location.setText('Source')
+        self.source_location.setToolTip('')
+        self.source_preview.setPlainText(message)
+        self.source_preview.set_numbers([])
+        self.source_preview.set_current_rows([])
 
     def _set_status(self, text, role):
         self.status.setText(text)
@@ -351,6 +379,8 @@ class CodeCheckPage(QWidget):
         self.apply_theme()
 
     def apply_theme(self):
+        self.source_preview.apply_theme()
+        self.source_highlighter.apply_theme()
         self.setStyleSheet('QLabel#checkTitle {font-size:24px; font-weight:600;} '
                           'QLabel#checkStatus {color:%s; background:%s; padding:7px 14px; '
                           'border-radius:4px; font-weight:bold;} '

@@ -36,7 +36,7 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 | `--current-name NAME` | Đặt label hiển thị CURRENT; cùng cách hoạt động với `--baseline-name`. |
 | `--theme dark\|light` | Theme ban đầu của viewer/HTML. Mặc định: `dark`; HTML vẫn chứa cả hai theme. Không ảnh hưởng terminal output. |
 | `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
-| `--review REVIEW.json` | Đọc review note/sign-off từ viewer vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
+| `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
 | `--exit-zero` | Trả `0` khi có file difference để CI thu report mà không fail vì thay đổi. Mặc định tắt; không bỏ qua consistency failure đã bật (`1`), lỗi input/scan/output hoặc thiếu coverage theo delivery (`2`). |
 
 #### CURRENT consistency
@@ -87,7 +87,7 @@ Chỉ review AUTOSAR/calibration surface:
 python -m compare_tool baseline current --arxml-only --report autosar.html
 ```
 
-Sau khi lưu rules file và review note từ viewer, đưa chúng vào HTML report có giới hạn diff:
+Đưa custom rule và file review có sẵn vào HTML report có giới hạn diff:
 
 ```bash
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
@@ -123,11 +123,10 @@ Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit v�
 | `F7` / `F8` | Change trước / sau qua các file |
 | `Ctrl+Home` / `Ctrl+End` | Change đầu / cuối trong file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Tìm, kết quả sau / trước |
-| `Ctrl+R` / `Ctrl+Shift+R` | Đánh dấu change / file đã review |
 | `Ctrl+E` | Export HTML |
 | `F1` | Mở hướng dẫn offline |
 
-Review note lưu trong `codegen-review.json` cạnh CURRENT. CLI chỉ đọc khi truyền `--review FILE`.
+Có thể đưa file review có sẵn vào CLI HTML report bằng `--review FILE`. Viewer không chỉnh sửa review note hay sign-off.
 
 ### Workspace Code Check
 

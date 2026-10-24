@@ -29,11 +29,7 @@ Compare a BASELINE with CURRENT and review their differences.
 4. Filter files by path or enable **Hide identical**. Untick **Comment** or
    **Unimportant** to mute those differences; verdicts and exports stay unchanged.
    Select a **Quick changes** entry to jump to an AUTOSAR or A2L change.
-5. To record a review, enable **Review mode**, enter a note and mark the
-   change **Reviewed** (**Ctrl+R**) or the **Whole file** (**Ctrl+Shift+R**).
-   Notes save automatically to `codegen-review.json` beside CURRENT.
-6. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report,
-   including review notes.
+5. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report.
 
 **Modified**, **Added** and **Deleted** need review. **Comment** and
 **Unimportant** contain only comments or generator noise. **Not compared**

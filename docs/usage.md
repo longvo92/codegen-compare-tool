@@ -36,7 +36,7 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--current-name NAME` | Set the CURRENT display label; same behavior as `--baseline-name`. |
 | `--theme dark\|light` | Initial viewer/HTML theme. Default: `dark`; both themes remain available in HTML. Does not affect terminal output. |
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
-| `--review REVIEW.json` | Load viewer review notes/sign-offs into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
+| `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
 | `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Off by default; never suppresses enabled consistency failures (`1`), input/scan/output errors or delivery coverage gaps (`2`). |
 
 #### CURRENT consistency
@@ -87,7 +87,7 @@ Review only the AUTOSAR/calibration surface:
 python -m compare_tool baseline current --arxml-only --report autosar.html
 ```
 
-After saving a rules file and viewer review notes, include them in a capped HTML report:
+Include custom rules and an existing review file in a capped HTML report:
 
 ```bash
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
@@ -123,11 +123,10 @@ Select folders or ZIPs, or use **Git compare** to compare a commit with the curr
 | `F7` / `F8` | Previous / next change across files |
 | `Ctrl+Home` / `Ctrl+End` | First / last change in the file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Find, next / previous match |
-| `Ctrl+R` / `Ctrl+Shift+R` | Mark change / file reviewed |
 | `Ctrl+E` | Export HTML |
 | `F1` | Open the offline guide |
 
-Review notes are saved in `codegen-review.json` beside CURRENT. The CLI loads them only with `--review FILE`.
+Existing review files can be included in CLI HTML reports with `--review FILE`. The viewer does not edit review notes or sign-offs.
 
 ### Code Check workspace
 

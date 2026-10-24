@@ -14,10 +14,10 @@ from unittest import mock
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 try:
-    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt
     from PySide6.QtGui import QDropEvent
     from PySide6.QtCore import QUrl
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QMessageBox
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
@@ -97,8 +97,9 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.page.search.setText('ACCESS_MODE_MISMATCH')
         self.assertEqual(self.page.findings.topLevelItemCount(), 1)
         self.assertIn('Rte_Write_Speed_Value', self.page.details.toPlainText())
-        self.assertIn('>     1', self.page.source_preview.toPlainText())
-        self.assertIn('Ctrl.c', self.page.source_preview.toPlainText())
+        self.assertEqual(self.page.source_preview._cur_rows, {0})
+        self.assertEqual(self.page.source_preview._nos, ['1'])
+        self.assertEqual(self.page.source_location.text(), 'Ctrl.c:1')
         check = self.page.check
         self.page.severity.setCurrentText('WARN')
         self.assertEqual(self.page.findings.topLevelItemCount(), 0)
@@ -215,6 +216,82 @@ class TestCodeCheckWorkspace(unittest.TestCase):
             self.win._set_theme(name)
             self.assertEqual(self.page.details.toPlainText(), before)
             self.assertEqual(self.page.status.text(), 'FAIL')
+
+    def test_modes_stay_above_compare_toolbar_and_have_no_review_controls(self):
+        from PySide6.QtGui import QAction
+        self.win.modes.setCurrentIndex(0)
+        self.app.processEvents()
+        tabs_bottom = self.win.modes.tabBar().mapTo(self.win, QPoint(0, self.win.modes.tabBar().height())).y()
+        toolbar_top = self.win.compare_toolbar.mapTo(self.win, QPoint(0, 0)).y()
+        self.assertLessEqual(tabs_bottom, toolbar_top)
+        self.assertTrue(self.win.compare_toolbar.isVisible())
+        self.assertTrue(self.win.help_button.isVisible())
+        self.assertEqual(self.win.tree.columnCount(), 2)
+        actions = self.win.findChildren(QAction)
+        self.assertNotIn('Review mode', [action.text() for action in actions])
+        self.assertFalse({'Ctrl+R', 'Ctrl+Shift+R'} & {action.shortcut().toString() for action in actions})
+        self.win.modes.setCurrentIndex(1)
+        self.app.processEvents()
+        self.assertFalse(self.win.compare_toolbar.isVisible())
+        self.assertTrue(self.win.help_button.isVisible())
+
+    def test_compare_and_export_leave_existing_review_file_untouched(self):
+        record = Path(self.temp.name) / 'codegen-review.json'
+        record.write_text('Existing review file must not be read or rewritten.', encoding='utf-8')
+        before = record.read_bytes(), record.stat().st_mtime_ns
+        self.win.old = self.win.new = str(self.root)
+        with mock.patch('compare_tool.review.ReviewStore.load', side_effect=AssertionError('Unexpected review load')):
+            self.win._start_scan()
+            self.settle(lambda: bool(self.win._raw_results) and not self.win.worker.isRunning())
+            output = Path(self.temp.name) / 'report.html'
+            with mock.patch('compare_tool.qtviewer.app.QFileDialog.getSaveFileName', return_value=(str(output), '')), \
+                    mock.patch('compare_tool.qtviewer.app.QMessageBox.question', return_value=QMessageBox.No):
+                self.win._export_report()
+            self.assertTrue(output.is_file())
+        self.assertEqual((record.read_bytes(), record.stat().st_mtime_ns), before)
+
+    def test_source_uses_compare_syntax_colours_in_both_themes(self):
+        from compare_tool import theme
+        code = '/* multiline comment\n' + 'still inside comment\n' * 40 + \
+               '*/\nvoid Ctrl_Step(void) { Rte_Write_Speed_Value(); }'
+        self.code.write_text(code, encoding='utf-8')
+        self.run_check()
+
+        def colours(editor):
+            blocks = []
+            block = editor.document().firstBlock()
+            while block.isValid():
+                blocks.append([(f.start, f.length, f.format.foreground().color().name())
+                               for f in block.layout().formats()])
+                block = block.next()
+            return blocks
+
+        for name in ('light', 'dark'):
+            self.win._set_theme(name)
+            reference = self.win.diff.new_edit
+            self.win.diff._hl_new.configure('c', repaint=False)
+            reference.setPlainText(code)
+            self.win.diff._hl_new.rehighlight()
+            self.page.source_highlighter.rehighlight()
+            self.assertEqual(colours(self.page.source_preview), colours(reference))
+            self.assertIn(theme.c('syn-comment'), [colour for _, _, colour in colours(reference)[35]])
+            self.assertIn(theme.c('syn-type'), [colour for _, _, colour in colours(reference)[-1]])
+            self.assertEqual(self.page.source_preview._cur_rows, {42})
+            self.assertEqual(self.page.source_preview.textCursor().blockNumber(), 42)
+
+    def test_arxml_source_is_highlighted_and_filtering_clears_markers(self):
+        from compare_tool import theme
+        self.code.write_text('void Ctrl_Step(void) {}', encoding='utf-8')
+        self.run_check()
+        self.page.search.setText('ORPHAN_ACCESS')
+        self.assertEqual(self.page.source_location.text(), 'Ctrl.arxml')
+        self.page.source_highlighter.rehighlight()
+        block = self.page.source_preview.document().firstBlock()
+        self.assertIn(theme.c('syn-tag'), [f.format.foreground().color().name() for f in block.layout().formats()])
+        self.page.search.setText('no-match')
+        self.assertFalse(self.page.source_preview._cur_rows)
+        self.assertFalse(self.page.source_preview._nos)
+        self.assertEqual(self.page.source_preview.toPlainText(), '')
 
     def test_close_during_check_waits_for_worker_before_cleanup(self):
         import threading
