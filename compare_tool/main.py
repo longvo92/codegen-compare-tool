@@ -17,7 +17,7 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from . import (__version__, consistency, review, serialize, theme, userrules,
+from . import (APP_NAME, __version__, consistency, review, serialize, theme, userrules,
                zipsource)
 from .diff_engine import RULES, ruleset_for
 from .report import (build_arxml_report, build_report, consistency_advisories,
@@ -366,8 +366,8 @@ def diagnostic_lines(results, arxml_only=False, exclude=(), user_rules=(),
     lines = [
         '',
         'Diagnostics:',
-        '  Runtime: codegen-compare-tool {} | Python {} | {}'.format(
-            __version__, platform.python_version(), sys.platform),
+        '  Runtime: {} {} | Python {} | {}'.format(
+            APP_NAME, __version__, platform.python_version(), sys.platform),
         '  Sources: BASELINE {}; CURRENT {}'.format(*source_kinds),
         '  Scope: {}'.format(
             'ARXML/XML/A2L only' if arxml_only else 'all matched files'),
@@ -493,7 +493,7 @@ def _parser():
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
     ap.add_argument('--review', metavar='REVIEW.json', default=None,
-                    help='review file written by the viewer (default name: '
+                    help='existing review notes/sign-offs file (legacy name: '
                          'codegen-review.json). Its notes are rendered next to '
                          'the changes they belong to and the report gains a '
                          'Reviewed badge that hides the changes already signed '
@@ -630,7 +630,7 @@ def main(argv=None):
     ap = _parser()
     args = ap.parse_args(argv)
     if not _wants_viewer(args):
-        print('codegen-compare-tool {}'.format(__version__))
+        print('{} {}'.format(APP_NAME, __version__))
     # boxed so _resolve_source can create the extraction dir lazily; removed in
     # the finally whichever way this run exits
     zip_temp = [None]

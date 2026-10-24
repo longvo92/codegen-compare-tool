@@ -1,4 +1,4 @@
-# Modern logo for "CodeGen Compare" — rounded badge, two diff columns
+# Modern logo for "CodeGen Inspector" — rounded badge, two diff columns
 # (OLD/red vs NEW/green) merging into a check. Indigo->cyan gradient.
 
 # App mark only, square, 64x64 canvas
@@ -52,5 +52,5 @@ LOGO_FULL = '''<svg xmlns="http://www.w3.org/2000/svg" width="520" height="128" 
   <circle cx="32" cy="44" r="9.5" fill="#ffffff"/>
   <polyline points="27.5 44 31 47.5 37 40.5" fill="none" stroke="#4F46E5" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
   <text x="76" y="30" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#0f172a">CodeGen</text>
-  <text x="76" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="400" fill="#475569" letter-spacing="1">Compare</text>
+  <text x="76" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="400" fill="#475569" letter-spacing="1">Inspector</text>
 </svg>'''

@@ -12,7 +12,7 @@ import re
 from collections import namedtuple
 from pathlib import Path
 
-from . import consistency, filepair, funcname, review, syntax, theme
+from . import APP_NAME, consistency, filepair, funcname, review, syntax, theme
 from .diff_engine import ruleset_for
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
                       summarize_ifaces, summarize_rte, summarize_swcs)
@@ -326,7 +326,7 @@ def _head(title, initial, body_class=''):
     return ('<!DOCTYPE html><html data-theme="{}"><head><meta charset="utf-8">'
             '<title>{}</title><style>:root{{{}}}html[data-theme="light"]{{{}}}'
             '{}</style></head><body{}>{}'
-            .format(theme.normalize(initial), title,
+            .format(theme.normalize(initial), _esc(APP_NAME + ' — ' + title),
                     theme.css_vars(theme.DARK), theme.css_vars(theme.LIGHT),
                     _CSS, cls, _THEME_BUTTON))
 

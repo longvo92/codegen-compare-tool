@@ -34,6 +34,6 @@ Identical C output does not establish whether regeneration occurred or was requi
 | `arxml/NoiseDemo_interface.arxml` | Modified |
 | `a2l/NoiseDemo.a2l` | Modified |
 
-HTML contains the review view and old/new advisories. JSON carries the versioned comparison result; SARIF contains actionable file findings. CURRENT RTE/ARXML checking is separate and terminal-only; see the [User Guide](../../../docs/usage.md#consistency-check).
+HTML contains the review view and old/new advisories. JSON carries the versioned comparison result; SARIF contains actionable file findings. For separate CURRENT RTE/ARXML checks in Code Check or the terminal, see the [User Guide](../../../docs/usage.md#consistency-check).
 
 [Demo tests](../../test_demo.py) verify verdicts, semantic summaries, advisories and exports.

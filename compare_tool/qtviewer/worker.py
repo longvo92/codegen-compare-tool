@@ -3,8 +3,13 @@ it must never run on the GUI thread. Results cross back to the UI through
 signals only (Qt queues cross-thread signals), never by touching widgets.
 """
 
+import tempfile
+from pathlib import Path
+
 from PySide6.QtCore import QThread, Signal
 
+from .. import zipsource
+from ..consistency import current_tree_check, load_checker_config
 from ..scanner import scan
 
 
@@ -41,3 +46,41 @@ class ScanWorker(QThread):
 
     def _progress(self, done, total, rel):
         self.progressed.emit(done, total, rel)
+
+
+class CodeCheckWorker(QThread):
+    """Use the CLI checker off the GUI thread, retaining ZIP sources for inspection."""
+
+    done = Signal(object, str)
+    failed = Signal(str)
+
+    def __init__(self, source, config_path='', policy='delivery', exclude=(),
+                 ignore_regex='', parent=None):
+        super().__init__(parent)
+        self.source = source
+        self.config_path = config_path
+        self.policy = policy
+        self.exclude = tuple(exclude)
+        self.ignore_regex = ignore_regex
+        self._temp = None
+
+    def run(self):
+        try:
+            config = load_checker_config(Path(self.config_path) if self.config_path else None)
+            root = Path(self.source)
+            if not root.is_dir():
+                if not zipsource.is_zip(root):
+                    raise ValueError('CURRENT must be an existing folder or readable ZIP: {}'.format(root))
+                self._temp = tempfile.TemporaryDirectory(prefix='codegen-check-')
+                root = zipsource.extract(root, self._temp.name)
+            check = current_tree_check(root, config, self.exclude,
+                                       self.ignore_regex or None, self.policy)
+            self.done.emit(check, str(root))
+        except Exception as e:
+            self.failed.emit('{}: {}'.format(type(e).__name__, e))
+
+    def cleanup(self):
+        """Called only after the thread finishes and its source is no longer displayed."""
+        if self._temp is not None:
+            self._temp.cleanup()
+            self._temp = None

@@ -1,3 +1,5 @@
-"""CodeGen Compare Tool - AUTOSAR MATLAB codegen diff with noise filtering."""
+"""CodeGen Inspector - generated-code comparison and AUTOSAR consistency checks."""
 
-__version__ = "1.19.0"
+APP_NAME = 'CodeGen Inspector'
+
+__version__ = "1.20.0"
