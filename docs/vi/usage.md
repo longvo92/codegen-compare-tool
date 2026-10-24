@@ -199,7 +199,7 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Dùng `--consistency-policy delivery` để bắt buộc coverage trong comparison check. Terminal hiện PASS, PASS WITH EXCEPTIONS, FAIL hoặc INCOMPLETE, finding và coverage. File difference cũng ảnh hưởng exit status của comparison; `--exit-zero` chỉ bỏ qua phần difference đó, không bỏ qua consistency failure hoặc lỗi.
 
-`--check-current` nhận `--exclude`, `--current-name`, consistency options và các cờ không bắt buộc `--no-report` / `--check-consistency`. Option chỉ dành cho comparison và JSON/SARIF bị từ chối. CURRENT finding hiện trên terminal hoặc Code Check, không nằm trong comparison report/export. Lưu CLI terminal output nếu cần delivery record.
+CURRENT finding hiện trên terminal hoặc Code Check, không nằm trong comparison report/export. Lưu CLI terminal output nếu cần delivery record.
 
 ### Cấu hình policy
 
@@ -233,8 +233,6 @@ Sau khi lưu YAML trên thành `project.yaml`, thêm ignore tạm thời bên c�
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
-
-CLI consistency options yêu cầu `--check-consistency` hoặc `--check-current`, không kết hợp với `--arxml-only` hay viewer flag. Cấu hình check trong viewer trực tiếp tại **Code Check**.
 
 ### Mapping và ngoại lệ
 

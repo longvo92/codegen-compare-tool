@@ -199,7 +199,7 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Use `--consistency-policy delivery` to enforce coverage on comparison checks. The terminal shows PASS, PASS WITH EXCEPTIONS, FAIL or INCOMPLETE, findings and coverage. Comparison differences also affect exit status; `--exit-zero` suppresses only those differences, never consistency failures or errors.
 
-`--check-current` accepts `--exclude`, `--current-name`, consistency options and the redundant `--no-report` / `--check-consistency` flags. Comparison-only options and JSON/SARIF are rejected. CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
+CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
 
 ### Policy configuration
 
@@ -233,8 +233,6 @@ After saving the YAML above as `project.yaml`, add a temporary ignore alongside 
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
-
-CLI consistency options require `--check-consistency` or `--check-current` and cannot be combined with `--arxml-only` or viewer flags. Configure viewer checks directly in **Code Check**.
 
 ### Mappings and exceptions
 
