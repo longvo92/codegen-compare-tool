@@ -12,9 +12,13 @@ All notable changes to this project are documented here. Versions follow
 ### Changed
 
 - Label comparison-only consistency warnings as Regeneration advisories, separate from CURRENT code checks.
-- Focus in-app help on Compare and Code Check workflows, with CLI instructions linked to GitHub.
+- Keep Code Check findings and coverage separate, remove repeated GUI descriptions, and focus Help on mode workflows with CLI instructions linked to GitHub.
 - Put mode selection above comparison tools, remove the viewer's Review mode, and share Compare's syntax colors and source-line gutter with Code Check.
 - Restyle light mode with white editors, neutral gray toolbars and MATLAB-inspired syntax colors across Compare, Code Check and HTML reports.
+
+### Fixed
+
+- Wrap long Code Check paths and evidence within the available space, and disable result filters when a check cannot complete.
 
 ## [1.19.0] — 2026-10-16
 

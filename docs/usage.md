@@ -126,8 +126,6 @@ Select folders or ZIPs, or use **Git compare** to compare a commit with the curr
 | `Ctrl+E` | Export HTML |
 | `F1` | Open the offline guide |
 
-Existing review files can be included in CLI HTML reports with `--review FILE`. The viewer does not edit review notes or sign-offs.
-
 ### Code Check workspace
 
 Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
@@ -136,7 +134,7 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 2. Choose `delivery` (default) or `standard` coverage policy and an optional YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
 3. Select **Run Code Check**. Filter results by severity or text; select a finding to inspect its evidence and source context.
 
-**Coverage & policy** shows checked calls, unchecked items, exceptions, configured skips and effective settings. Inputs and results stay separate from Compare. Both workspaces retain results when switching. Code Check uses the [same rules and coverage limits](#consistency-check) as CLI `--check-current`; changing inputs requires a new run. **Regeneration advisories** in Compare remain non-gating old/new warnings.
+**Findings** includes failed rules, warnings, unchecked items and exceptions with their evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching; changing inputs requires a new run. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
 
 ## What counts as noise
 

@@ -126,8 +126,6 @@ Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit v�
 | `Ctrl+E` | Export HTML |
 | `F1` | Mở hướng dẫn offline |
 
-Có thể đưa file review có sẵn vào CLI HTML report bằng `--review FILE`. Viewer không chỉnh sửa review note hay sign-off.
-
 ### Workspace Code Check
 
 Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
@@ -136,7 +134,7 @@ Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với
 2. Chọn coverage policy `delivery` (mặc định) hoặc `standard` và config YAML/JSON tùy chọn. Scope override nhận exclude glob, mỗi dòng một mẫu, và regex bỏ qua port bổ sung.
 3. Chọn **Run Code Check**. Lọc kết quả theo severity hoặc text; chọn finding để xem evidence và source context.
 
-**Coverage & policy** hiển thị call đã check, mục chưa kiểm tra được, ngoại lệ, configured skip và setting áp dụng. Input và kết quả tách riêng khỏi Compare. Cả hai workspace giữ kết quả khi chuyển qua lại. Code Check dùng [cùng rule và giới hạn coverage](#consistency-check) với CLI `--check-current`; đổi input cần chạy lại. **Regeneration advisories** trong Compare vẫn là old/new warning không gate.
+**Findings** chứa rule lỗi, cảnh báo, mục chưa kiểm tra được và ngoại lệ kèm evidence. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại; đổi input cần chạy lại. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
 
 ## Cái gì được tính là noise
 

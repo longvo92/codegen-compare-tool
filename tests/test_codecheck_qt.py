@@ -107,7 +107,8 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertEqual(self.page.status.text(), 'FAIL')
         self.page.ignore.setText('^Bsw_')
         self.assertIn('STALE', self.page.status.text())
-        self.assertIn('Policy: delivery', self.page.result_source.text())
+        self.assertIn('Policy: delivery', self.page.coverage.toPlainText())
+        self.assertIn(str(self.root), self.page.result_source.text())
 
     def test_unsupported_api_incomplete_in_both_policies(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Call_Service_Run(); }', encoding='utf-8')
@@ -129,14 +130,16 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.page.severity.setCurrentText('EXCEPTION')
         self.assertEqual(self.page.findings.topLevelItemCount(), 1)
         self.assertIn('Reviewed separately', self.page.details.toPlainText())
-        self.assertIn('Reviewed separately', self.page.coverage.toPlainText())
+        self.assertNotIn('Reviewed separately', self.page.coverage.toPlainText())
 
     def test_missing_input_and_parse_errors_never_pass(self):
         for path in (self.root / 'Ctrl.arxml',):
             path.write_text('<broken', encoding='utf-8')
         self.run_check()
         self.assertEqual(self.page.status.text(), 'INCOMPLETE')
-        self.assertIn('CONSISTENCY_SCAN_ERROR', self.page.coverage.toPlainText())
+        self.page.search.setText('CONSISTENCY_SCAN_ERROR')
+        self.assertIn('CONSISTENCY_SCAN_ERROR', self.page.details.toPlainText())
+        self.page.search.clear()
         self.page.excludes.setPlainText('*.c\n*.arxml')
         self.run_check()
         self.assertEqual(self.page.check.exit_code, 2)
@@ -149,6 +152,8 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertIsNone(self.page.check)
         self.assertEqual(self.page.status.text(), 'INCOMPLETE')
         self.assertEqual(self.page.findings.topLevelItemCount(), 0)
+        self.assertFalse(self.page.severity.isEnabled())
+        self.assertFalse(self.page.search.isEnabled())
         self.page.source.setText(str(self.root))
         bad = Path(self.temp.name) / 'bad.json'
         bad.write_text('{broken', encoding='utf-8')
@@ -163,6 +168,29 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         with mock.patch('compare_tool.qtviewer.worker.current_tree_check', side_effect=RuntimeError('test crash')):
             self.run_check()
         self.assertIn('test crash', self.page.summary.text())
+
+    def test_coverage_keeps_scope_settings_without_repeating_findings(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
+        self.page.excludes.setPlainText('unused/*')
+        self.page.ignore.setText('^Bsw_')
+        self.run_check()
+        coverage = self.page.coverage.toPlainText()
+        self.assertIn('1 C file(s), 1 ARXML file(s)', coverage)
+        self.assertIn('1 / 1 RTE call(s) checked', coverage)
+        self.assertIn('Excluded file patterns: unused/*', coverage)
+        self.assertIn('^Bsw_', coverage)
+        self.assertIn('ACCESS_MODE_MISMATCH', self.page.details.toPlainText())
+        self.assertNotIn('ACCESS_MODE_MISMATCH', coverage)
+        self.assertNotIn(str(self.root), coverage)
+        self.assertNotIn('exit code', coverage)
+        self.assertTrue(self.page.severity.isEnabled())
+        self.assertTrue(self.page.search.isEnabled())
+        # Editing setup must not relabel the completed run's provenance.
+        self.page.policy.setCurrentIndex(1)
+        self.page.source.setText(str(self.root / 'other'))
+        self.assertIn('STALE', self.page.status.text())
+        self.assertEqual(self.page.coverage.toPlainText(), coverage)
+        self.assertEqual(self.page.result_source.text(), 'Results for: ' + str(self.root))
 
     def test_zip_source_survives_for_inspection_and_is_cleaned_on_rerun(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
@@ -292,6 +320,21 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertFalse(self.page.source_preview._cur_rows)
         self.assertFalse(self.page.source_preview._nos)
         self.assertEqual(self.page.source_preview.toPlainText(), '')
+
+    def test_long_source_location_does_not_force_a_wider_window(self):
+        folder = self.root.joinpath(*(['generated_component_long_name'] * 4))
+        folder.mkdir(parents=True)
+        self.code.unlink()
+        (folder / 'Ctrl.c').write_text(
+            'void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
+        self.run_check()
+        self.page.search.setText('ACCESS_MODE_MISMATCH')
+        self.assertIn('generated_component_long_name', self.page.source_location.text())
+        self.app.processEvents()
+        self.assertLessEqual(self.win.minimumSizeHint().width(), 1100)
+        self.win.resize(1100, 720)
+        self.app.processEvents()
+        self.assertEqual(self.win.width(), 1100)
 
     def test_close_during_check_waits_for_worker_before_cleanup(self):
         import threading

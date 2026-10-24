@@ -48,8 +48,8 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
    enter excluded file globs (one per line) or an additional ignored-port regex.
 4. Select **Run Code Check**. Filter results by severity or search text,
    then select a finding to read its evidence and source context.
-5. Open **Coverage & policy** to review checked calls, unchecked items,
-   exceptions and applied settings. Run the check again after changing inputs.
+5. Open **Coverage & policy** to review checked calls, scope and applied
+   settings. Run the check again after changing inputs.
 
 | Result | Meaning |
 |---|---|
@@ -70,13 +70,7 @@ For CLI commands, options and configuration examples, see the
 
 ABOUT_HTML = """
 <p style="font-size:13px;"><b>CodeGen Compare Tool {version}</b></p>
-<p>Diff two AUTOSAR code-generation output folders (MATLAB / Simulink
-Embedded Coder) and show only the changes that matter -- comments, 1-to-1
-renames, UUIDs, timestamps and whitespace are classified as noise, everything
-else stays a real change.</p>
-<p><b>Fail-safe:</b> what cannot be proven to be noise is reported as a real
-change, and a path that could not be compared is a loud error, never a silent
-omission.</p>
+<p>Compare generated code and check AUTOSAR RTE/ARXML consistency.</p>
 <p>Author: <b>Long Vo Thien</b> &middot; MIT License<br>
 Built with Python and PySide6</p>
 <p><a style="color:{link};"

@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import theme
-from ..main import _current_consistency_lines
 from ..scanner import read_text
 from ..syntax import language_for
 from .diffpane import DiffEditor
@@ -31,23 +30,13 @@ class CodeCheckPage(QWidget):
         self.root = None
         self._rows = []
         self._status_role = 'state-idle'
-        self._run_description = ''
+        self._run_policy = ''
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
-        header = QHBoxLayout()
-        title = QLabel('Code Check')
-        title.setObjectName('checkTitle')
-        header.addWidget(title)
-        header.addStretch()
         self.status = QLabel('NOT RUN')
         self.status.setObjectName('checkStatus')
-        header.addWidget(self.status)
-        layout.addLayout(header)
-        subtitle = QLabel('Validate one generated snapshot against its AUTOSAR contract. No baseline required.')
-        subtitle.setWordWrap(True)
-        layout.addWidget(subtitle)
 
         workspace = QSplitter(Qt.Horizontal)
         setup = QWidget()
@@ -106,10 +95,6 @@ class CodeCheckPage(QWidget):
         self.progress.setRange(0, 0)
         self.progress.hide()
         form.addWidget(self.progress)
-        scope_note = QLabel('Scope: generated .c Rte_Read / Write / IRead / IWrite calls and ARXML '
-                            'Sender/Receiver declarations. Other RTE APIs remain UNCHECKED.')
-        scope_note.setWordWrap(True)
-        form.addWidget(scope_note)
         form.addStretch()
         workspace.addWidget(setup)
 
@@ -119,11 +104,15 @@ class CodeCheckPage(QWidget):
         self.summary = QLabel('Choose a source and run Code Check to see findings and coverage.')
         self.summary.setWordWrap(True)
         self.summary.setTextFormat(Qt.PlainText)
-        body.addWidget(self.summary)
+        summary_row = QHBoxLayout()
+        summary_row.addWidget(self.summary, 1)
+        summary_row.addWidget(self.status, 0, Qt.AlignTop)
+        body.addLayout(summary_row)
         self.result_source = QLabel()
         self.result_source.setTextFormat(Qt.PlainText)
         self.result_source.setWordWrap(True)
         self.result_source.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.result_source.hide()
         body.addWidget(self.result_source)
         self.tabs = QTabWidget()
         findings = QWidget()
@@ -133,15 +122,17 @@ class CodeCheckPage(QWidget):
         self.severity = QComboBox()
         self.severity.addItems(['All results', 'FAIL', 'WARN', 'UNCHECKED', 'EXCEPTION'])
         self.severity.currentTextChanged.connect(self._filter_rows)
+        self.severity.setEnabled(False)
         self.search = QLineEdit()
         self.search.setPlaceholderText('Filter by rule, file, runnable or API…')
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._filter_rows)
+        self.search.setEnabled(False)
         filters.addWidget(self.severity)
         filters.addWidget(self.search, 1)
-        finding_layout.addLayout(filters)
         self.visible_count = QLabel('No results yet')
-        finding_layout.addWidget(self.visible_count)
+        filters.addWidget(self.visible_count)
+        finding_layout.addLayout(filters)
         split = QSplitter(Qt.Vertical)
         self.findings = QTreeWidget()
         self.findings.setHeaderLabels(['Severity', 'Rule', 'File', 'Line', 'Function / Runnable', 'API / Access'])
@@ -160,6 +151,7 @@ class CodeCheckPage(QWidget):
         source_layout.setContentsMargins(0, 0, 0, 0)
         self.source_location = QLabel('Source')
         self.source_location.setTextFormat(Qt.PlainText)
+        self.source_location.setWordWrap(True)
         self.source_location.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.source_preview = DiffEditor()
         self.source_preview.setPlaceholderText('Source context appears here.')
@@ -196,7 +188,7 @@ class CodeCheckPage(QWidget):
         box = QPlainTextEdit()
         box.setReadOnly(True)
         box.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
-        box.setLineWrapMode(QPlainTextEdit.NoWrap)
+        box.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         box.setPlaceholderText(placeholder)
         return box
 
@@ -240,9 +232,10 @@ class CodeCheckPage(QWidget):
         config_path = self.config.text().strip()
         policy = self.policy.currentData()
         exclude = tuple(line.strip() for line in self.excludes.toPlainText().splitlines() if line.strip())
-        self._run_description = 'CURRENT: {}\nPolicy: {}\nConfig: {}'.format(
-            source, policy, str(Path(config_path).resolve()) if config_path else 'Built-in defaults')
-        self.result_source.setText(self._run_description)
+        self._run_policy = 'Policy: {}\nConfig: {}'.format(
+            policy, str(Path(config_path).resolve()) if config_path else 'Built-in defaults')
+        self.result_source.setText('Results for: ' + source)
+        self.result_source.show()
         self.check = None
         self.root = None
         self._rows = []
@@ -250,6 +243,8 @@ class CodeCheckPage(QWidget):
         self.details.clear()
         self._clear_source()
         self.coverage.clear()
+        self.severity.setEnabled(False)
+        self.search.setEnabled(False)
         self.visible_count.setText('Checking…')
         self.summary.setText('Checking CURRENT C and ARXML…')
         self._set_status('RUNNING', 'state-busy')
@@ -274,22 +269,40 @@ class CodeCheckPage(QWidget):
         self.check, self.root = check, Path(root)
         self._set_status(check.status, 'state-error' if check.status in ('FAIL', 'INCOMPLETE') else 'state-ready')
         self.summary.setText('{} FAIL    ·    {} WARN    ·    {} UNCHECKED    ·    '
-                             '{} / {} RTE calls checked    ·    {} exceptions'.format(
+                             '{} EXCEPTION'.format(
                                  sum(f['severity'] == 'fail' for f in check.findings),
                                  sum(f['severity'] == 'warn' for f in check.findings),
-                                 len(check.skipped_accesses), check.checked_calls,
-                                 check.rte_calls_detected, len(check.exemptions)))
-        self.coverage.setPlainText(self._run_description + '\n\n' +
-                                   '\n'.join(_current_consistency_lines(check)))
+                                 len(check.skipped_accesses), len(check.exemptions)))
+        self._show_coverage(check)
         self._rows = [(f['severity'].upper(), f) for f in check.findings]
         self._rows += [('UNCHECKED', f) for f in check.skipped_accesses]
         self._rows += [('EXCEPTION', f) for f in check.exemptions]
+        self.severity.setEnabled(True)
+        self.search.setEnabled(True)
         self._filter_rows()
+
+    def _show_coverage(self, check):
+        """Coverage metadata only; individual findings and exceptions live in Findings."""
+        lines = [
+            '{} C file(s), {} ARXML file(s), {} access point(s)'.format(
+                check.c_files_scanned, check.arxml_files_scanned, check.access_points_detected),
+            '{} / {} RTE call(s) checked'.format(check.checked_calls, check.rte_calls_detected),
+            '', self._run_policy,
+            '', 'Scope: .c calls to Rte_Read/Write/IRead/IWrite against ARXML '
+                'Sender/Receiver access declarations. Other RTE APIs are UNCHECKED.',
+        ]
+        if check.notes:
+            lines.extend(['', 'Applied settings:'] + list(check.notes))
+        if check.skipped_rules:
+            lines.append('{} finding(s) skipped by rule configuration.'.format(check.skipped_rules))
+        if check.ignored_accesses:
+            lines.append('{} RTE access(es) ignored by the configured port regex.'.format(check.ignored_accesses))
+        self.coverage.setPlainText('\n'.join(lines))
 
     def _failed(self, message):
         self._set_status('INCOMPLETE', 'state-error')
         self.summary.setText('Code Check could not complete: ' + message)
-        self.coverage.setPlainText(self._run_description + '\n\nINCOMPLETE\n' + message)
+        self.coverage.setPlainText(self._run_policy)
         self.visible_count.setText('No results — check did not complete')
 
     @staticmethod
@@ -381,8 +394,7 @@ class CodeCheckPage(QWidget):
     def apply_theme(self):
         self.source_preview.apply_theme()
         self.source_highlighter.apply_theme()
-        self.setStyleSheet('QLabel#checkTitle {font-size:24px; font-weight:600;} '
-                          'QLabel#checkStatus {color:%s; background:%s; padding:7px 14px; '
+        self.setStyleSheet('QLabel#checkStatus {color:%s; background:%s; padding:7px 14px; '
                           'border-radius:4px; font-weight:bold;} '
                           'QPushButton#runCodeCheck {background:%s; color:%s; border:1px solid %s; '
                           'border-radius:4px; padding:10px; font-weight:bold;} '
