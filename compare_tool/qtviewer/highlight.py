@@ -8,11 +8,10 @@ setting just the text colour leaves the row's diff background (painted with
 ``mergeCharFormat``) untouched. Background stays the change channel, text
 becomes the code channel, and neither has to know about the other.
 
-**No red, no green.** Those two mean removed and added here. The palette is
-blue / teal / amber / lilac, muted enough to stay legible on the red and green
-row fills rather than competing with them. The actual values live in
-:mod:`compare_tool.theme` -- one per role per theme -- so switching to the light
-page does not need a second copy of this mapping.
+**Shared theme roles.** Light syntax follows MATLAB's blue keywords, green
+comments and purple strings. Diff backgrounds carry change status. The actual
+values live in :mod:`compare_tool.theme`, so Compare and Code Check use the
+same token colours when switching themes.
 """
 
 import html as _html
@@ -21,8 +20,7 @@ from PySide6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat
 
 from .. import syntax, theme
 
-# token kind -> (theme role, italic). Deliberately low-saturation: these sit on
-# top of diff fills, and a bright token colour there reads as another change.
+# Token kind -> (theme role, italic). Foreground only, above the diff fills.
 _PALETTE = {
     syntax.COMMENT: ('syn-comment', True),
     syntax.STRING:  ('syn-string', False),

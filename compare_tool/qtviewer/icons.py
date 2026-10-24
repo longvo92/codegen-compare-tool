@@ -20,7 +20,7 @@ from ..resources import icon_file, logo_file
 # not literals, because the tint has to flip with the chrome -- a light grey
 # glyph is invisible on the light theme's toolbar.
 TINT = 'icon-tint'
-ACCENT = 'accent-2'
+ACCENT = 'primary-icon'
 
 _cache = {}
 

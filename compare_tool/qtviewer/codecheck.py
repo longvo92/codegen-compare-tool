@@ -384,10 +384,12 @@ class CodeCheckPage(QWidget):
         self.setStyleSheet('QLabel#checkTitle {font-size:24px; font-weight:600;} '
                           'QLabel#checkStatus {color:%s; background:%s; padding:7px 14px; '
                           'border-radius:4px; font-weight:bold;} '
-                          'QPushButton#runCodeCheck {background:%s; color:%s; padding:10px; font-weight:bold;} '
+                          'QPushButton#runCodeCheck {background:%s; color:%s; border:1px solid %s; '
+                          'border-radius:4px; padding:10px; font-weight:bold;} '
                           'QPushButton#runCodeCheck:disabled {background:%s; color:%s;}' % (
                               theme.c(self._status_role), theme.c('panel-3'),
                               theme.c('chrome-checked-bg'), theme.c('chrome-checked-fg'),
+                              theme.c('chrome-checked-bg'),
                               theme.c('panel-3'), theme.c('fg-muted')))
         for i in range(self.findings.topLevelItemCount()):
             item = self.findings.topLevelItem(i)
