@@ -240,6 +240,10 @@ class DiffEditor(QPlainTextEdit):
         self._update_gutter_width()
         self._gutter.update()
 
+    def zoom_by(self, step):
+        """Zoom a standalone source editor using the comparison zoom limits."""
+        self.set_point_size(max(_ZOOM_MIN, min(_ZOOM_MAX, self.font().pointSize() + step)))
+
     def set_numbers(self, nos, tints=None):
         """``nos`` is the line-number string per block; ``tints`` is the
         matching gutter role name per block ('gutter-del-bg' / 'gutter-add-bg'

@@ -111,7 +111,7 @@ class AccessPoint:
 
 @dataclass
 class CurrentTreeCheck:
-    """Result of the CLI-only RTE/ARXML consistency pass."""
+    """Result of the RTE/ARXML consistency pass shared by CLI and Code Check."""
 
     findings: List[Dict[str, Any]]
     skipped_accesses: List[Dict[str, Any]]

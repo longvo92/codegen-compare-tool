@@ -57,7 +57,9 @@ Generated rename cần mapping một-một đã verify; function callee cần c�
 
 ## Consistency
 
-`consistency.py` tạo regeneration advisory từ raw comparison. CURRENT check chỉ chạy khi CLI yêu cầu; HTML/viewer không chạy hoặc render check này.
+`consistency.py` tạo regeneration advisory từ raw comparison. CURRENT check chạy khi CLI hoặc workspace Code Check độc lập trong viewer yêu cầu. HTML và comparison export không chứa CURRENT finding.
+
+`qtviewer/codecheck.py` sở hữu input Code Check, filter kết quả, tra cứu evidence/source và policy coverage. `CodeCheckWorker` trong `qtviewer/worker.py` đọc cùng config và gọi `current_tree_check` trên background thread. ZIP được giữ để tra cứu source và dọn sau khi worker kết thúc. Compare và Code Check giữ state riêng; đổi workspace không rescan hay thay đổi kết quả. Đóng cửa sổ chờ worker hoàn tất trước khi dọn source. Tra cứu source dùng chung `DiffEditor`, `CodeHighlighter` và syntax/theme role với Compare; tô màu toàn file giữ lexical state qua nhiều dòng, gutter đánh dấu dòng finding.
 
 `--check-current` bỏ qua diff/HTML và check một source. `CurrentTreeCheck` sở hữu consistency status/exit code; `main._exit_code` kết hợp với comparison result:
 

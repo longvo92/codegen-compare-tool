@@ -493,7 +493,7 @@ def _parser():
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
     ap.add_argument('--review', metavar='REVIEW.json', default=None,
-                    help='review file written by the viewer (default name: '
+                    help='existing review notes/sign-offs file (legacy name: '
                          'codegen-review.json). Its notes are rendered next to '
                          'the changes they belong to and the report gains a '
                          'Reviewed badge that hides the changes already signed '

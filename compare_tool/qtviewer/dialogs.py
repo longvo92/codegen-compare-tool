@@ -1,9 +1,7 @@
-"""Help dialogs reachable from the toolbar: user guide, release notes, about.
+"""Offline help dialogs for the user guide, release notes and About.
 
-All three are self-contained -- the guide text is embedded and the release
-notes are read from the ``CHANGELOG.md`` shipped next to the app. Nothing here
-goes to the network: the tool has to work on locked-down build machines. The
-only outbound link is the project URL in About, and it opens only when clicked.
+The guide is embedded; release notes come from the packaged CHANGELOG.md.
+GitHub links open in the external browser only when selected.
 """
 
 from PySide6.QtCore import Qt
@@ -15,156 +13,64 @@ from ..resources import doc_file
 from .icons import app_icon, logo_pixmap
 
 GUIDE = """
-# Using the side-by-side viewer
+# User guide
 
-## 1. Two folders
+## Compare
 
-- `Open folders…` -- both sides in one dialog, change either one, `Compare`
-- Or drag & drop BASELINE and CURRENT onto the window (together, or one after
-  the other)
-- Or start loaded: `compare-tool.exe <old> <new> --qt`
+Compare a BASELINE with CURRENT and review their differences.
 
-## 2. One folder, against its own history
+1. Choose **Compare**, then **Open folders…**. Set BASELINE and CURRENT to
+   folders or ZIPs and select **Compare**. You can also drop both sources
+   onto Compare, BASELINE first.
+2. To compare against Git history, choose **Git compare…**, select a folder
+   in the repository, then choose a commit or enter a revision.
+3. Select a file to read its differences. Use **F7** / **F8** for the previous
+   or next change across files, and **Ctrl+F** to search the open file.
+4. Filter files by path or enable **Hide identical**. Untick **Comment** or
+   **Unimportant** to mute those differences; verdicts and exports stay unchanged.
+   Select a **Quick changes** entry to jump to an AUTOSAR or A2L change.
+5. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report.
 
-- `Git compare…` -- pick **one** folder in a git checkout; BASELINE comes from
-  a commit, so there is no second folder to find
-- Lists the commits that touched that folder; the box below takes any revision
-  you type: sha, branch, tag, `HEAD~3`
-- `Browse…` at the top switches folder without leaving the dialog
-- The commit is checked out to a temp folder -- your working tree is never
-  touched, and the temp copy goes when the app closes
+**Modified**, **Added** and **Deleted** need review. **Comment** and
+**Unimportant** contain only comments or generator noise. **Not compared**
+means the file could not be compared. **Regeneration advisories** suggest
+checking related artifacts; they do not decide whether Code Check passes.
 
-## 3. Read the tree
+## Code Check
 
-- The left column is three panes -- **Files**, **Quick changes**,
-  **Consistency**. Click a bar to fold that pane away and give its height to
-  the ones still open; click again and it comes back the size it was
-- Drag any bar to resize -- all three share one splitter
-- **Consistency** only appears when the scan has a heads-up, and its bar says
-  how many even while folded
-- Every file listed -- a verdict never removes a row on its own
-- A folder shows its heaviest child verdict
-- Box above the tree filters by path
-- `Hide identical` leaves only the files with a difference. It is a view, not a
-  rule: verdicts, counts and the exported report do not change. Only genuinely
-  identical files go -- a Comment or Unimportant file stays in the tree
-- Right-click a row: show it in Explorer, or copy its full path
+Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 
-| Mark | Verdict | Meaning |
-|---|---|---|
-| `≠` | Modified | Real changes |
-| `≈` | Comment | Only comments differ |
-| `≈` | Unimportant | UUIDs, timestamps, renames, whitespace |
-| `+` | Added | Exists only in CURRENT |
-| `−` | Deleted | Exists only in BASELINE |
-| `=` | Identical | No difference |
-| `‼` | NOT compared | Treat as changed |
+1. Choose **Code Check**. Select a CURRENT folder or ZIP, drop one onto this
+   mode, or choose **Use Compare CURRENT**.
+2. Choose a coverage policy: **Delivery** requires complete coverage;
+   **Standard** reports unchecked items without making them fail the policy.
+3. Optionally choose a YAML/JSON policy config. Under **Scope overrides**,
+   enter excluded file globs (one per line) or an additional ignored-port regex.
+4. Select **Run Code Check**. Filter results by severity or search text,
+   then select a finding to read its evidence and source context.
+5. Open **Coverage & policy** to review checked calls, scope and applied
+   settings. Run the check again after changing inputs.
 
-Comment and Unimportant share the `≈` mark: both answer "no, you do not have
-to read this". The Status word says which kind of nothing it is.
-
-## 4. Quiet the noise
-
-- Untick `Comment` / `Unimportant` -- those lines go grey instantly
-- They are **greyed out, not removed**: they stay where they are, keep their
-  line numbers, and lose their red/green
-- They also drop off the minimap and out of `F7` / `F8`, so nothing sends you
-  back to them
-- The **verdict does not change**: a comment-only file still reads Comment in
-  the tree, and still appears as Comment in an exported report
-- Tick back on to bring the colour back
-- Real changes can never be quietened
-- If the title bar says **QUICK CHECK: variable renames skipped**, this window
-  was started with `--skip-var-renames`: that scan folded variable renames it
-  could not prove were noise, so a rewired signal can be sitting under
-  Unimportant. It is a sweep, not a review -- re-run without the flag before
-  signing anything off
-
-## 5. Read the diff
-
-- Baseline on the left, Current on the right, scrolled in lockstep
-- Minimap on the right edge -- click or drag to jump
-- C, ARXML and A2L are syntax-coloured; the code colours never use red or green
-- `☀ Light` / `☾ Dark` in the toolbar switches the colour scheme. Start in one
-  with `--theme dark|light`; an exported report opens in the same one and
-  carries its own switch
-
-| Row colour | Meaning |
+| Result | Meaning |
 |---|---|
-| Red / green | Removed / Added |
-| Dim red / green | Noise: comment, UUID, rename, whitespace |
-| Flat grey | A category you switched off -- shown, but not a change |
-| Blue | Moved, not changed |
+| PASS | No failed rules or coverage gaps |
+| PASS WITH EXCEPTIONS | Passed with configured exceptions or scope adjustments |
+| FAIL | At least one rule failed |
+| INCOMPLETE | Missing input, a scan error or unchecked items; review coverage |
 
-## 6. Navigate, find and export
+The checker covers generated `.c` Sender/Receiver RTE calls against ARXML.
+Other RTE APIs remain **UNCHECKED**. Compare and Code Check keep separate
+inputs and results when you switch modes.
 
-- The scan opens on the first change it found -- no hunting for it
-- Header shows `Change 3 of 7`
-- `F8` past the last change of a file goes on to the **next file** with
-  something to review; `F7` goes back the same way. One key walks the whole
-  compare, and it wraps round at the end
-- `Ctrl+Home` / `Ctrl+End` stay inside the open file
-- `Ctrl+F` finds text in the open file -- either side counts, the match is
-  marked amber, and the search is kept when you move to another file
-- Export writes the full HTML report -- folded categories still included. It
-  reads differently from this window on purpose: the viewer shows the whole
-  file, the report shows three lines either side of each real change and leaves
-  the rest behind the `Unimportant` badge
-- **Quick changes** panel: AUTOSAR / A2L rollup, click a row to jump straight
-  to the line that names that object
+## CLI
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+Home` | First change (this file) |
-| `F7` | Previous change, crossing into the previous changed file |
-| `F8` | Next change, crossing into the next changed file |
-| `Ctrl+End` | Last change (this file) |
-| `Ctrl+F` | Find in this file |
-| `F3` / `Shift+F3` | Next / previous match |
-| `Esc` | Close the find bar |
-| `Ctrl+R` | Mark this change reviewed |
-| `Ctrl+Shift+R` | Mark the whole file reviewed |
-| `Ctrl+E` | Export report |
-
-## 7. Review sign-off
-
-- Off by default -- turn on `Review mode` in the toolbar
-- Write a note on the current change, tick **Reviewed** (`Ctrl+R`), `F8` to the
-  next one
-- `Whole file` signs off the whole file at once (`Ctrl+Shift+R`); press again
-  to clear it. Notes you wrote are kept
-- Only real changes can be signed off; a note follows the change's content, not
-  its line number
-- Saves automatically to `codegen-review.json`, next to the CURRENT folder
-- Export carries every note, plus a **Reviewed** badge to hide what's done
-
-The tree gains a `Review` column in this mode. A folder's count is everything
-underneath it.
-
-| Review column | Meaning |
-|---|---|
-| Green `7/7` | Every change in the row signed off |
-| Amber `3/7` | Part way through |
-| Grey `0/7` | Nothing signed off yet |
-| `—` | Nothing here can be signed off (noise, identical, NOT compared) |
-
-## Fail-safe
-
-- Unreadable or uncompared path -> red banner, `‼` mark, exit code `2`
-- A report that could not be written is exit `2` too: a run with no record must
-  not look like a clean one
-- Never silently skipped
+For CLI commands, options and configuration examples, see the
+[GitHub user guide](https://github.com/longvo92/codegen-compare-tool/blob/main/docs/usage.md#command-line).
 """
 
 ABOUT_HTML = """
 <p style="font-size:13px;"><b>CodeGen Compare Tool {version}</b></p>
-<p>Diff two AUTOSAR code-generation output folders (MATLAB / Simulink
-Embedded Coder) and show only the changes that matter -- comments, 1-to-1
-renames, UUIDs, timestamps and whitespace are classified as noise, everything
-else stays a real change.</p>
-<p><b>Fail-safe:</b> what cannot be proven to be noise is reported as a real
-change, and a path that could not be compared is a loud error, never a silent
-omission.</p>
+<p>Compare generated code and check AUTOSAR RTE/ARXML consistency.</p>
 <p>Author: <b>Long Vo Thien</b> &middot; MIT License<br>
 Built with Python and PySide6</p>
 <p><a style="color:{link};"

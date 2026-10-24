@@ -36,12 +36,12 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 | `--current-name NAME` | Đặt label hiển thị CURRENT; cùng cách hoạt động với `--baseline-name`. |
 | `--theme dark\|light` | Theme ban đầu của viewer/HTML. Mặc định: `dark`; HTML vẫn chứa cả hai theme. Không ảnh hưởng terminal output. |
 | `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
-| `--review REVIEW.json` | Đọc review note/sign-off từ viewer vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
+| `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
 | `--exit-zero` | Trả `0` khi có file difference để CI thu report mà không fail vì thay đổi. Mặc định tắt; không bỏ qua consistency failure đã bật (`1`), lỗi input/scan/output hoặc thiếu coverage theo delivery (`2`). |
 
 #### CURRENT consistency
 
-Các check này chỉ dùng trên CLI. Xem [Consistency check](#consistency-check) về policy, rule, cấu hình và giới hạn coverage.
+Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong **Code Check**. Xem [Consistency check](#consistency-check) về policy, rule, cấu hình và giới hạn coverage.
 
 | Flag | Công dụng và mặc định |
 |---|---|
@@ -64,7 +64,7 @@ Các check này chỉ dùng trên CLI. Xem [Consistency check](#consistency-chec
 
 - `--report` và `--no-report` không dùng cùng nhau. JSON/SARIF là output bổ sung; thêm `--no-report` để tránh tạo HTML mặc định. Nội dung chưa chứa CURRENT finding.
 - `--no-report` cần đủ hai input, không dùng cùng `--qt` / `--viewer`. Dùng report/export flag trong CLI comparison; viewer xuất HTML qua thao tác Export riêng.
-- `--consistency-policy`, `--consistency-config` và `--ignore-access-port-regex` cần `--check-consistency` hoặc `--check-current`. Consistency check không dùng cùng viewer hoặc `--arxml-only`.
+- `--consistency-policy`, `--consistency-config` và `--ignore-access-port-regex` cần `--check-consistency` hoặc `--check-current`. Các flag CLI này không dùng cùng viewer hoặc `--arxml-only`; cấu hình check trong viewer tại **Code Check**.
 - `--check-current` lấy input từ PATH, không nhận positional argument. Chấp nhận `--exclude`, `--current-name` và consistency options; `--no-report` / `--check-consistency` không bắt buộc. Option compare/report và JSON/SARIF bị từ chối. `--exit-zero` không bỏ qua failure của mode này.
 
 ### Ví dụ
@@ -87,7 +87,7 @@ Chỉ review AUTOSAR/calibration surface:
 python -m compare_tool baseline current --arxml-only --report autosar.html
 ```
 
-Sau khi lưu rules file và review note từ viewer, đưa chúng vào HTML report có giới hạn diff:
+Đưa custom rule và file review có sẵn vào HTML report có giới hạn diff:
 
 ```bash
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
@@ -123,11 +123,18 @@ Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit v�
 | `F7` / `F8` | Change trước / sau qua các file |
 | `Ctrl+Home` / `Ctrl+End` | Change đầu / cuối trong file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Tìm, kết quả sau / trước |
-| `Ctrl+R` / `Ctrl+Shift+R` | Đánh dấu change / file đã review |
 | `Ctrl+E` | Export HTML |
 | `F1` | Mở hướng dẫn offline |
 
-Review note lưu trong `codegen-review.json` cạnh CURRENT. CLI chỉ đọc khi truyền `--review FILE`.
+### Workspace Code Check
+
+Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
+
+1. Chọn folder hoặc ZIP, thả một nguồn vào Code Check, hoặc chọn **Use Compare CURRENT**.
+2. Chọn coverage policy `delivery` (mặc định) hoặc `standard` và config YAML/JSON tùy chọn. Scope override nhận exclude glob, mỗi dòng một mẫu, và regex bỏ qua port bổ sung.
+3. Chọn **Run Code Check**. Lọc kết quả theo severity hoặc text; chọn finding để xem evidence và source context.
+
+**Findings** chứa rule lỗi, cảnh báo, mục chưa kiểm tra được và ngoại lệ kèm evidence. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại; đổi input cần chạy lại. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
 
 ## Cái gì được tính là noise
 
@@ -170,7 +177,7 @@ Old/new consistency advisory đề nghị xem dependency và generation record k
 
 ## Consistency check
 
-Kiểm tra một folder hoặc ZIP CURRENT, không cần baseline, HTML hay viewer:
+Dùng workspace **Code Check** trong viewer, hoặc kiểm tra một folder/ZIP CURRENT trên terminal không cần baseline hay HTML:
 
 ```bash
 python -m compare_tool --check-current current
@@ -192,7 +199,7 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Dùng `--consistency-policy delivery` để bắt buộc coverage trong comparison check. Terminal hiện PASS, PASS WITH EXCEPTIONS, FAIL hoặc INCOMPLETE, finding và coverage. File difference cũng ảnh hưởng exit status của comparison; `--exit-zero` chỉ bỏ qua phần difference đó, không bỏ qua consistency failure hoặc lỗi.
 
-`--check-current` nhận `--exclude`, `--current-name`, consistency options và các cờ không bắt buộc `--no-report` / `--check-consistency`. Option chỉ dành cho comparison và JSON/SARIF bị từ chối. CURRENT finding chỉ có trên terminal, kể cả khi compare; lưu terminal output nếu cần delivery record.
+CURRENT finding hiện trên terminal hoặc Code Check, không nằm trong comparison report/export. Lưu CLI terminal output nếu cần delivery record.
 
 ### Cấu hình policy
 
@@ -226,8 +233,6 @@ Sau khi lưu YAML trên thành `project.yaml`, thêm ignore tạm thời bên c�
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
-
-Consistency options yêu cầu `--check-consistency` hoặc `--check-current`. Không dùng check cùng `--arxml-only` hoặc viewer.
 
 ### Mapping và ngoại lệ
 

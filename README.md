@@ -53,12 +53,13 @@ python -m compare_tool --check-current current
 | Folder or ZIP comparison | Compare C/C++, ARXML, RTE and A2L baselines |
 | Noise filtering | Filter proven generator noise while retaining unexplained changes |
 | Desktop viewer | Review changes side by side |
+| Code Check workspace | Check one CURRENT folder/ZIP with findings, source context and policy coverage |
 | HTML report | Share results offline or as a CI artifact |
 | `--no-report` | Review summaries and diagnostics in the terminal |
 | `--check-current PATH` | Check CURRENT RTE/ARXML consistency before delivery |
 | `--json` / `--sarif` | Export comparison results for pipelines |
 
-CURRENT consistency findings are terminal-only; JSON/SARIF exports contain comparison results and old/new advisories.
+CURRENT consistency findings appear in Code Check or the terminal; JSON/SARIF exports contain comparison results and old/new advisories.
 
 ## Review the results
 

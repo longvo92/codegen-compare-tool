@@ -36,12 +36,12 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--current-name NAME` | Set the CURRENT display label; same behavior as `--baseline-name`. |
 | `--theme dark\|light` | Initial viewer/HTML theme. Default: `dark`; both themes remain available in HTML. Does not affect terminal output. |
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
-| `--review REVIEW.json` | Load viewer review notes/sign-offs into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
+| `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
 | `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Off by default; never suppresses enabled consistency failures (`1`), input/scan/output errors or delivery coverage gaps (`2`). |
 
 #### CURRENT consistency
 
-These checks are CLI-only. See [Consistency check](#consistency-check) for policy, rules, configuration and coverage limits.
+These flags control CLI checks. The viewer offers the same checker in **Code Check**. See [Consistency check](#consistency-check) for policy, rules, configuration and coverage limits.
 
 | Flag | Use and defaults |
 |---|---|
@@ -64,7 +64,7 @@ These checks are CLI-only. See [Consistency check](#consistency-check) for polic
 
 - `--report` and `--no-report` are mutually exclusive. JSON/SARIF are additional outputs; add `--no-report` to avoid default HTML. Their contents exclude CURRENT findings.
 - `--no-report` requires both inputs and cannot run with `--qt` / `--viewer`. Use report/export flags in CLI comparisons; the viewer exports HTML through its own Export action.
-- `--consistency-policy`, `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. Consistency checks cannot run with the viewer or `--arxml-only`.
+- `--consistency-policy`, `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. These CLI flags cannot run with the viewer or `--arxml-only`; configure viewer checks in **Code Check** instead.
 - `--check-current` takes its input from PATH, not positional arguments. It accepts `--exclude`, `--current-name` and consistency options; `--no-report` / `--check-consistency` are redundant. Comparison/report options and JSON/SARIF are rejected. `--exit-zero` does not suppress its failures.
 
 ### Examples
@@ -87,7 +87,7 @@ Review only the AUTOSAR/calibration surface:
 python -m compare_tool baseline current --arxml-only --report autosar.html
 ```
 
-After saving a rules file and viewer review notes, include them in a capped HTML report:
+Include custom rules and an existing review file in a capped HTML report:
 
 ```bash
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
@@ -123,11 +123,18 @@ Select folders or ZIPs, or use **Git compare** to compare a commit with the curr
 | `F7` / `F8` | Previous / next change across files |
 | `Ctrl+Home` / `Ctrl+End` | First / last change in the file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Find, next / previous match |
-| `Ctrl+R` / `Ctrl+Shift+R` | Mark change / file reviewed |
 | `Ctrl+E` | Export HTML |
 | `F1` | Open the offline guide |
 
-Review notes are saved in `codegen-review.json` beside CURRENT. The CLI loads them only with `--review FILE`.
+### Code Check workspace
+
+Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
+
+1. Select a folder or ZIP, drop one onto Code Check, or choose **Use Compare CURRENT**.
+2. Choose `delivery` (default) or `standard` coverage policy and an optional YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
+3. Select **Run Code Check**. Filter results by severity or text; select a finding to inspect its evidence and source context.
+
+**Findings** includes failed rules, warnings, unchecked items and exceptions with their evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching; changing inputs requires a new run. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
 
 ## What counts as noise
 
@@ -170,7 +177,7 @@ Old/new consistency advisories suggest reviewing dependencies and generation rec
 
 ## Consistency check
 
-Check one CURRENT folder or ZIP without a baseline, HTML or viewer:
+Use the viewer's **Code Check** workspace, or check one CURRENT folder or ZIP in the terminal without a baseline or HTML:
 
 ```bash
 python -m compare_tool --check-current current
@@ -192,7 +199,7 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Use `--consistency-policy delivery` to enforce coverage on comparison checks. The terminal shows PASS, PASS WITH EXCEPTIONS, FAIL or INCOMPLETE, findings and coverage. Comparison differences also affect exit status; `--exit-zero` suppresses only those differences, never consistency failures or errors.
 
-`--check-current` accepts `--exclude`, `--current-name`, consistency options and the redundant `--no-report` / `--check-consistency` flags. Comparison-only options and JSON/SARIF are rejected. CURRENT findings are terminal-only, including during comparisons; capture terminal output for a delivery record.
+CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
 
 ### Policy configuration
 
@@ -226,8 +233,6 @@ After saving the YAML above as `project.yaml`, add a temporary ignore alongside 
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
-
-Consistency options require `--check-consistency` or `--check-current`. Checks cannot run with `--arxml-only` or the viewer.
 
 ### Mappings and exceptions
 
