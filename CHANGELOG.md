@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.20.0] — 2026-10-24
+
 ### Added
 
 - Add a standalone Code Check workspace alongside Compare in the desktop viewer, with folder/ZIP inputs, coverage policies, YAML/JSON configuration, searchable findings and source context.
@@ -12,7 +14,6 @@ All notable changes to this project are documented here. Versions follow
 ### Changed
 
 - Rename the application to CodeGen Inspector, including its logo, desktop titles, Help/About, CLI banners and HTML report titles. Existing package names, commands and repository links remain valid.
-
 - Label comparison-only consistency warnings as Regeneration advisories, separate from CURRENT code checks.
 - Keep Code Check findings and coverage separate, remove repeated GUI descriptions, and focus Help on mode workflows with CLI instructions linked to GitHub.
 - Put mode selection above comparison tools, remove the viewer's Review mode, and share Compare's syntax colors and source-line gutter with Code Check.
