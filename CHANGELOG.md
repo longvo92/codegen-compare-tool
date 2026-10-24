@@ -12,6 +12,7 @@ All notable changes to this project are documented here. Versions follow
 ### Changed
 
 - Label comparison-only consistency warnings as Regeneration advisories, separate from CURRENT code checks.
+- Focus in-app help on Compare and Code Check workflows, with CLI instructions linked to GitHub.
 
 ## [1.19.0] — 2026-10-16
 
