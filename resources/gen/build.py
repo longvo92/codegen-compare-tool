@@ -2,7 +2,7 @@ import os, sys, cairosvg
 from icons import HEAD, FOOT, ICONS
 from logo import LOGO_MARK, LOGO_FULL
 
-ROOT = "/sessions/jolly-compassionate-ptolemy/mnt/code-review/resources"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIRS = {k: os.path.join(ROOT, *p) for k,p in {
   "svg":("icons","svg"), "p24":("icons","png","24"), "p48":("icons","png","48"),
   "logo":("logo",)}.items()}

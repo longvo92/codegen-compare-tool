@@ -1,6 +1,6 @@
 <div align="center">
 
-# CodeGen Compare Tool
+# CodeGen Inspector
 
 **Compare AUTOSAR codegen baselines and review changes offline.**
 

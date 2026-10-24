@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QTextBrowser,
                                QVBoxLayout)
 
-from .. import __version__, theme
+from .. import APP_NAME, __version__, theme
 from ..resources import doc_file
 from .icons import app_icon, logo_pixmap
 
@@ -69,7 +69,7 @@ For CLI commands, options and configuration examples, see the
 """
 
 ABOUT_HTML = """
-<p style="font-size:13px;"><b>CodeGen Compare Tool {version}</b></p>
+<p style="font-size:13px;"><b>{app_name} {version}</b></p>
 <p>Compare generated code and check AUTOSAR RTE/ARXML consistency.</p>
 <p>Author: <b>Long Vo Thien</b> &middot; MIT License<br>
 Built with Python and PySide6</p>
@@ -107,7 +107,7 @@ class _TextDialog(QDialog):
 
 
 def show_user_guide(parent):
-    _TextDialog(parent, 'User guide — CodeGen Compare', GUIDE).exec()
+    _TextDialog(parent, 'User guide — ' + APP_NAME, GUIDE).exec()
 
 
 def show_release_notes(parent):
@@ -121,12 +121,12 @@ def show_release_notes(parent):
         text = 'Could not read {}\n\n{}: {}'.format(path, type(e).__name__, e)
         _TextDialog(parent, 'Release notes', text, markdown=False).exec()
         return
-    _TextDialog(parent, 'Release notes — CodeGen Compare', text).exec()
+    _TextDialog(parent, 'Release notes — ' + APP_NAME, text).exec()
 
 
 def show_about(parent):
     dlg = QDialog(parent)
-    dlg.setWindowTitle('About CodeGen Compare')
+    dlg.setWindowTitle('About ' + APP_NAME)
     dlg.setWindowIcon(app_icon())
     lay = QVBoxLayout(dlg)
     lay.setSpacing(12)
@@ -140,7 +140,7 @@ def show_about(parent):
     # inherit the app palette for links), so it takes the theme's accent rather
     # than a hex literal -- hard-coded, the dark theme's blue stayed on the
     # light page, which is the whole failure mode rule 3 exists to stop
-    body = QLabel(ABOUT_HTML.format(version=__version__,
+    body = QLabel(ABOUT_HTML.format(app_name=APP_NAME, version=__version__,
                                     link=theme.c('accent-2')))
     body.setWordWrap(True)
     body.setTextFormat(Qt.RichText)

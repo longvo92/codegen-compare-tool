@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
                                QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import gitsource, theme, zipsource
+from .. import APP_NAME, gitsource, theme, zipsource
 from ..diff_engine import RULES
 from ..main import default_report_name
 from ..report import build_arxml_report, build_report, consistency_advisories
@@ -108,7 +108,7 @@ class MainWindow(QMainWindow):
         # file they are reading.
         self._autoselect = False
 
-        self.setWindowTitle('AUTOSAR CodeGen Compare — viewer')
+        self.setWindowTitle(APP_NAME + ' — Compare')
         self.setWindowIcon(app_icon())
         self.resize(1200, 800)
         self.setAcceptDrops(True)  # drop the two folders straight onto the window
@@ -303,10 +303,10 @@ class MainWindow(QMainWindow):
         self.statusBar().setVisible(comparing)
         self.code_check.refresh_current()
         if comparing:
-            self.setWindowTitle(getattr(self, '_compare_title', 'AUTOSAR CodeGen Compare — viewer'))
+            self.setWindowTitle(getattr(self, '_compare_title', APP_NAME + ' — Compare'))
         else:
             self._compare_title = self.windowTitle()
-            self.setWindowTitle('AUTOSAR CodeGen Compare — Code Check')
+            self.setWindowTitle(APP_NAME + ' — Code Check')
 
     # tool-state chip on the status bar: a coloured dot plus a word, so the
     # reviewer can tell at a glance whether a result is final or still coming
@@ -760,7 +760,7 @@ class MainWindow(QMainWindow):
         # window: it changed what the scan judged, so the reviewer has to see
         # which mode produced the tree they are reading
         quick = ' — QUICK CHECK: variable renames skipped' if self.skip_var_renames else ''
-        self._compare_title = 'AUTOSAR CodeGen Compare — {}{}'.format(name, quick)
+        self._compare_title = '{} — Compare — {}{}'.format(APP_NAME, name, quick)
         if self.modes.currentIndex() == 0:
             self.setWindowTitle(self._compare_title)
         self.counts_label.setText('')
@@ -1336,7 +1336,7 @@ def _taskbar_identity():
     try:
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            'LongVoThien.CodeGenCompareTool')
+            'LongVoThien.CodeGenInspector')
     except Exception:
         pass  # not Windows, or the call is unavailable: cosmetic either way
 
@@ -1350,7 +1350,7 @@ def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
         app = QApplication(sys.argv[:1])
     theme.set_current(theme_name)
     apply_theme(app)
-    app.setApplicationName('CodeGen Compare')
+    app.setApplicationName(APP_NAME)
     app.setWindowIcon(app_icon())
     win = MainWindow(old, new, exclude, arxml_only, theme_name, user_rules,
                      skip_var_renames)

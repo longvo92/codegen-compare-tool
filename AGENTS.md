@@ -1,4 +1,4 @@
-# CodeGen Compare Tool
+# CodeGen Inspector
 Compare AUTOSAR MATLAB/Simulink codegen folders while filtering proven generator noise.
 Package: compare_tool. Read docs/architecture.md for module ownership and contracts.
 

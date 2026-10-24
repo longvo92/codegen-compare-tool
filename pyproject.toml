@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codegen-compare-tool"
 authors = [{ name = "Long Vo Thien" }]
-description = "Diff two AUTOSAR MATLAB/Simulink codegen folders, filtering out generator noise"
+description = "CodeGen Inspector: compare generated code and check AUTOSAR RTE/ARXML consistency"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.8"
