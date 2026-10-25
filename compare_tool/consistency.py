@@ -109,6 +109,14 @@ class AccessPoint:
     data_ref: str = ''
 
 
+@dataclass(frozen=True)
+class ServiceCallPoint:
+    runnable: str
+    port_ref: str
+    operation_ref: str
+    source_file: str
+
+
 @dataclass
 class CurrentTreeCheck:
     """Result of the RTE/ARXML consistency pass shared by CLI and Code Check."""
@@ -150,6 +158,8 @@ class CurrentTreeCheck:
 _RTE_CALL_RE = re.compile(
     r'\b(Rte_[A-Za-z0-9_]+)\s*\('
 )
+_C_CALL_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\(')
+_C_NON_CALL_WORDS = frozenset(('if', 'for', 'while', 'switch', 'sizeof', '_Alignof', 'alignof'))
 _AUTOSAR_FUNCTION_RE = re.compile(
     r'\bFUNC\s*\([^)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)'
     r'\s*\([^;{}]*\)\s*\{',
@@ -157,7 +167,9 @@ _AUTOSAR_FUNCTION_RE = re.compile(
 )
 _NORMAL_FUNCTION_RE = re.compile(
     r'(?:^|\n)\s*(?:(?:static|inline|extern)\s+)*'
-    r'[A-Za-z_][A-Za-z0-9_]*(?:\s*\*)*\s+'
+    r'(?:(?:const|volatile|signed|unsigned|short|long)\s+)*'
+    r'(?:(?:struct|union|enum)\s+)?'
+    r'[A-Za-z_][A-Za-z0-9_]*(?:\s+|(?:\s*\*)+\s*)'
     r'([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{',
     re.MULTILINE,
 )
@@ -175,10 +187,27 @@ _CHECKER_RULES = frozenset((
     'inconsistent_arxml_access_mode',
     'access_mode_mismatch',
     'orphan_access',
+    'nvm_package',
+    'dem_package',
+    'forbidden_function',
 ))
+_CONFIG_LISTS = (
+    'forbidden_rte_prefixes', 'ignore_access_port_regex', 'forbidden_functions',
+    'nvm_packages', 'dem_packages', 'nvm_interface_names', 'dem_interface_names',
+)
+CHECKER_SCOPE = (
+    'Scope: .c Sender/Receiver RTE calls against ARXML access declarations; '
+    'configured NVM/DEM Rte_Call interface packages and forbidden function calls. '
+    'Other RTE APIs are UNCHECKED. BSW integration NOT CHECKED.'
+)
 DEFAULT_CHECKER_CONFIG = {
     'forbidden_rte_prefixes': ['Rte_IRead_', 'Rte_IWrite_'],
     'ignore_access_port_regex': [],
+    'forbidden_functions': [],
+    'nvm_packages': [],
+    'dem_packages': [],
+    'nvm_interface_names': ['NvMService'],
+    'dem_interface_names': ['DiagnosticMonitor'],
     'rules': {
         'forbidden_rte_api': 'fail',
         'no_matching_port_dataelement': 'fail',
@@ -186,16 +215,16 @@ DEFAULT_CHECKER_CONFIG = {
         'inconsistent_arxml_access_mode': 'fail',
         'access_mode_mismatch': 'fail',
         'orphan_access': 'warn',
+        'nvm_package': 'fail',
+        'dem_package': 'fail',
+        'forbidden_function': 'fail',
     },
 }
 
 
 def _checker_defaults():
     return {
-        'forbidden_rte_prefixes': list(
-            DEFAULT_CHECKER_CONFIG['forbidden_rte_prefixes']),
-        'ignore_access_port_regex': list(
-            DEFAULT_CHECKER_CONFIG['ignore_access_port_regex']),
+        **{key: list(DEFAULT_CHECKER_CONFIG[key]) for key in _CONFIG_LISTS},
         'rules': dict(DEFAULT_CHECKER_CONFIG['rules']),
         'function_mappings': [],
         'exceptions': [],
@@ -244,16 +273,21 @@ def load_checker_config(path: Optional[Path]) -> Dict[str, Any]:
         if not line or line.startswith('#'):
             continue
         if not raw_line.startswith((' ', '\t')):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                if key in _CONFIG_LISTS and value.strip() == '[]':
+                    config[key] = []
+                    section = None
+                    continue
             if not line.endswith(':'):
                 raise ValueError('invalid top-level config line: {}'.format(raw_line))
             section = line[:-1].strip()
-            if section in ('forbidden_rte_prefixes',
-                           'ignore_access_port_regex'):
+            if section in _CONFIG_LISTS:
                 config[section] = []
             elif section != 'rules':
                 raise ValueError('unknown config section: {}'.format(section))
             continue
-        if section in ('forbidden_rte_prefixes', 'ignore_access_port_regex'):
+        if section in _CONFIG_LISTS:
             if not line.startswith('- '):
                 raise ValueError('expected list item under {}: {}'.format(
                     section, raw_line))
@@ -274,14 +308,31 @@ def load_checker_config(path: Optional[Path]) -> Dict[str, Any]:
             continue
         raise ValueError('config value outside a known section: {}'.format(
             raw_line))
+    _validate_config(config)
     return config
 
 
 def _validate_config(config):
-    for key in ('forbidden_rte_prefixes', 'ignore_access_port_regex'):
+    for key in _CONFIG_LISTS:
         if not isinstance(config[key], list) or not all(
                 isinstance(value, str) for value in config[key]):
             raise ValueError('{} must be a list of strings'.format(key))
+        if any(not value.strip() for value in config[key]):
+            raise ValueError('{} entries must be nonempty'.format(key))
+    for key in ('nvm_packages', 'dem_packages'):
+        for value in config[key]:
+            if (not value.startswith('/') or value.endswith('/')
+                    or any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', part)
+                           for part in value[1:].split('/'))):
+                raise ValueError('{} requires exact absolute AR-PACKAGE paths'.format(key))
+    for key in ('nvm_interface_names', 'dem_interface_names'):
+        if any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', value) for value in config[key]):
+            raise ValueError('{} requires interface short names'.format(key))
+    if set(config['nvm_interface_names']) & set(config['dem_interface_names']):
+        raise ValueError('NVM and DEM interface names must not overlap')
+    if any(not re.fullmatch(r'[A-Za-z_*?][A-Za-z0-9_*?]*', value)
+           for value in config['forbidden_functions']):
+        raise ValueError('forbidden_functions requires function names or * / ? globs')
     for name, severity in config['rules'].items():
         if name not in _CHECKER_RULES or severity not in ('fail', 'warn', 'skip', 'off'):
             raise ValueError('invalid consistency rule or severity: {}'.format(name))
@@ -306,7 +357,8 @@ def _validate_config(config):
                     raise ValueError('exception requires a file, swc, runnable or port scope')
                 if entry['rule'] not in _CHECKER_RULES | {
                         'unsupported_rte_api', 'runnable_not_resolved',
-                        'ambiguous_port_dataelement', 'runnable_not_implemented'}:
+                        'ambiguous_port_dataelement', 'runnable_not_implemented',
+                        'service_reference_unresolved', 'service_package_not_configured'}:
                     raise ValueError('unknown exception rule: {}'.format(entry['rule']))
             for scope in ('swc', 'runnable'):
                 if scope in entry and not entry[scope].startswith('/'):
@@ -384,6 +436,8 @@ def _discover_functions(content):
     found = []
     for regex in (_AUTOSAR_FUNCTION_RE, _NORMAL_FUNCTION_RE):
         for match in regex.finditer(structural):
+            if match.group(1) in _C_NON_CALL_WORDS:
+                continue
             open_pos = structural.find('{', match.start(), match.end())
             end_pos = _matching_brace(structural, open_pos)
             if open_pos < 0 or end_pos is None:
@@ -407,8 +461,9 @@ def _containing_function(position, functions):
                key=lambda item: item['end_pos'] - item['body_start'])['name']
 
 
-def _scan_code(root, rels):
+def _scan_code(root, rels, forbidden_functions=()):
     calls = []
+    forbidden = []
     functions = []
     errors = []
     for rel in rels:
@@ -423,6 +478,31 @@ def _scan_code(root, rels):
         detected = _discover_functions(content)
         functions.extend(FunctionInfo(item['name'], rel) for item in detected)
         searchable = _mask_c_literals(strip_c_comments(content))
+        for match in (_C_CALL_RE.finditer(searchable) if forbidden_functions else ()):
+            api = match.group(1)
+            if api in _C_NON_CALL_WORDS:
+                continue
+            if not any(fnmatch.fnmatchcase(api, pattern) for pattern in forbidden_functions):
+                continue
+            prefix_end = match.start()
+            while prefix_end and searchable[prefix_end - 1].isspace():
+                prefix_end -= 1
+            if searchable[max(0, prefix_end - 2):prefix_end].endswith(('.', '->')):
+                continue
+            function = _containing_function(match.start(), detected)
+            if function is None:
+                continue  # Prototypes and function definitions are not uses.
+            # Block-scope prototypes also declare a function rather than call it.
+            # A leading statement keyword cannot be a declaration specifier,
+            # even in a compound prefix such as "else return" or "return *".
+            start = max(searchable.rfind(char, 0, match.start()) for char in ';{}') + 1
+            prefix = searchable[start:match.start()].lstrip()
+            if (re.fullmatch(r'(?:[A-Za-z_]\w*\s+)+(?:\*\s*)*', prefix)
+                    and prefix.split()[0] not in ('return', 'else', 'do')):
+                continue
+            forbidden.append(RteCall(
+                rel, searchable.count('\n', 0, match.start()) + 1,
+                function, api, 'Function'))
         for match in _RTE_CALL_RE.finditer(searchable):
             api = match.group(1)
             calls.append(RteCall(
@@ -432,7 +512,7 @@ def _scan_code(root, rels):
                 api,
                 _api_type(api),
             ))
-    return calls, functions, errors
+    return calls, functions, errors, forbidden
 
 
 def _child_text(element, name):
@@ -453,6 +533,8 @@ def _parse_arxml(base, rels):
     accesses = []
     runnables = {}
     errors = []
+    service_points = []
+    ports = {}
     for rel in rels:
         try:
             path = Path(base) / rel
@@ -476,6 +558,11 @@ def _parse_arxml(base, rels):
                 swc = identity
                 prefix = next((_child_text(child, 'SYMBOL') for child in element
                                if _local_name(child.tag) == 'SYMBOL-PROPS'), '')
+            if tag in ('R-PORT-PROTOTYPE', 'PR-PORT-PROTOTYPE'):
+                refs = [(node.text or '').strip().rstrip('/') for node in element.iter()
+                        if _local_name(node.tag) in
+                        ('REQUIRED-INTERFACE-TREF', 'PROVIDED-REQUIRED-INTERFACE-TREF')]
+                ports.setdefault(identity, []).append((rel, tuple(refs)))
             if tag == 'RUNNABLE-ENTITY':
                 if not name:
                     errors.append(_scan_error(rel, ValueError('runnable has no SHORT-NAME')))
@@ -483,6 +570,16 @@ def _parse_arxml(base, rels):
                 info = RunnableInfo(identity, name, swc,
                                     _child_text(element, 'SYMBOL'), prefix, rel)
                 runnables.setdefault(identity, []).append(info)
+                for point in element.iter():
+                    if _local_name(point.tag) not in (
+                            'SYNCHRONOUS-SERVER-CALL-POINT', 'ASYNCHRONOUS-SERVER-CALL-POINT'):
+                        continue
+                    refs = {_local_name(node.tag): (node.text or '').strip().rstrip('/')
+                            for node in point.iter() if _local_name(node.tag) in
+                            ('CONTEXT-R-PORT-REF', 'TARGET-REQUIRED-OPERATION-REF')}
+                    service_points.append(ServiceCallPoint(
+                        identity, refs.get('CONTEXT-R-PORT-REF', ''),
+                        refs.get('TARGET-REQUIRED-OPERATION-REF', ''), rel))
                 for container_elem in element:
                     container = _local_name(container_elem.tag)
                     if container not in _ARXML_ACCESS_CONTAINERS:
@@ -505,7 +602,57 @@ def _parse_arxml(base, rels):
         if len({(item.symbol, item.prefix) for item in definitions}) > 1:
             errors.append(_scan_error(definitions[0].source_file, ValueError(
                 'conflicting runnable symbols for {}'.format(identity))))
-    return accesses, runnables, errors
+    return accesses, runnables, errors, service_points, ports
+
+
+def _check_service_packages(calls, runnables, points, ports, config):
+    """Check package references only; no BSW implementation is required."""
+    issues, skipped, handled = [], [], set()
+    checked = 0
+    for call in calls:
+        if call.api_type != 'Call':
+            continue
+        identity = _find_runnable(call.function, call.file, runnables, config)
+        candidates = [point for point in points if point.runnable == identity
+                      and point.port_ref and point.operation_ref
+                      and call.api == 'Rte_Call_{}_{}'.format(
+                          _ref_short_name(point.port_ref), _ref_short_name(point.operation_ref))]
+        if not candidates:
+            continue
+        interfaces = {p.operation_ref.rsplit('/', 1)[0] for p in candidates}
+        families = {family for family in ('nvm', 'dem') for interface in interfaces
+                    if _ref_short_name(interface) in config[family + '_interface_names']}
+        if not families:
+            continue  # General client/server checking is outside this policy.
+        handled.add(call)
+        context = {'call': call, 'runnable': identity, 'swc': runnables[identity][0].swc}
+        if (len({p.port_ref for p in candidates}) != 1 or len(interfaces) != 1 or len(families) != 1
+                or {p.source_file for p in candidates}
+                != {r.source_file for r in runnables[identity]}):
+            skipped.append(dict(context, reason='SERVICE_REFERENCE_UNRESOLVED'))
+            continue
+        family = next(iter(families))
+        interface = next(iter(interfaces))
+        port_ref = candidates[0].port_ref
+        context.update(port=_ref_short_name(port_ref), interface=interface,
+                       arxml_file=candidates[0].source_file)
+        declarations = ports.get(port_ref, [])
+        # All copies must resolve to the same required interface. Never borrow
+        # another component's identically named port or runnable.
+        if (not context['swc'] or not port_ref.startswith(context['swc'] + '/') or not declarations
+                or any(refs != (interface,) for _, refs in declarations)):
+            skipped.append(dict(context, reason='SERVICE_REFERENCE_UNRESOLVED'))
+            continue
+        allowed = config[family + '_packages']
+        if not allowed:
+            skipped.append(dict(context, reason='SERVICE_PACKAGE_NOT_CONFIGURED', service=family.upper()))
+            continue
+        checked += 1
+        package = interface.rsplit('/', 1)[0]
+        if package not in allowed:
+            issues.append(dict(context, reason=family.upper() + '_PACKAGE',
+                               package=package, expected_packages=list(allowed)))
+    return issues, skipped, handled, checked
 
 
 def _scan_error(rel, exc):
@@ -719,7 +866,11 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     ``CONSISTENCY_SCAN_ERROR`` findings and make it exit 2.
     """
     root = Path(root)
-    config = config or _checker_defaults()
+    # Preserve programmatic callers supplying a complete legacy policy dict.
+    defaults = _checker_defaults()
+    supplied = config or {}
+    config = dict(defaults, **supplied)
+    config['rules'] = dict(defaults['rules'], **supplied.get('rules', {}))
     _validate_config(config)
     if policy not in ('standard', 'delivery'):
         raise ValueError('unknown consistency policy: {}'.format(policy))
@@ -729,8 +880,9 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     c_rels = [rel for rel in rels if Path(rel).suffix.lower() == '.c']
     arxml_rels = [rel for rel in rels
                   if Path(rel).suffix.lower() == '.arxml']
-    calls, functions, code_errors = _scan_code(root, c_rels)
-    access_points, runnables, arxml_errors = _parse_arxml(root, arxml_rels)
+    calls, functions, code_errors, forbidden = _scan_code(
+        root, c_rels, config['forbidden_functions'])
+    access_points, runnables, arxml_errors, service_points, ports = _parse_arxml(root, arxml_rels)
     listing_findings = [_scan_error(rel, RuntimeError(message))
                         for rel, message in listing_errors]
     validate_checker_regex(config, ignore_access_port_regex)
@@ -764,6 +916,10 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
             notes.append('Function mapping {} / {} -> {}: {}'.format(
                 entry['file'], entry['function'], entry['runnable'], entry['reason']))
     prefixes = tuple(config['forbidden_rte_prefixes'])
+    for call in forbidden:
+        identity = _find_runnable(call.function, call.file, runnables, config)
+        raw.append({'reason': 'FORBIDDEN_FUNCTION', 'call': call, 'runnable': identity,
+                    'swc': runnables[identity][0].swc if identity else ''})
     for call in calls:
         if prefixes and call.api.startswith(prefixes):
             identity = _find_runnable(call.function, call.file, runnables, config)
@@ -775,8 +931,14 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
                 if len(pairs) == 1:
                     finding['port'] = _ref_short_name(next(iter(pairs))[0])
             raw.append(finding)
+    service_issues, service_skips, handled, service_checked = _check_service_packages(
+        calls, runnables, service_points, ports, config)
+    raw.extend(service_issues)
     issues, ignored, skipped, checked, used = _check_access_points(
-        calls, access_points, runnables, ignore_pattern, config)
+        [call for call in calls if call not in handled],
+        access_points, runnables, ignore_pattern, config)
+    skipped.extend(service_skips)
+    checked += service_checked
     raw.extend(issues)
     orphans, unresolved = _orphan_accesses(
         functions, access_points, runnables, ignore_pattern, config, used)

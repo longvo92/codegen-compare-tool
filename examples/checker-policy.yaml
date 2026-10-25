@@ -1,0 +1,29 @@
+# Replace these example AR-PACKAGE paths with your project's exact paths.
+nvm_packages:
+  - /Services/NvM
+dem_packages:
+  - /Services/Dem
+# Identify services by ARXML interface short name, never by the C port name.
+nvm_interface_names:
+  - NvMService
+dem_interface_names:
+  - DiagnosticMonitor
+# Function names and case-sensitive * / ? globs; direct calls in .c bodies.
+forbidden_functions:
+  - NvM_WriteAll
+  - Dem_ClearDTC
+forbidden_rte_prefixes:
+  - Rte_IRead_
+  - Rte_IWrite_
+ignore_access_port_regex: []
+# Every check rule accepts fail, warn, skip or off independently.
+rules:
+  forbidden_rte_api: fail
+  no_matching_port_dataelement: fail
+  missing_access_point_in_arxml: fail
+  inconsistent_arxml_access_mode: fail
+  access_mode_mismatch: fail
+  orphan_access: warn
+  nvm_package: fail
+  dem_package: fail
+  forbidden_function: fail

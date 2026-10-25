@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import theme
+from ..consistency import CHECKER_SCOPE
 from ..scanner import read_text
 from ..syntax import language_for
 from .diffpane import DiffEditor
@@ -288,8 +289,7 @@ class CodeCheckPage(QWidget):
                 check.c_files_scanned, check.arxml_files_scanned, check.access_points_detected),
             '{} / {} RTE call(s) checked'.format(check.checked_calls, check.rte_calls_detected),
             '', self._run_policy,
-            '', 'Scope: .c calls to Rte_Read/Write/IRead/IWrite against ARXML '
-                'Sender/Receiver access declarations. Other RTE APIs are UNCHECKED.',
+            '', CHECKER_SCOPE,
         ]
         if check.notes:
             lines.extend(['', 'Applied settings:'] + list(check.notes))

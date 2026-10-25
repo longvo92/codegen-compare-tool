@@ -213,6 +213,9 @@ Use `--consistency-config CONFIG.yaml` or JSON. Both are standard-library only; 
 | `inconsistent_arxml_access_mode` | fail | Duplicate definitions disagree on direction/mode |
 | `access_mode_mismatch` | fail | C/ARXML disagree on direction or explicit/implicit access |
 | `orphan_access` | warn | Resolved ARXML access without matching C access |
+| `nvm_package` | fail | Used NVM interface outside configured packages |
+| `dem_package` | fail | Used DEM interface outside configured packages |
+| `forbidden_function` | fail | Direct C call matching a configured forbidden name/glob |
 
 ```yaml
 forbidden_rte_prefixes:
@@ -226,9 +229,31 @@ rules:
 
 Severities: `fail` gates, `warn` reports only, `skip` omits and counts configured findings, `off` disables the rule. WARN never gates under either policy.
 
+Set each rule independently under `rules`, including the three service/function rules. CLI and the viewer's Code Check use the same settings. Start with [the complete policy example](../examples/checker-policy.yaml), replace its example packages and forbidden functions, then select that file in Code Check or pass `--consistency-config`.
+
+```yaml
+nvm_packages:
+  - /Services/NvM
+dem_packages:
+  - /Services/Dem
+forbidden_functions:
+  - NvM_WriteAll
+  - Rte_Call_*_ClearDTC
+rules:
+  nvm_package: fail
+  dem_package: warn
+  forbidden_function: fail
+```
+
+`nvm_packages` / `dem_packages` contain exact absolute AR-PACKAGE paths, without trailing slashes. Matching checks the immediate package of the referenced interface; it does not accept similarly named packages or child packages. No project package is assumed by default. A recognized service without configured packages remains UNCHECKED.
+
+Services are identified by interface short names: `nvm_interface_names` defaults to `["NvMService"]`, and `dem_interface_names` to `["DiagnosticMonitor"]`. Override these lists for project interfaces. The checker resolves the C call through its runnable's server-call-point and required port's interface reference; it does not infer NVM/DEM from the C port name. Missing, conflicting or ambiguous references remain UNCHECKED. Only package placement is checked; operation signatures, NvM blocks, DEM events/DTCs, asynchronous behavior and BSW integration are outside this check. Service call-point references follow [MathWorks' generated client/server ARXML structure](https://www.mathworks.com/help/autosar/ug/configure-client-server-communication.html).
+
+`forbidden_functions` accepts exact names and case-sensitive `*` / `?` globs, including direct BSW and `Rte_Call_*` names. It checks direct invocations in detected `.c` function bodies, ignoring comments, strings, prototypes and definitions. It does not resolve indirect function-pointer calls or expand macros. Forbidden calls are checked independently of package severity and ignored-port patterns. The default list is empty.
+
 The default implicit-API prohibition is a project policy, not a universal AUTOSAR restriction. Set `forbidden_rte_prefixes: []` to allow implicit APIs. Ignore regexes match the payload after `Rte_<verb>_`, affect port/data matching and do not disable forbidden-API checks. `--ignore-access-port-regex REGEX` adds a temporary pattern.
 
-After saving the YAML above as `project.yaml`, add a temporary ignore alongside `^Bsw_`:
+With `^Bsw_` saved under `ignore_access_port_regex` in `project.yaml`, add a temporary ignore:
 
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
@@ -257,7 +282,7 @@ JSON supports helper mappings and scoped exceptions with reasons:
 
 - Mappings need a file glob, exact function name, existing full runnable path and reason. They are project assertions; multiple targets or nonexistent runnables leave the check incomplete.
 - Exceptions need a rule, reason and at least one scope: `file` (glob), `swc` / `runnable` (full path), or `port` (short name). Every supplied scope must match; unresolved fields cannot match.
-- Exceptions cover the six rules above plus `unsupported_rte_api`, `runnable_not_resolved`, `runnable_not_implemented` and `ambiguous_port_dataelement`. They cannot waive scan errors or missing input.
+- Exceptions cover the rules above plus `unsupported_rte_api`, `runnable_not_resolved`, `runnable_not_implemented`, `ambiguous_port_dataelement`, `service_reference_unresolved` and `service_package_not_configured`. They cannot waive scan errors or missing input.
 - Applied mappings, exceptions, legacy ignores, excludes and disabled rules are visible in the terminal.
 
 Required inputs include C files and ARXML runnable definitions. Empty input or filters removing required input cannot pass. For a C-only utility with no RTE calls or access declarations:
@@ -270,7 +295,7 @@ This reason cannot waive read/parse errors, missing C files or real RTE usage.
 
 ### Coverage boundaries
 
-The checker reads `.c` files and matches `Rte_Read`, `Rte_Write`, `Rte_IRead` and `Rte_IWrite` to Sender/Receiver declarations. Other detected APIs, including `Rte_Call`, `Rte_Send` and `Rte_Receive`, are UNCHECKED. Unresolved C implementations and ambiguous references are also UNCHECKED.
+The checker reads `.c` files and matches `Rte_Read`, `Rte_Write`, `Rte_IRead` and `Rte_IWrite` to Sender/Receiver declarations. Configured NVM/DEM `Rte_Call` operations receive only the package check described above. Other detected APIs, including general `Rte_Call`, `Rte_Send` and `Rte_Receive`, are UNCHECKED. Unresolved C implementations and ambiguous references are also UNCHECKED.
 
 Matching uses full package/SWC/runnable identity and declared SYMBOL/component prefixes, with only unambiguous name fallbacks. Orphan matching includes runnable, reference, direction and access mode. Helpers may need an explicit mapping.
 

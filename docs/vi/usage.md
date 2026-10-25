@@ -213,6 +213,9 @@ Dùng `--consistency-config CONFIG.yaml` hoặc JSON. Cả hai chỉ dùng stand
 | `inconsistent_arxml_access_mode` | fail | Duplicate definition không thống nhất direction/mode |
 | `access_mode_mismatch` | fail | C/ARXML không khớp direction hoặc explicit/implicit access |
 | `orphan_access` | warn | ARXML access đã resolve không có C access tương ứng |
+| `nvm_package` | fail | Interface NVM đang dùng nằm ngoài package đã cấu hình |
+| `dem_package` | fail | Interface DEM đang dùng nằm ngoài package đã cấu hình |
+| `forbidden_function` | fail | Lời gọi C trực tiếp khớp tên/glob hàm bị cấm |
 
 ```yaml
 forbidden_rte_prefixes:
@@ -226,9 +229,31 @@ rules:
 
 Severity: `fail` gate, `warn` chỉ báo, `skip` bỏ qua và đếm finding theo cấu hình, `off` tắt rule. WARN không gate trong cả hai policy.
 
+Đặt severity độc lập cho từng rule trong `rules`, gồm ba rule service/function mới. CLI và Code Check của viewer dùng chung cấu hình. Bắt đầu từ [config policy đầy đủ](../../examples/checker-policy.yaml), thay package và hàm cấm mẫu bằng giá trị của dự án, rồi chọn file trong Code Check hoặc truyền `--consistency-config`.
+
+```yaml
+nvm_packages:
+  - /Services/NvM
+dem_packages:
+  - /Services/Dem
+forbidden_functions:
+  - NvM_WriteAll
+  - Rte_Call_*_ClearDTC
+rules:
+  nvm_package: fail
+  dem_package: warn
+  forbidden_function: fail
+```
+
+`nvm_packages` / `dem_packages` chứa đường dẫn AR-PACKAGE tuyệt đối, chính xác, không có dấu `/` cuối. Check xét package trực tiếp chứa interface được tham chiếu; không chấp nhận package gần tên hoặc package con. Mặc định không giả định package của dự án. Service đã nhận diện nhưng chưa cấu hình package vẫn là UNCHECKED.
+
+Service được nhận diện bằng short name của interface: `nvm_interface_names` mặc định là `["NvMService"]`, `dem_interface_names` là `["DiagnosticMonitor"]`. Thay các danh sách này nếu dự án dùng interface khác. Checker resolve C call qua server-call-point của runnable và interface reference của required port; không suy luận NVM/DEM từ tên C port. Reference thiếu, xung đột hoặc mơ hồ vẫn là UNCHECKED. Chỉ check vị trí package; không check operation signature, NvM block, DEM event/DTC, xử lý bất đồng bộ hoặc tích hợp BSW. Reference của service call-point theo [cấu trúc ARXML client/server do MathWorks sinh](https://www.mathworks.com/help/autosar/ug/configure-client-server-communication.html).
+
+`forbidden_functions` nhận tên chính xác và glob `*` / `?` phân biệt hoa thường, gồm tên BSW trực tiếp và `Rte_Call_*`. Check lời gọi trực tiếp trong thân function `.c` đã nhận diện, bỏ qua comment, string, prototype và definition. Không resolve lời gọi gián tiếp qua function pointer hoặc expand macro. Hàm cấm được check độc lập với severity package và ignored-port pattern. Mặc định danh sách rỗng.
+
 Mặc định cấm implicit API là policy dự án, không phải hạn chế chung của AUTOSAR. Đặt `forbidden_rte_prefixes: []` để cho phép implicit API. Ignore regex match payload sau `Rte_<verb>_`, ảnh hưởng port/data matching và không tắt forbidden-API check. `--ignore-access-port-regex REGEX` thêm pattern tạm thời.
 
-Sau khi lưu YAML trên thành `project.yaml`, thêm ignore tạm thời bên cạnh `^Bsw_`:
+Khi đã lưu `^Bsw_` trong `ignore_access_port_regex` của `project.yaml`, thêm ignore tạm thời:
 
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
@@ -257,7 +282,7 @@ JSON hỗ trợ helper mapping và ngoại lệ có scope, lý do:
 
 - Mapping cần file glob, tên function chính xác, full runnable path tồn tại và lý do. Đây là xác nhận của dự án; nhiều target hoặc runnable không tồn tại khiến check incomplete.
 - Ngoại lệ cần rule, lý do và ít nhất một scope: `file` (glob), `swc` / `runnable` (full path), hoặc `port` (short name). Mọi scope khai báo phải match; field chưa resolve không match.
-- Ngoại lệ áp dụng cho sáu rule trên và `unsupported_rte_api`, `runnable_not_resolved`, `runnable_not_implemented`, `ambiguous_port_dataelement`. Không bỏ qua scan error hoặc thiếu input.
+- Ngoại lệ áp dụng cho các rule trên và `unsupported_rte_api`, `runnable_not_resolved`, `runnable_not_implemented`, `ambiguous_port_dataelement`, `service_reference_unresolved`, `service_package_not_configured`. Không bỏ qua scan error hoặc thiếu input.
 - Mapping, ngoại lệ, legacy ignore, exclude và disabled rule được áp dụng đều hiện trên terminal.
 
 Input bắt buộc gồm C file và ARXML runnable definition. Input rỗng hoặc filter loại hết input cần thiết không thể pass. Với utility chỉ có C, không có RTE call hoặc access declaration:
@@ -270,7 +295,7 @@ Lý do này không bỏ qua lỗi đọc/parse, thiếu C file hoặc RTE usage 
 
 ### Giới hạn coverage
 
-Checker đọc `.c` và match `Rte_Read`, `Rte_Write`, `Rte_IRead`, `Rte_IWrite` với Sender/Receiver declaration. API khác phát hiện được, gồm `Rte_Call`, `Rte_Send`, `Rte_Receive`, là UNCHECKED. C implementation chưa resolve và reference mơ hồ cũng là UNCHECKED.
+Checker đọc `.c` và match `Rte_Read`, `Rte_Write`, `Rte_IRead`, `Rte_IWrite` với Sender/Receiver declaration. Operation `Rte_Call` của NVM/DEM đã cấu hình chỉ được check package như mô tả trên. API khác phát hiện được, gồm `Rte_Call` tổng quát, `Rte_Send`, `Rte_Receive`, là UNCHECKED. C implementation chưa resolve và reference mơ hồ cũng là UNCHECKED.
 
 Matching dùng đầy đủ package/SWC/runnable identity và SYMBOL/component prefix đã khai báo, chỉ fallback tên khi không mơ hồ. Orphan matching xét runnable, reference, direction và access mode. Helper có thể cần mapping tường minh.
 
