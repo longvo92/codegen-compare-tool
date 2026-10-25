@@ -9,6 +9,10 @@ All notable changes to this project are documented here. Versions follow
 
 - Check configured NVM/DEM interface packages and forbidden C function calls in CLI and Code Check, with independent fail/warn/skip/off severity for each rule and a shared YAML/JSON policy example.
 
+### Fixed
+
+- Detect forbidden function calls after compound statement prefixes such as `else return`, including pointer dereference returns, while preserving block-scope declarations.
+
 ## [1.20.0] — 2026-10-24
 
 ### Added

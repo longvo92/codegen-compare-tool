@@ -493,10 +493,12 @@ def _scan_code(root, rels, forbidden_functions=()):
             if function is None:
                 continue  # Prototypes and function definitions are not uses.
             # Block-scope prototypes also declare a function rather than call it.
+            # A leading statement keyword cannot be a declaration specifier,
+            # even in a compound prefix such as "else return" or "return *".
             start = max(searchable.rfind(char, 0, match.start()) for char in ';{}') + 1
             prefix = searchable[start:match.start()].lstrip()
             if (re.fullmatch(r'(?:[A-Za-z_]\w*\s+)+(?:\*\s*)*', prefix)
-                    and prefix.strip() not in ('return', 'else', 'do')):
+                    and prefix.split()[0] not in ('return', 'else', 'do')):
                 continue
             forbidden.append(RteCall(
                 rel, searchable.count('\n', 0, match.start()) + 1,
