@@ -58,7 +58,9 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 | FAIL | At least one rule failed |
 | INCOMPLETE | Missing input, a scan error or unchecked items; review coverage |
 
-The checker covers generated `.c` Sender/Receiver RTE calls against ARXML.
+The checker covers generated `.c` Sender/Receiver RTE calls against ARXML,
+configured NVM/DEM interface packages, and forbidden function calls. Set package
+paths, forbidden names/globs and each rule's severity in the policy config.
 Other RTE APIs remain **UNCHECKED**. Compare and Code Check keep separate
 inputs and results when you switch modes.
 

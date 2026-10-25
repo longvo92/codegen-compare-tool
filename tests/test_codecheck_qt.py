@@ -120,6 +120,53 @@ class TestCodeCheckWorkspace(unittest.TestCase):
             self.page.severity.setCurrentText('UNCHECKED')
             self.assertIn('UNSUPPORTED_RTE_API', self.page.findings.topLevelItem(0).text(1))
 
+    def test_service_packages_and_forbidden_calls_share_cli_policy_and_source_context(self):
+        self.code.write_text('''void Ctrl_Step(void) {
+  Rte_Read_Speed_Value();
+  Rte_Call_Storage_ReadBlock();
+  banned();
+}''', encoding='utf-8')
+        xml = self.root / 'Ctrl.arxml'
+        content = xml.read_text(encoding='utf-8').replace(
+            '<SHORT-NAME>Ctrl</SHORT-NAME>', '''<SHORT-NAME>Ctrl</SHORT-NAME>
+<PORTS><R-PORT-PROTOTYPE><SHORT-NAME>Storage</SHORT-NAME>
+<REQUIRED-INTERFACE-TREF>/Wrong/NvMService</REQUIRED-INTERFACE-TREF>
+</R-PORT-PROTOTYPE></PORTS>''').replace('</RUNNABLE-ENTITY>', '''<SERVER-CALL-POINTS>
+<SYNCHRONOUS-SERVER-CALL-POINT><SHORT-NAME>StorageRead</SHORT-NAME><OPERATION-IREF>
+<CONTEXT-R-PORT-REF>/Pkg/Ctrl/Storage</CONTEXT-R-PORT-REF>
+<TARGET-REQUIRED-OPERATION-REF>/Wrong/NvMService/ReadBlock</TARGET-REQUIRED-OPERATION-REF>
+</OPERATION-IREF></SYNCHRONOUS-SERVER-CALL-POINT></SERVER-CALL-POINTS>
+</RUNNABLE-ENTITY>''')
+        xml.write_text(content, encoding='utf-8')
+        config = Path(self.temp.name) / 'policy.json'
+        settings = {'nvm_packages': ['/Services/NvM'], 'forbidden_functions': ['banned'],
+                    'rules': {'forbidden_function': 'warn'}}
+        config.write_text(json.dumps(settings), encoding='utf-8')
+        self.page.config.setText(str(config))
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'FAIL')
+        self.assertEqual(self.page.check.checked_calls, 2)
+        self.page.search.setText('NVM_PACKAGE')
+        self.assertEqual(self.page.source_location.text(), 'Ctrl.c:3')
+        self.assertIn('/Wrong/NvMService', self.page.details.toPlainText())
+        self.assertEqual(self.page.source_preview._cur_rows, {2})
+        self.page.search.clear()
+        self.page.severity.setCurrentText('WARN')
+        self.assertEqual(self.page.findings.topLevelItemCount(), 1)
+        self.assertEqual(self.page.findings.topLevelItem(0).text(1), 'FORBIDDEN_FUNCTION')
+        self.assertEqual(self.page.source_location.text(), 'Ctrl.c:4')
+        for severity, expected in (('fail', 1), ('warn', 0), ('skip', 0), ('off', 0)):
+            settings['rules']['nvm_package'] = severity
+            config.write_text(json.dumps(settings), encoding='utf-8')
+            self.run_check()
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main(['--check-current', str(self.root), '--consistency-config', str(config)])
+            self.assertEqual(code, expected)
+            self.assertEqual(code, self.page.check.exit_code)
+            self.assertEqual(sum(f['reason'] == 'NVM_PACKAGE' for f in self.page.check.findings),
+                             int(severity in ('fail', 'warn')))
+
     def test_exceptions_remain_visible_with_justification(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Call_Service_Run(); }', encoding='utf-8')
         config = Path(self.temp.name) / 'policy.json'

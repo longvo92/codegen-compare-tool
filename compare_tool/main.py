@@ -185,6 +185,11 @@ def _current_consistency_lines(check):
             detail = '{} / {} / {} ({}) has no matching generated RTE access'.format(
                 finding['runnable'], finding['port'], finding['data_element'],
                 finding['access'])
+        elif reason in ('NVM_PACKAGE', 'DEM_PACKAGE'):
+            detail += ' references {}; allowed package(s): {}'.format(
+                finding['interface'], ', '.join(finding['expected_packages']))
+        elif reason == 'FORBIDDEN_FUNCTION':
+            detail += ' is prohibited by forbidden_functions'
         severity = finding['severity'].upper()
         lines.append('  !! [{}] {} {} -- {}'.format(
             severity, reason, location, detail))
@@ -200,8 +205,7 @@ def _current_consistency_lines(check):
     lines.append('  Findings: {} FAIL, {} WARN.'.format(
         sum(f['severity'] == 'fail' for f in check.findings),
         sum(f['severity'] == 'warn' for f in check.findings)))
-    lines.append('  Scope: .c calls to Rte_Read/Write/IRead/IWrite against ARXML '
-                 'Sender/Receiver access declarations. Other RTE APIs are UNCHECKED.')
+    lines.append('  ' + consistency.CHECKER_SCOPE)
     for item in check.exemptions:
         call = item.get('call')
         target = '{}:{} {}'.format(call.file, call.line, call.api) if call else item.get('runnable', '-')
@@ -537,8 +541,8 @@ def _parser():
                     'keeps them non-gating. Default: standard for comparisons, '
                     'delivery for --check-current')
     ap.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
-                    help='settings for --check-consistency: forbidden '
-                         'RTE prefixes, ignored port regexes and per-rule '
+                    help='settings for --check-consistency: NVM/DEM packages, '
+                         'forbidden functions/RTE prefixes, ignored port regexes and per-rule '
                          'fail/warn/skip/off severities. Uses a small YAML '
                          'subset, or JSON with scoped exceptions and function '
                          'mappings; also accepted with --check-current')

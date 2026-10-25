@@ -59,6 +59,8 @@ Generated renames require a verified one-to-one mapping; function callees need m
 
 `consistency.py` derives advisory regeneration findings from the raw comparison. CURRENT checking runs when requested by CLI or the viewer's independent Code Check workspace. HTML and comparison exports do not include CURRENT findings.
 
+CURRENT policy also checks configured NVM/DEM interface packages through runnable server-call-point and required-port references, plus forbidden direct function calls in C bodies. All nine finding rules share `rules` severities in YAML/JSON; scan/input errors stay fatal. Package policy does not validate BSW integration or service operation behavior. CLI and Code Check share the scope description and checker result.
+
 `qtviewer/codecheck.py` owns Code Check inputs, result filtering, evidence/source inspection and policy coverage. `CodeCheckWorker` in `qtviewer/worker.py` loads the same config and calls `current_tree_check` on a background thread. ZIP extraction stays alive for source inspection and is cleaned after the worker finishes. Compare and Code Check retain independent state; switching workspaces does not rescan or change results. Closing waits for active workers before cleaning their sources. Source inspection reuses Compare's `DiffEditor`, `CodeHighlighter` and syntax/theme roles; full-file highlighting preserves multiline lexical state and the gutter marks the finding line.
 
 `--check-current` bypasses diff/HTML and checks one source. `CurrentTreeCheck` owns consistency status/exit codes; `main._exit_code` combines them with comparison results:
