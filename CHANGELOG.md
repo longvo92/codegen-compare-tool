@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-10-25
+
 ### Added
 
 - Check configured NVM/DEM interface packages and forbidden C function calls in CLI and Code Check, with independent fail/warn/skip/off severity for each rule and a shared YAML/JSON policy example.
