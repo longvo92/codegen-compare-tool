@@ -480,6 +480,25 @@ class TestSwcExtraction(unittest.TestCase):
 
 
 class TestRteCalls(unittest.TestCase):
+    def test_stub_storage_definitions_and_prototypes_are_not_accesses(self):
+        src = '''float32 Rte_Pim_Ctrl_Buffer_data;
+float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
+extern void Rte_Write_Output_Value(float32 value);
+'''
+        self.assertEqual(c_rules.extract_rte_calls(src), [])
+        self.assertEqual(c_rules.rte_diff(None, src), {'added': [], 'removed': []})
+
+    def test_log_strings_do_not_create_regeneration_advisories(self):
+        old = 'void Step(void) { Rte_Read_Input_Value(&value); }'
+        new = old + '\nconst char *log = "Rte_Write_Fake_Value()";'
+        self.assertEqual(c_rules.rte_diff(old, new), {'added': [], 'removed': []})
+
+    def test_real_call_beside_a_stub_definition_is_preserved(self):
+        src = '''float32* Rte_Pim_Ctrl_Buffer(void) { return &buffer; }
+void Step(void) { value = *Rte_Pim_Ctrl_Buffer(); }
+'''
+        self.assertEqual(c_rules.extract_rte_calls(src), ['Rte_Pim_Ctrl_Buffer'])
+
     def test_extract_unique_sorted(self):
         src = ('x = Rte_Read_In1_Speed(&u);\n'
                'Rte_Write_Out1_Cmd(u);\n'

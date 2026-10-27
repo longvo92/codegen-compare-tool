@@ -9,7 +9,8 @@ import re
 from collections import Counter
 from difflib import SequenceMatcher
 
-from . import linediff
+from . import c_syntax, linediff
+from .c_syntax import strip_c_comments
 
 C_KEYWORDS = frozenset("""
     auto break case char const continue default do double else enum extern
@@ -29,76 +30,6 @@ TOKEN_RE = re.compile(
     r"|'(?:\\.|[^'\\])*'"                            # char literal
     r'|\S'                                           # any other single char
 )
-
-
-def strip_c_comments(text):
-    """Replace // and /* */ comments with spaces (newlines kept).
-
-    Comment markers inside string/char literals are left untouched.
-    """
-    out = []
-    i = 0
-    n = len(text)
-    state = 'code'
-    while i < n:
-        c = text[i]
-        nxt = text[i + 1] if i + 1 < n else ''
-        if state == 'code':
-            if c == '/' and nxt == '/':
-                state = 'line'
-                out.append('  ')
-                i += 2
-            elif c == '/' and nxt == '*':
-                state = 'block'
-                out.append('  ')
-                i += 2
-            elif c == '"':
-                state = 'str'
-                out.append(c)
-                i += 1
-            elif c == "'":
-                state = 'chr'
-                out.append(c)
-                i += 1
-            else:
-                out.append(c)
-                i += 1
-        elif state == 'line':
-            if c == '\n':
-                state = 'code'
-                out.append(c)
-            else:
-                out.append(' ')
-            i += 1
-        elif state == 'block':
-            if c == '*' and nxt == '/':
-                state = 'code'
-                out.append('  ')
-                i += 2
-            else:
-                out.append(c if c == '\n' else ' ')
-                i += 1
-        elif state == 'str':
-            if c == '\\' and nxt:
-                out.append(c)
-                out.append(nxt)
-                i += 2
-            else:
-                if c == '"' or c == '\n':  # unterminated string safety
-                    state = 'code'
-                out.append(c)
-                i += 1
-        else:  # chr
-            if c == '\\' and nxt:
-                out.append(c)
-                out.append(nxt)
-                i += 2
-            else:
-                if c == "'" or c == '\n':  # unterminated char safety
-                    state = 'code'
-                out.append(c)
-                i += 1
-    return ''.join(out)
 
 
 def collapse_ws(text: str) -> str:
@@ -743,9 +674,9 @@ RTE_API_RE = re.compile(
 
 
 def extract_rte_calls(text):
-    """Sorted unique Rte_* access points referenced in C text (comments
-    stripped so a commented-out call does not count)."""
-    return sorted(set(RTE_API_RE.findall(strip_c_comments(text))))
+    """Sorted unique direct RTE calls, using the same inventory as Code Check."""
+    _, calls = c_syntax.scan_calls(text)
+    return sorted({call.name for call in calls if RTE_API_RE.fullmatch(call.name)})
 
 
 def rte_diff(old_text, new_text):
