@@ -14,6 +14,7 @@ Path tương đối với `compare_tool/`.
 | `scanner.py` | Tìm/compare file, ghép file move và semantic rollup |
 | `diff_engine.py`, `linediff.py` | Two-pass diff, patience matching, phân loại hunk và verdict |
 | `c_rules.py`, `arxml_rules.py`, `a2l_rules.py` | Noise rule theo ngôn ngữ và semantic extraction |
+| `c_syntax.py` | Mask comment C giữ vị trí, nhận diện function và danh sách direct call dùng chung |
 | `langspec.py`, `userrules.py` | Comment/string grammar, whitespace shadow an toàn và custom rule |
 | `filepair.py` | Ghép Added/Deleted file một cách bảo thủ |
 | `consistency.py` | Old/new advisory và CURRENT RTE/ARXML check tùy chọn |
@@ -58,6 +59,8 @@ Generated rename cần mapping một-một đã verify; function callee cần c�
 ## Consistency
 
 `consistency.py` tạo regeneration advisory từ raw comparison. CURRENT check chạy khi CLI hoặc workspace Code Check độc lập trong viewer yêu cầu. HTML và comparison export không chứa CURRENT finding.
+
+`c_syntax.scan_calls` cung cấp danh sách call cho CURRENT check và RTE summary của Compare. Nó loại khai báo, định nghĩa, literal và member-pointer call, nhưng giữ call chưa rõ ownership để báo coverage. Nó không expand macro hay resolve conditional compilation. Tên implicit S/R API phải khớp tên khai báo hoặc generated symbol của runnable đã resolve; chỉ trùng hậu tố port/data là chưa đủ.
 
 CURRENT policy cũng check package interface NVM/DEM đã cấu hình qua server-call-point của runnable và required-port reference, cùng lời gọi function trực tiếp bị cấm trong thân C. Cả chín rule finding dùng chung severity trong `rules` của YAML/JSON; lỗi scan/input luôn chặn. Package policy không validate tích hợp BSW hoặc hành vi operation của service. CLI và Code Check dùng chung mô tả scope và kết quả checker.
 

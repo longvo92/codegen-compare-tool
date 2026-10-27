@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.21.1] — 2026-10-27
+
+### Fixed
+
+- Count actual C calls consistently in Code Check and comparison RTE summaries. MATLAB RTE stub definitions, prototypes, storage names and strings no longer create spurious accesses; real calls inside stub bodies remain checked.
+- Validate the runnable name in implicit `Rte_IRead` / `Rte_IWrite` APIs instead of accepting any matching port/data-element suffix.
+
 ## [1.21.0] — 2026-10-25
 
 ### Added
