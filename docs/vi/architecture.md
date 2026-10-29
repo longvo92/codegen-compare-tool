@@ -49,9 +49,9 @@ Hai pass đều dùng `linediff.hunks`, với patience anchor và exact gap matc
 1. **Truth:** compare normalized shadow, giữ literal và indentation có ý nghĩa của Python/YAML. Khác biệt còn lại là real.
 2. **Display:** diff raw line. Hunk không real nhận single-rule kind, hoặc `mixed` khi cần nhiều rule.
 
-Hunk kind gồm `real`, `moved`, `comment`, `rename`, `assumed-rename`, `reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`, `mixed`.
+Hunk kind gồm `real`, `moved`, `comment`, `rename`, `assumed-rename`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace`, `mixed`.
 
-Generated rename cần mapping một-một đã verify; function callee cần cùng generated checksum root. Reorder cần cùng scalar assignment không side effect và giữ dependency order. Call, increment, nested assignment, declaration, control flow, indirect write không được fold như reorder.
+Generated rename cần mapping một-một đã verify; function callee cần cùng generated checksum root. Reorder luôn là real change vì dependency theo tên biến không chứng minh được sự vắng mặt của volatile, pointer alias và macro alias. Nhãn moved vẫn hỗ trợ xem diff.
 
 `--skip-var-renames` chủ động nới điều kiện chứng minh rename. Hunk dùng `assumed-rename`; mọi output phải ghi rõ đã bật option.
 
@@ -112,3 +112,7 @@ Demo có real change nên compare trả 1. Verify viewer bị ảnh hưởng b�
 Lệnh đầu build Windows executable và CLI zipapp; lệnh sau chỉ build zipapp. Xem [GUI resources](../../resources/README.md) về packaged asset.
 
 Khi được yêu cầu release, tăng `compare_tool.__version__`, ghi ngày cho changelog section và để trống `[Unreleased]`. Chạy `python packaging/release_check.py X.Y.Z`, merge version change, rồi chạy `release.yml` từ `main`. Workflow kiểm tra test/build và từ chối tag đã có; publish cần `publish=true`.
+
+Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/literal, giữ mapping về dòng nguồn và phân biệt direct call với declaration, kể cả tên hàm có ngoặc. Scanner tái sử dụng nội dung file, Counter của move candidate và cây XML cho interface/SWC trong mỗi lần chạy.
+
+Render report trả HTML kèm diagnostics nội bộ; API builder trả chuỗi vẫn được giữ. Lỗi đọc khi render tạo banner incomplete toàn cục và buộc CLI/JSON exit 2; GUI export báo thiếu nội dung. Verdict/count của scan giữ nguyên.

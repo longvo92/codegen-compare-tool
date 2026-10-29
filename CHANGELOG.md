@@ -9,6 +9,13 @@ All notable changes to this project are documented here. Versions follow
 
 - Check configured NVM/DEM interface packages and forbidden C function calls in CLI and Code Check, with independent fail/warn/skip/off severity for each rule and a shared YAML/JSON policy example.
 
+### Fixed
+
+- Preserve real changes involving reordered statements, volatile/pointer aliases and C line continuations.
+- Detect parenthesized forbidden direct calls; exclude prototypes and literal payload from RTE call checks and summaries.
+- Mark partial HTML rendering globally incomplete and return exit 2, including with `--exit-zero`; report incomplete viewer exports.
+- Reject ambiguous file moves with close runners-up below the similarity threshold; preserve binary metadata and avoid decoding binary moves.
+
 ## [1.20.0] — 2026-10-24
 
 ### Added

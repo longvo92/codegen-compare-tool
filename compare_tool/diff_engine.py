@@ -441,18 +441,6 @@ def compare_pair(old_text, new_text, path, user_rules=(),
                 kept.append(h)
         candidates = kept
 
-    # MATLAB codegen reschedules independent statements (output assignments,
-    # temporaries): the raw and shadow text both read as a change, but the block
-    # computes the same values. When the whole surviving change set is one
-    # dependence-preserving permutation of a straight-line block, it is proven
-    # noise (c_rules.reorder_equivalent) -- fail-safe: a real change mixed in, or
-    # any line that is not a safe scalar assignment, leaves every hunk real.
-    reorder_hunks = []
-    if ruleset == 'c' and candidates and c_rules.is_safe_reorder(
-            final_old_shadow_lines, new_shadow_lines, candidates):
-        reorder_hunks = list(candidates)
-        candidates = []
-
     real_hunks = candidates
     moved_del, moved_ins = _detect_moves(candidates, final_old_shadow_lines,
                                          new_shadow_lines, ruleset)
@@ -490,8 +478,6 @@ def compare_pair(old_text, new_text, path, user_rules=(),
                         break
             if kind is None and autogen_hunks and _overlaps(h, autogen_hunks):
                 kind = 'rename'  # autogen-name swap (rtb_/mangle/temp)
-            if kind is None and reorder_hunks and _overlaps(h, reorder_hunks):
-                kind = 'reorder'  # independent statements rescheduled
             if (kind is None and assumed_rename_hunks
                     and _overlaps(h, assumed_rename_hunks)):
                 kind = 'assumed-rename'  # --skip-var-renames: assumed, not proven
@@ -505,6 +491,10 @@ def compare_pair(old_text, new_text, path, user_rules=(),
         hunk.update(extra)
         hunks.append(hunk)
 
+    # Splicing can change execution on an unchanged physical line.
+    if real_hunks and not any(h['kind'] in ('real', 'moved') for h in hunks):
+        for h in hunks:
+            h['kind'] = 'real'
     result['hunks'] = _merge_adjacent(hunks)
     result['status'] = _status_of(real_hunks, result['hunks'])
     return result

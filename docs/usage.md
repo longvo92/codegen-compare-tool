@@ -314,3 +314,5 @@ python -m compare_tool baseline.zip current.zip --report report.html --json resu
 | 2 | Comparison/check incomplete or an input/output error |
 
 Publish the requested files as CI artifacts. Add `--check-consistency` and a policy/config when needed. JSON/SARIF contain comparison results and old/new advisories, not CURRENT findings.
+
+Statement reorders are reported as real changes, including apparently independent scalar assignments. C line continuations affect execution and are preserved conservatively. If source content cannot be rendered, the partial HTML carries a REPORT INCOMPLETE banner and the CLI exits 2 even with `--exit-zero`; the viewer reports an incomplete export.

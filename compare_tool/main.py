@@ -20,8 +20,8 @@ from pathlib import Path
 from . import (APP_NAME, __version__, consistency, review, serialize, theme, userrules,
                zipsource)
 from .diff_engine import RULES, ruleset_for
-from .report import (build_arxml_report, build_report, consistency_advisories,
-                     model_overview)
+from .report import (build_arxml_report, consistency_advisories,
+                     model_overview, render_report)
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
@@ -60,7 +60,7 @@ def default_report_name(arxml_only):
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                 progress=None, reviews=None, theme_name=theme.DEFAULT,
                 old_label=None, new_label=None, max_diff_lines=0, user_rules=(),
-                skip_var_renames=False):
+                skip_var_renames=False, diagnostics=None):
     """Scan two trees and optionally write the HTML report.
 
     ``out=None`` returns the raw scan without touching any report file.
@@ -96,9 +96,12 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
                                   old_label=old_label, theme_name=theme_name,
                                   new_label=new_label)
     else:
-        page = build_report(results, old_root, new_root, reviews,
+        rendered = render_report(results, old_root, new_root, reviews,
                             old_label=old_label, theme_name=theme_name,
                             new_label=new_label, max_diff_lines=max_diff_lines)
+        page = rendered.html
+        if diagnostics is not None:
+            diagnostics.extend(rendered.diagnostics)
     try:
         out.write_text(page, encoding='utf-8')
     except OSError as e:
@@ -799,6 +802,7 @@ def _run(ap, args, zip_temp):
         if done % 50 == 0 or done == total:
             print('  {}/{} {}'.format(done, total, rel))
 
+    render_errors = []
     try:
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
                                       exclude=args.exclude,
@@ -808,7 +812,8 @@ def _run(ap, args, zip_temp):
                                       new_label=args.current_name or new_zip,
                                       max_diff_lines=args.max_diff_lines,
                                       user_rules=user_rules,
-                                      skip_var_renames=args.skip_var_renames)
+                                      skip_var_renames=args.skip_var_renames,
+                                      diagnostics=render_errors)
     except ReportWriteError as e:
         # what WAS scanned still goes to the terminal -- the compare itself may
         # have been fine, it is only the record that is missing
@@ -846,7 +851,9 @@ def _run(ap, args, zip_temp):
     elif out is not None:
         print('Report written: {}'.format(out.resolve()))
 
-    code = _exit_code(counts, args.exit_zero, current_check)
+    code = 2 if render_errors else _exit_code(counts, args.exit_zero, current_check)
+    for error in render_errors:
+        print('!! REPORT INCOMPLETE -- ' + error, file=sys.stderr)
     # the machine outputs carry the SAME exit code the process returns, so a
     # pipeline reading the JSON and a pipeline reading $? cannot disagree
     if args.json or args.sarif:

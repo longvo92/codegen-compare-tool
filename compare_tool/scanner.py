@@ -3,6 +3,7 @@
 import fnmatch
 import hashlib
 import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from . import a2l_rules, arxml_rules, c_rules, filepair
@@ -52,7 +53,10 @@ def read_text(path):
     bytes do not actually honour -- a corrupt or truncated file. The scanner
     turns that into a loud ``error`` verdict rather than a silently mangled
     diff."""
-    data = Path(path).read_bytes()
+    return decode_text(Path(path).read_bytes())
+
+
+def decode_text(data):
     enc = _bom_encoding(data)
     if enc is not None:
         text = data.decode(enc)  # a bad BOM'd file raises -> error verdict
@@ -76,6 +80,29 @@ def looks_binary(path):
     if _bom_encoding(head) is not None:
         return False
     return b'\0' in head
+
+
+class FileContent:
+    """One read, shared by comparison, semantic enrichment and move pairing."""
+    def __init__(self, path):
+        self.data = Path(path).read_bytes()
+        self.binary = _bom_encoding(self.data) is None and b'\0' in self.data[:8192]
+        self._text = None
+
+    @property
+    def text(self):
+        if self._text is None:
+            self._text = decode_text(self.data)
+        return self._text
+
+
+def _content(path, cache):
+    if cache is None:
+        return FileContent(path)
+    key = str(path)
+    if key not in cache:
+        cache[key] = FileContent(path)
+    return cache[key]
 
 
 def list_files(root, errors=None):
@@ -112,66 +139,56 @@ def compare_file(old_root, new_root, rel, user_rules=(),
     """Full comparison result for one relative path present in both trees."""
     old_p = Path(old_root) / rel
     new_p = Path(new_root) / rel
-    if old_p.read_bytes() == new_p.read_bytes():
-        return {'status': 'identical', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
-    if looks_binary(old_p) or looks_binary(new_p):
+    old, new = FileContent(old_p), FileContent(new_p)
+    if old.data == new.data:
+        return {'status': 'identical', 'hunks': [], 'renames': {}, 'notes': [], 'binary': old.binary}
+    if old.binary or new.binary:
         return {'status': 'real-change', 'hunks': [], 'renames': {}, 'notes': ['binary'], 'binary': True}
-    old_text = read_text(old_p)
-    new_text = read_text(new_p)
+    old_text, new_text = old.text, new.text
     if old_text == new_text:
         # bytes differed but normalized text equal: EOL style or BOM only
         return {'status': 'ignorable-only', 'hunks': [], 'renames': {},
                 'notes': ['line-endings'], 'binary': False}
     result = compare_pair(old_text, new_text, rel, user_rules, skip_var_renames)
     result['binary'] = False
-    # semantic summaries: only real changes can move the AUTOSAR surface
-    # (ignorable-only means the shadows are equal, hence same content)
     if result['status'] == 'real-change':
-        if ruleset_for(rel) == 'arxml':
-            d = arxml_rules.interface_diff(old_text, new_text)
-            if d is not None:
-                result['ifaces'] = d
-            s = arxml_rules.swc_diff(old_text, new_text)
-            if s is not None and not arxml_rules.swc_diff_empty(s):
-                result['swc'] = s
-        elif ruleset_for(rel) == 'a2l':
-            d = a2l_rules.a2l_diff(old_text, new_text)
-            if d['added'] or d['removed']:
-                result['a2l'] = d
-        elif rel.endswith('.c'):
-            d = c_rules.rte_diff(old_text, new_text)
-            if d['added'] or d['removed']:
-                result['rte'] = d
+        result.update(_semantic_info(rel, old_text, new_text))
     return result
 
 
-def _single_info(root, rel, is_added):
-    """Semantic extras for a file present on one side only:
-    {'ifaces': ..., 'swc': ..., 'rte': ...} (only keys with content)."""
-    path = Path(root) / rel
+def _semantic_info(rel, old_text, new_text):
     out = {}
-    if looks_binary(path):
-        return out
-    # Validate every one-sided text file, including formats without semantic
-    # extras, before move matching can attempt to decode it again.
-    text = read_text(path)
-    if ruleset_for(rel) == 'arxml':
-        old_t, new_t = (None, text) if is_added else (text, None)
-        d = arxml_rules.interface_diff(old_t, new_t)
+    rs = ruleset_for(rel)
+    if rs == 'arxml':
+        try:
+            old_text = ET.fromstring(old_text) if old_text is not None else None
+            new_text = ET.fromstring(new_text) if new_text is not None else None
+        except ET.ParseError:
+            return out
+        d = arxml_rules.interface_diff(old_text, new_text)
         if d is not None:
             out['ifaces'] = d
-        s = arxml_rules.swc_diff(old_t, new_t)
-        if s is not None and not arxml_rules.swc_diff_empty(s):
-            out['swc'] = s
-    elif ruleset_for(rel) == 'a2l':
-        d = a2l_rules.a2l_diff(None, text) if is_added else a2l_rules.a2l_diff(text, None)
+        d = arxml_rules.swc_diff(old_text, new_text)
+        if d is not None and not arxml_rules.swc_diff_empty(d):
+            out['swc'] = d
+    elif rs == 'a2l':
+        d = a2l_rules.a2l_diff(old_text, new_text)
         if d['added'] or d['removed']:
             out['a2l'] = d
-    elif rel.endswith('.c'):
-        d = c_rules.rte_diff(None, text) if is_added else c_rules.rte_diff(text, None)
+    elif Path(rel).suffix.lower() == '.c':
+        d = c_rules.rte_diff(old_text, new_text)
         if d['added'] or d['removed']:
             out['rte'] = d
     return out
+
+
+def _single_info(root, rel, is_added, cache=None):
+    content = _content(Path(root) / rel, cache)
+    if content.binary:
+        return {'binary': True}
+    text = content.text
+    return dict(_semantic_info(rel, None if is_added else text,
+                               text if is_added else None), binary=False)
 
 
 def _matches(rel, patterns):
@@ -226,17 +243,18 @@ def _shadow_lines(rel, text):
     return [ln for ln in shadow.split('\n') if ln.strip()]
 
 
-def _candidate(root, rel):
+def _candidate(root, rel, cache=None):
     """Read one side of a possible move; the caller records read failures."""
     path = Path(root) / rel
     ext = rel[rel.rfind('.'):].lower() if '.' in rel.rsplit('/', 1)[-1] else ''
-    digest = hashlib.sha1(path.read_bytes()).hexdigest()
-    lines = None if looks_binary(path) else _shadow_lines(rel, read_text(path))
+    content = _content(path, cache)
+    digest = hashlib.sha1(content.data).hexdigest()
+    lines = None if content.binary else _shadow_lines(rel, content.text)
     return filepair.Candidate(rel, ext, digest, lines)
 
 
 def _link_moves(results, old_root, new_root, user_rules=(),
-                skip_var_renames=False):
+                skip_var_renames=False, cache=None):
     """Cross-reference added files with the deleted ones they came from.
 
     The two entries KEEP their `added` / `deleted` verdicts and their place in
@@ -253,17 +271,21 @@ def _link_moves(results, old_root, new_root, user_rules=(),
             continue
         root, candidates = (new_root, added) if status == 'added' else (old_root, deleted)
         try:
-            candidates.append(_candidate(root, rel))
+            candidates.append(_candidate(root, rel, cache))
         except (OSError, UnicodeError) as exc:
             # A file can become unreadable after its initial validation.
             results[rel] = _error_result('move candidate read failed: {}: {}'.format(
                 type(exc).__name__, exc))
     for a_rel, (d_rel, sim) in filepair.find_moves(added, deleted).items():
         try:
-            pair = compare_pair(read_text(Path(old_root) / d_rel),
-                                read_text(Path(new_root) / a_rel), a_rel, user_rules,
-                                skip_var_renames)
-        except (OSError, UnicodeError):
+            old = _content(Path(old_root) / d_rel, cache)
+            new = _content(Path(new_root) / a_rel, cache)
+            pair = ({'status': 'identical', 'hunks': [], 'renames': {}}
+                    if old.binary or new.binary else
+                    compare_pair(old.text, new.text, a_rel, user_rules, skip_var_renames))
+        except (OSError, UnicodeError) as exc:
+            results[a_rel] = _error_result('move comparison failed: {}'.format(exc))
+            results[d_rel] = _error_result('move comparison failed: {}'.format(exc))
             continue
         results[a_rel]['moved_from'] = d_rel
         results[a_rel]['move_similarity'] = sim
@@ -290,6 +312,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
     skip_var_renames: the opt-in --skip-var-renames quick check -- C/C++ hunks
     that are only bindings differing by variable names become 'assumed-rename'
     instead of real, WITHOUT proof (see compare_tool.diff_engine)."""
+    cache = {}
     fold = tuple(fold)
     old_errors, new_errors = [], []
     old_files = list_files(old_root, old_errors)
@@ -326,7 +349,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
                         'tell whether this file was added or changed')
                 else:
                     r = {'status': 'added', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
-                    r.update(_single_info(new_root, rel, is_added=True))
+                    r.update(_single_info(new_root, rel, is_added=True, cache=cache))
                     results[rel] = r
             else:
                 if under_failed(rel, new_errors):
@@ -335,7 +358,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
                         'tell whether this file was deleted or is unreadable')
                 else:
                     r = {'status': 'deleted', 'hunks': [], 'renames': {}, 'notes': [], 'binary': False}
-                    r.update(_single_info(old_root, rel, is_added=False))
+                    r.update(_single_info(old_root, rel, is_added=False, cache=cache))
                     results[rel] = r
         except Exception as e:  # fail-safe: one bad file must not kill the
             # run NOR disappear -- it becomes a loud 'error' entry instead
@@ -348,7 +371,7 @@ def scan(old_root, new_root, progress=None, exclude=(), include=(), fold=(),
     # after every verdict is settled: folding cannot reach 'added'/'deleted',
     # so the candidate set is the same either way, and pairing must never be
     # what decides a verdict
-    _link_moves(results, old_root, new_root, user_rules, skip_var_renames)
+    _link_moves(results, old_root, new_root, user_rules, skip_var_renames, cache)
     return results
 
 

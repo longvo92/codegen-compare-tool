@@ -113,17 +113,19 @@ def _scored_pairs(added, deleted):
         return {}
     if len(added) * len(deleted) > MAX_SCORED_PAIRS:
         return {}
+    counters = {id(c): Counter(c.lines or ()) for c in added + deleted}
     scores = {}
     per_add, per_del = {}, {}
     for a in added:
         for d in deleted:
             if a.ext != d.ext or a.lines is None or d.lines is None:
                 continue
-            s = similarity(a.lines, d.lines)
-            if s >= MIN_SIMILARITY:
-                scores[(a.rel, d.rel)] = s
-                per_add.setdefault(a.rel, []).append(s)
-                per_del.setdefault(d.rel, []).append(s)
+            size = len(a.lines) + len(d.lines)
+            s = (2.0 * sum((counters[id(a)] & counters[id(d)]).values()) / size
+                 if size else 1.0)
+            scores[(a.rel, d.rel)] = s
+            per_add.setdefault(a.rel, []).append(s)
+            per_del.setdefault(d.rel, []).append(s)
 
     def top_two(vals):
         vals = sorted(vals, reverse=True)
@@ -137,7 +139,7 @@ def _scored_pairs(added, deleted):
         a_best, a_second = best[a_rel]
         d_best, d_second = best_d[d_rel]
         # mutual best, and clear of the runner-up on BOTH sides
-        if (s == a_best and s == d_best
+        if (s >= MIN_SIMILARITY and s == a_best and s == d_best
                 and s - a_second >= MIN_MARGIN and s - d_second >= MIN_MARGIN):
             out[a_rel] = (d_rel, s)
     return out

@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .c_rules import strip_c_comments
+from .c_source import CSource, direct_calls
 from .diff_engine import ruleset_for
 from .scanner import list_files, looks_binary, read_text
 
@@ -155,10 +155,6 @@ class CurrentTreeCheck:
         return 'PASS'
 
 
-_RTE_CALL_RE = re.compile(
-    r'\b(Rte_[A-Za-z0-9_]+)\s*\('
-)
-_C_CALL_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\(')
 _C_NON_CALL_WORDS = frozenset(('if', 'for', 'while', 'switch', 'sizeof', '_Alignof', 'alignof'))
 _AUTOSAR_FUNCTION_RE = re.compile(
     r'\bFUNC\s*\([^)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)'
@@ -392,33 +388,6 @@ def _matches(rel, patterns):
                for pattern in patterns)
 
 
-def _mask_c_literals(text):
-    """Mask string and character contents while preserving every position."""
-    out = list(text)
-    i = 0
-    quote = None
-    while i < len(out):
-        char = out[i]
-        if quote is None:
-            if char in ('"', "'"):
-                quote = char
-            i += 1
-            continue
-        if char == '\\' and i + 1 < len(out):
-            if out[i] != '\n':
-                out[i] = ' '
-            if out[i + 1] != '\n':
-                out[i + 1] = ' '
-            i += 2
-            continue
-        if char == quote:
-            quote = None
-        elif char != '\n':
-            out[i] = ' '
-        i += 1
-    return ''.join(out)
-
-
 def _matching_brace(text, open_pos):
     depth = 0
     for index in range(open_pos, len(text)):
@@ -431,8 +400,8 @@ def _matching_brace(text, open_pos):
     return None
 
 
-def _discover_functions(content):
-    structural = _mask_c_literals(strip_c_comments(content))
+def _discover_functions(content, structural=None):
+    structural = CSource(content).code if structural is None else structural
     found = []
     for regex in (_AUTOSAR_FUNCTION_RE, _NORMAL_FUNCTION_RE):
         for match in regex.finditer(structural):
@@ -452,15 +421,6 @@ def _discover_functions(content):
     return sorted(unique.values(), key=lambda item: item['start_pos'])
 
 
-def _containing_function(position, functions):
-    candidates = [item for item in functions
-                  if item['body_start'] <= position <= item['end_pos']]
-    if not candidates:
-        return None
-    return min(candidates,
-               key=lambda item: item['end_pos'] - item['body_start'])['name']
-
-
 def _scan_code(root, rels, forbidden_functions=()):
     calls = []
     forbidden = []
@@ -475,41 +435,18 @@ def _scan_code(root, rels, forbidden_functions=()):
         except (OSError, UnicodeError) as exc:
             errors.append(_scan_error(rel, exc))
             continue
-        detected = _discover_functions(content)
+        source = CSource(content)
+        detected = _discover_functions(content, source.code)
         functions.extend(FunctionInfo(item['name'], rel) for item in detected)
-        searchable = _mask_c_literals(strip_c_comments(content))
-        for match in (_C_CALL_RE.finditer(searchable) if forbidden_functions else ()):
-            api = match.group(1)
+        for api, position, function in direct_calls(source.code, detected):
             if api in _C_NON_CALL_WORDS:
                 continue
-            if not any(fnmatch.fnmatchcase(api, pattern) for pattern in forbidden_functions):
-                continue
-            prefix_end = match.start()
-            while prefix_end and searchable[prefix_end - 1].isspace():
-                prefix_end -= 1
-            if searchable[max(0, prefix_end - 2):prefix_end].endswith(('.', '->')):
-                continue
-            function = _containing_function(match.start(), detected)
-            if function is None:
-                continue  # Prototypes and function definitions are not uses.
-            # Block-scope prototypes also declare a function rather than call it.
-            start = max(searchable.rfind(char, 0, match.start()) for char in ';{}') + 1
-            prefix = searchable[start:match.start()].lstrip()
-            if (re.fullmatch(r'(?:[A-Za-z_]\w*\s+)+(?:\*\s*)*', prefix)
-                    and prefix.strip() not in ('return', 'else', 'do')):
-                continue
-            forbidden.append(RteCall(
-                rel, searchable.count('\n', 0, match.start()) + 1,
-                function, api, 'Function'))
-        for match in _RTE_CALL_RE.finditer(searchable):
-            api = match.group(1)
-            calls.append(RteCall(
-                rel,
-                searchable.count('\n', 0, match.start()) + 1,
-                _containing_function(match.start(), detected),
-                api,
-                _api_type(api),
-            ))
+            call = RteCall(rel, source.line_at(position), function, api,
+                           _api_type(api) if api.startswith('Rte_') else 'Function')
+            if any(fnmatch.fnmatchcase(api, pattern) for pattern in forbidden_functions):
+                forbidden.append(call)
+            if api.startswith('Rte_'):
+                calls.append(call)
     return calls, functions, errors, forbidden
 
 
@@ -661,6 +598,14 @@ def _scan_error(rel, exc):
 
 
 def _find_runnable(function_name, file, runnables, config):
+    cache = config.setdefault('_resolved_functions', {})
+    key = (function_name, file)
+    if key not in cache:
+        cache[key] = _resolve_runnable(function_name, file, runnables, config)
+    return cache[key]
+
+
+def _resolve_runnable(function_name, file, runnables, config):
     if not function_name:
         return None
     mapped = {entry['runnable'] for entry in config.get('function_mappings', [])
@@ -722,6 +667,12 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
     ignored = checked = 0
     skipped = []
     used = set()
+    by_scope, by_source = {}, {}
+    for access in access_points:
+        scope = access.swc or access.runnable
+        by_scope.setdefault(scope, []).append(access)
+        key = (access.runnable, access.source_file, access.port_ref, access.data_ref)
+        by_source.setdefault(key, []).append(access)
     for call in calls:
         runnable = _find_runnable(call.function, call.file, runnables, config)
         context = {'call': call, 'runnable': runnable,
@@ -741,7 +692,8 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
                 issues.append(dict(context, reason='NO_MATCHING_PORT_DATAELEMENT'))
             skipped.append(dict(context, reason='RUNNABLE_NOT_RESOLVED'))
             continue
-        pairs = _candidate_pairs(call, access_points, runnable, runnables)
+        scoped = by_scope.get(runnables[runnable][0].swc or runnable, [])
+        pairs = _candidate_pairs(call, scoped, runnable, runnables)
         if len(pairs) > 1:
             skipped.append(dict(context, reason='AMBIGUOUS_PORT_DATAELEMENT'))
             continue
@@ -754,9 +706,7 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
         used.add((runnable, port_ref, data_ref, expected))
         context.update(port=_ref_short_name(port_ref), data_element=_ref_short_name(data_ref))
         for source_file in sorted({r.source_file for r in runnables[runnable]}):
-            accesses = [a for a in access_points if a.runnable == runnable
-                        and a.source_file == source_file
-                        and (a.port_ref, a.data_ref) == (port_ref, data_ref)]
+            accesses = by_source.get((runnable, source_file, port_ref, data_ref), [])
             if not accesses:
                 issues.append(dict(context, reason='MISSING_ACCESS_POINT_IN_ARXML',
                                    arxml_file=source_file))
@@ -870,6 +820,7 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     config = dict(defaults, **supplied)
     config['rules'] = dict(defaults['rules'], **supplied.get('rules', {}))
     _validate_config(config)
+    config['_resolved_functions'] = {}
     if policy not in ('standard', 'delivery'):
         raise ValueError('unknown consistency policy: {}'.format(policy))
     listing_errors: List[Tuple[str, str]] = []

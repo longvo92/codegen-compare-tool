@@ -12,7 +12,7 @@ Expected exit: `1` because the inputs contain real changes. C files live under `
 
 | Model | Review focus |
 |---|---|
-| SpeedCtrl | Independent assignments reordered as noise; a generated data file added |
+| SpeedCtrl | Reordered assignments remain Modified with moved labels; a generated data file added |
 | StaleGen | ARXML/A2L changes with identical C; advisory to review dependencies and generation records |
 | TorqueLimiter | A real gain change and an unproven rename; both remain Modified |
 | PedalMap | C, ARXML and A2L changes together, including a port and calibration object |

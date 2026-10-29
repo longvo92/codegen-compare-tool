@@ -314,3 +314,5 @@ python -m compare_tool baseline.zip current.zip --report report.html --json resu
 | 2 | Comparison/check không đầy đủ hoặc lỗi input/output |
 
 Publish các file đã yêu cầu thành CI artifact. Thêm `--check-consistency` và policy/config khi cần. JSON/SARIF chứa comparison result và old/new advisory, chưa chứa CURRENT finding.
+
+Đổi thứ tự lệnh được báo real change, kể cả scalar assignment có vẻ độc lập. Nối dòng C có thể đổi hành vi nên được giữ theo hướng bảo thủ. Nếu không đọc được nguồn khi render, HTML còn phần đọc được sẽ có banner REPORT INCOMPLETE và CLI trả exit 2 kể cả `--exit-zero`; viewer báo export thiếu nội dung.

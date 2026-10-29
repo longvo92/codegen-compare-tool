@@ -75,6 +75,41 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.page.run_button.click()
         self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
 
+    def test_parenthesized_forbidden_calls_match_cli(self):
+        config = self.root / 'policy.json'
+        config.write_text(json.dumps({'forbidden_functions': ['banned']}))
+        self.page.config.setText(str(config))
+        self.code.write_text('extern int Rte_Read_Fake_Value(void);\n'
+                             'void Ctrl_Step(void) { Rte_Read_Speed_Value(); (banned)(); }')
+        self.run_check()
+        self.assertEqual(self.page.check.exit_code, 1)
+        self.assertEqual(self.page.check.rte_calls_detected, 1)
+        self.assertEqual([f['reason'] for f in self.page.check.findings], ['FORBIDDEN_FUNCTION'])
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = main(['--check-current', str(self.root), '--consistency-config', str(config)])
+        self.assertEqual(code, self.page.check.exit_code)
+
+    def test_partial_export_warns_without_success_dialog(self):
+        from compare_tool import report, scanner
+        old = self.root / 'old'
+        new = self.root / 'new'
+        old.mkdir()
+        new.mkdir()
+        (old / 'x.c').write_text('int x = 1;')
+        (new / 'x.c').write_text('int x = 2;')
+        self.win.old, self.win.new = str(old), str(new)
+        self.win._raw_results = scanner.scan(old, new)
+        output = self.root / 'partial.html'
+        with mock.patch('compare_tool.qtviewer.app.QFileDialog.getSaveFileName',
+                        return_value=(str(output), '')), \
+                mock.patch.object(report, 'read_text', side_effect=OSError('locked')), \
+                mock.patch.object(QMessageBox, 'warning') as warning, \
+                mock.patch.object(QMessageBox, 'question') as question:
+            self.win._export_report()
+        warning.assert_called_once()
+        question.assert_not_called()
+        self.assertIn('REPORT INCOMPLETE', output.read_text(encoding='utf-8'))
+
     def test_standalone_pass_matches_cli_without_starting_compare(self):
         self.assertEqual([self.win.modes.tabText(i) for i in range(2)], ['Compare', 'Code Check'])
         self.assertIsNone(self.win.worker)
