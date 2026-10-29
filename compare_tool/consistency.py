@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .c_source import CSource, direct_calls
+from .c_syntax import scan_calls
 from .diff_engine import ruleset_for
 from .scanner import list_files, looks_binary, read_text
 
@@ -155,20 +155,6 @@ class CurrentTreeCheck:
         return 'PASS'
 
 
-_C_NON_CALL_WORDS = frozenset(('if', 'for', 'while', 'switch', 'sizeof', '_Alignof', 'alignof'))
-_AUTOSAR_FUNCTION_RE = re.compile(
-    r'\bFUNC\s*\([^)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)'
-    r'\s*\([^;{}]*\)\s*\{',
-    re.MULTILINE,
-)
-_NORMAL_FUNCTION_RE = re.compile(
-    r'(?:^|\n)\s*(?:(?:static|inline|extern)\s+)*'
-    r'(?:(?:const|volatile|signed|unsigned|short|long)\s+)*'
-    r'(?:(?:struct|union|enum)\s+)?'
-    r'[A-Za-z_][A-Za-z0-9_]*(?:\s+|(?:\s*\*)+\s*)'
-    r'([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{',
-    re.MULTILINE,
-)
 _ARXML_ACCESS_CONTAINERS = {
     'DATA-READ-ACCESSS': ('READ', 'IMPLICIT'),
     'DATA-WRITE-ACCESSS': ('WRITE', 'IMPLICIT'),
@@ -388,39 +374,6 @@ def _matches(rel, patterns):
                for pattern in patterns)
 
 
-def _matching_brace(text, open_pos):
-    depth = 0
-    for index in range(open_pos, len(text)):
-        if text[index] == '{':
-            depth += 1
-        elif text[index] == '}':
-            depth -= 1
-            if depth == 0:
-                return index
-    return None
-
-
-def _discover_functions(content, structural=None):
-    structural = CSource(content).code if structural is None else structural
-    found = []
-    for regex in (_AUTOSAR_FUNCTION_RE, _NORMAL_FUNCTION_RE):
-        for match in regex.finditer(structural):
-            if match.group(1) in _C_NON_CALL_WORDS:
-                continue
-            open_pos = structural.find('{', match.start(), match.end())
-            end_pos = _matching_brace(structural, open_pos)
-            if open_pos < 0 or end_pos is None:
-                continue
-            found.append({
-                'name': match.group(1),
-                'start_pos': match.start(),
-                'body_start': open_pos,
-                'end_pos': end_pos,
-            })
-    unique = {(item['name'], item['body_start']): item for item in found}
-    return sorted(unique.values(), key=lambda item: item['start_pos'])
-
-
 def _scan_code(root, rels, forbidden_functions=()):
     calls = []
     forbidden = []
@@ -435,18 +388,16 @@ def _scan_code(root, rels, forbidden_functions=()):
         except (OSError, UnicodeError) as exc:
             errors.append(_scan_error(rel, exc))
             continue
-        source = CSource(content)
-        detected = _discover_functions(content, source.code)
+        detected, sites = scan_calls(content)
         functions.extend(FunctionInfo(item['name'], rel) for item in detected)
-        for api, position, function in direct_calls(source.code, detected):
-            if api in _C_NON_CALL_WORDS:
-                continue
-            call = RteCall(rel, source.line_at(position), function, api,
-                           _api_type(api) if api.startswith('Rte_') else 'Function')
-            if any(fnmatch.fnmatchcase(api, pattern) for pattern in forbidden_functions):
-                forbidden.append(call)
-            if api.startswith('Rte_'):
-                calls.append(call)
+        for site in sites:
+            if site.name.startswith('Rte_'):
+                calls.append(RteCall(rel, site.line, site.function,
+                                     site.name, _api_type(site.name)))
+            if site.function is not None and any(
+                    fnmatch.fnmatchcase(site.name, pattern) for pattern in forbidden_functions):
+                forbidden.append(RteCall(rel, site.line, site.function,
+                                         site.name, 'Function'))
     return calls, functions, errors, forbidden
 
 
@@ -625,11 +576,20 @@ def _resolve_runnable(function_name, file, runnables, config):
     return next(iter(matches)) if len(matches) == 1 else None
 
 
-def _api_matches_access(call, access):
+def _api_matches_access(call, access, definitions):
     payload = call.api[len('Rte_{}_'.format(call.api_type)):]
     suffix = '{}_{}'.format(access.port, access.data_element)
-    return payload == suffix or (call.api_type in ('IRead', 'IWrite')
-                                 and payload.endswith('_' + suffix))
+    if call.api_type not in ('IRead', 'IWrite'):
+        return payload == suffix
+    # Implicit buffers belong to a runnable. A matching port/data suffix alone
+    # must not accept another runnable's buffer (or an invented runnable name).
+    names = set()
+    for info in definitions:
+        names.add(info.name)
+        names.add(info.prefix + (info.symbol or info.name))
+        if not info.symbol and not info.prefix and info.swc:
+            names.add(_ref_short_name(info.swc) + '_' + info.name)
+    return any(payload == '{}_{}'.format(name, suffix) for name in names)
 
 
 def _candidate_pairs(call, access_points, runnable, runnables):
@@ -638,7 +598,8 @@ def _candidate_pairs(call, access_points, runnable, runnables):
     # ARXML without component ancestors, stay inside the resolved runnable.
     scoped = [a for a in access_points if
               (a.swc == swc if swc else a.runnable == runnable)]
-    return {(a.port_ref, a.data_ref) for a in scoped if _api_matches_access(call, a)}
+    return {(a.port_ref, a.data_ref) for a in scoped
+            if _api_matches_access(call, a, runnables[runnable])}
 
 
 def _duplicate_inconsistencies(access_points):
@@ -669,8 +630,7 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
     used = set()
     by_scope, by_source = {}, {}
     for access in access_points:
-        scope = access.swc or access.runnable
-        by_scope.setdefault(scope, []).append(access)
+        by_scope.setdefault(access.swc or access.runnable, []).append(access)
         key = (access.runnable, access.source_file, access.port_ref, access.data_ref)
         by_source.setdefault(key, []).append(access)
     for call in calls:
@@ -688,7 +648,8 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
             # Preserve the existing missing-pair failure even without ownership.
             # A global absence proves a mismatch; a global match never proves
             # ownership, so this call still remains explicitly unchecked.
-            if not any(_api_matches_access(call, a) for a in access_points):
+            if not any(_api_matches_access(call, a, runnables[a.runnable])
+                       for a in access_points):
                 issues.append(dict(context, reason='NO_MATCHING_PORT_DATAELEMENT'))
             skipped.append(dict(context, reason='RUNNABLE_NOT_RESOLVED'))
             continue

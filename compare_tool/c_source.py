@@ -37,25 +37,3 @@ class CSource:
 def strip_c_comments(text):
     return CSource(text).shadow()
 
-
-CALL_RE = re.compile(r'\b([A-Za-z_]\w*)\s*(?:\)\s*)*\(')
-
-
-def direct_calls(code, functions):
-    """Yield direct invocations inside recognized bodies, excluding declarations."""
-    for match in CALL_RE.finditer(code):
-        owners = [f for f in functions if f['body_start'] < match.start() < f['end_pos']]
-        if not owners:
-            continue
-        end = match.start()
-        while end and code[end - 1].isspace():
-            end -= 1
-        if code[max(0, end - 2):end].endswith(('.', '->')):
-            continue
-        start = max(code.rfind(ch, 0, match.start()) for ch in ';{}') + 1
-        prefix = code[start:match.start()].lstrip()
-        if (re.fullmatch(r'(?:[A-Za-z_]\w*\s+)+(?:\*\s*)*', prefix)
-                and prefix.strip() not in ('return', 'else', 'do')):
-            continue
-        owner = min(owners, key=lambda f: f['end_pos'] - f['body_start'])
-        yield match.group(1), match.start(), owner['name']

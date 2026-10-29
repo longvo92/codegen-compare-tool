@@ -230,6 +230,65 @@ Rte_Read_Speed_Value();
         self.assertEqual(self.check().exit_code, 0)
         self.assertEqual(self.check().rte_calls_detected, 1)
 
+    def test_matlab_rte_stubs_do_not_inflate_coverage(self):
+        self.fixture()
+        self.write('stub/Rte_Ctrl.c', '''float32 Rte_Pim_Ctrl_Buffer_data;
+float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
+extern void Rte_Write_Output_Value(float32 value);
+''')
+        result = self.check()
+        self.assertEqual(result.status, 'PASS')
+        self.assertEqual((result.rte_calls_detected, result.checked_calls), (1, 1))
+        self.assertEqual(result.skipped_accesses, [])
+        code, output = self.cli('--check-current', str(self.root))
+        self.assertEqual(code, 0)
+        self.assertIn('1 / 1 RTE call(s) checked', output)
+
+    def test_real_unsupported_rte_use_in_stub_remains_unchecked(self):
+        self.fixture()
+        self.write('stub/Rte_Ctrl.c', '''float32* Rte_Pim_Ctrl_Buffer(void) {
+  return Rte_Unknown_Storage();
+}
+''')
+        result = self.check()
+        self.assertEqual(result.exit_code, 2)
+        self.assertEqual(result.rte_calls_detected, 2)
+        self.assertEqual(result.skipped_accesses[0]['call'].api, 'Rte_Unknown_Storage')
+
+    def test_implicit_api_must_name_the_resolved_runnable(self):
+        config = consistency.load_checker_config(None)
+        config['forbidden_rte_prefixes'] = []
+        for api_name, expected in [('Step', 0), ('Entry', 0), ('WrongRunnable', 1)]:
+            with self.subTest(api_name=api_name):
+                self.fixture('void Entry(void) { Rte_IRead_' + api_name + '_Speed_Value(); }',
+                             component('Ctrl', runnable(symbol='Entry', mode='DATA-READ-ACCESSS')))
+                result = self.check(config)
+                self.assertEqual(result.exit_code, expected)
+                if expected:
+                    self.assertIn('NO_MATCHING_PORT_DATAELEMENT',
+                                  [f['reason'] for f in result.findings])
+
+    def test_another_runnable_with_same_port_cannot_supply_implicit_buffer(self):
+        config = consistency.load_checker_config(None)
+        config['forbidden_rte_prefixes'] = []
+        self.fixture('''void Ctrl_Step(void) { Rte_IRead_Ctrl_Other_Speed_Value(); }
+void Ctrl_Other(void) { Rte_IRead_Ctrl_Other_Speed_Value(); }
+''', component('Ctrl', runnable(mode='DATA-READ-ACCESSS') +
+                            runnable(name='Other', mode='DATA-READ-ACCESSS')))
+        self.assertEqual(self.check(config).exit_code, 1)
+
+    def test_prefixed_symbol_and_explicit_helper_mapping_support_implicit_api(self):
+        config = consistency.load_checker_config(None)
+        config['forbidden_rte_prefixes'] = []
+        self.fixture('''static void helper(void) { Rte_IRead_App_Entry_Speed_Value(); }
+void App_Entry(void) { helper(); }
+''', component('Ctrl', runnable(symbol='Entry', mode='DATA-READ-ACCESSS'), prefix='App_'))
+        self.assertEqual(self.check(config).exit_code, 2)
+        config['function_mappings'] = [{'file': 'Ctrl.c', 'function': 'helper',
+                                       'runnable': '/Pkg/Ctrl/IB/Step',
+                                       'reason': 'Generated helper owned by Entry'}]
+        self.assertEqual(self.check(config).exit_code, 0)
+
     def test_json_config_validates_scopes_and_preserves_old_defaults(self):
         path = self.base / 'policy.json'
         path.write_text(json.dumps({'rules': {'orphan_access': 'fail'}}))

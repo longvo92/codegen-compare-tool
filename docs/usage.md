@@ -297,7 +297,9 @@ This reason cannot waive read/parse errors, missing C files or real RTE usage.
 
 The checker reads `.c` files and matches `Rte_Read`, `Rte_Write`, `Rte_IRead` and `Rte_IWrite` to Sender/Receiver declarations. Configured NVM/DEM `Rte_Call` operations receive only the package check described above. Other detected APIs, including general `Rte_Call`, `Rte_Send` and `Rte_Receive`, are UNCHECKED. Unresolved C implementations and ambiguous references are also UNCHECKED.
 
-Matching uses full package/SWC/runnable identity and declared SYMBOL/component prefixes, with only unambiguous name fallbacks. Orphan matching includes runnable, reference, direction and access mode. Helpers may need an explicit mapping.
+Matching uses full package/SWC/runnable identity and declared SYMBOL/component prefixes, with only unambiguous name fallbacks. Implicit `Rte_IRead` / `Rte_IWrite` names must identify that runnable as well as the port/data element. Orphan matching includes runnable, reference, direction and access mode. Helpers may need an explicit mapping.
+
+RTE coverage and comparison access summaries count direct calls, excluding prototypes, function definitions, storage names and strings. MATLAB `stub/` files are still scanned: a stub definition is not a call, but calls inside its body remain visible.
 
 This source check does not preprocess C, expand macros, scan inline header implementations, infer call graphs or perform full AUTOSAR schema validation. A policy pass applies only to this scope.
 

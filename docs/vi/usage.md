@@ -297,7 +297,9 @@ Lý do này không bỏ qua lỗi đọc/parse, thiếu C file hoặc RTE usage 
 
 Checker đọc `.c` và match `Rte_Read`, `Rte_Write`, `Rte_IRead`, `Rte_IWrite` với Sender/Receiver declaration. Operation `Rte_Call` của NVM/DEM đã cấu hình chỉ được check package như mô tả trên. API khác phát hiện được, gồm `Rte_Call` tổng quát, `Rte_Send`, `Rte_Receive`, là UNCHECKED. C implementation chưa resolve và reference mơ hồ cũng là UNCHECKED.
 
-Matching dùng đầy đủ package/SWC/runnable identity và SYMBOL/component prefix đã khai báo, chỉ fallback tên khi không mơ hồ. Orphan matching xét runnable, reference, direction và access mode. Helper có thể cần mapping tường minh.
+Matching dùng đầy đủ package/SWC/runnable identity và SYMBOL/component prefix đã khai báo, chỉ fallback tên khi không mơ hồ. Tên implicit `Rte_IRead` / `Rte_IWrite` phải xác định đúng runnable cùng port/data element. Orphan matching xét runnable, reference, direction và access mode. Helper có thể cần mapping tường minh.
+
+RTE coverage và access summary của Compare đếm direct call, loại prototype, định nghĩa function, tên biến lưu trữ và string. File trong `stub/` của MATLAB vẫn được quét: định nghĩa stub không phải call, nhưng call trong thân stub vẫn được ghi nhận.
 
 Source check không preprocess C, expand macro, scan inline implementation trong header, suy luận call graph hoặc validate đầy đủ AUTOSAR schema. Policy pass chỉ áp dụng trong scope này.
 

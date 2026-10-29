@@ -8,8 +8,8 @@ always corresponds to line N in the original file.
 import re
 from difflib import SequenceMatcher
 
-from . import linediff
-from .c_source import CSource, strip_c_comments
+from . import c_syntax, linediff
+from .c_source import strip_c_comments
 
 C_KEYWORDS = frozenset("""
     auto break case char const continue default do double else enum extern
@@ -559,7 +559,8 @@ RTE_API_RE = re.compile(
 def extract_rte_calls(text):
     """Sorted unique Rte_* access points referenced in C text (comments
     stripped so a commented-out call does not count)."""
-    return sorted(set(RTE_API_RE.findall(CSource(text).code)))
+    _, calls = c_syntax.scan_calls(text)
+    return sorted({call.name for call in calls if RTE_API_RE.fullmatch(call.name)})
 
 
 def rte_diff(old_text, new_text):

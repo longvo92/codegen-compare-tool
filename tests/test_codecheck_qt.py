@@ -125,6 +125,18 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertIn('1 / 1 RTE call(s) checked', self.page.coverage.toPlainText())
         self.assertIn('No findings', self.page.visible_count.text())
 
+    def test_rte_stub_definitions_do_not_add_unchecked_rows(self):
+        stub = self.root / 'stub'
+        stub.mkdir()
+        (stub / 'Rte_Ctrl.c').write_text('''float32 Rte_Pim_Ctrl_Buffer_data;
+float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
+''', encoding='utf-8')
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'PASS')
+        self.assertEqual(self.page.check.rte_calls_detected, 1)
+        self.assertIn('1 / 1 RTE call(s) checked', self.page.coverage.toPlainText())
+        self.assertIn('No findings', self.page.visible_count.text())
+
     def test_failed_finding_filter_source_and_stale_inputs(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Write_Speed_Value(); }', encoding='utf-8')
         self.run_check()

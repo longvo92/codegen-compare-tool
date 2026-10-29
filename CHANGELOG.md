@@ -5,16 +5,29 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve real changes involving reordered statements, volatile/pointer aliases and C line continuations.
+- Detect parenthesized direct function calls while preserving the shared RTE call inventory.
+- Mark partial HTML rendering globally incomplete and return exit 2 even with `--exit-zero`; warn on incomplete viewer exports.
+- Reject ambiguous file moves with close runners-up below the similarity threshold; preserve binary metadata without decoding binary moves.
+
+## [1.21.1] — 2026-10-27
+
+### Fixed
+
+- Count actual C calls consistently in Code Check and comparison RTE summaries. MATLAB RTE stub definitions, prototypes, storage names and strings no longer create spurious accesses; real calls inside stub bodies remain checked.
+- Validate the runnable name in implicit `Rte_IRead` / `Rte_IWrite` APIs instead of accepting any matching port/data-element suffix.
+
+## [1.21.0] — 2026-10-25
+
 ### Added
 
 - Check configured NVM/DEM interface packages and forbidden C function calls in CLI and Code Check, with independent fail/warn/skip/off severity for each rule and a shared YAML/JSON policy example.
 
 ### Fixed
 
-- Preserve real changes involving reordered statements, volatile/pointer aliases and C line continuations.
-- Detect parenthesized forbidden direct calls; exclude prototypes and literal payload from RTE call checks and summaries.
-- Mark partial HTML rendering globally incomplete and return exit 2, including with `--exit-zero`; report incomplete viewer exports.
-- Reject ambiguous file moves with close runners-up below the similarity threshold; preserve binary metadata and avoid decoding binary moves.
+- Detect forbidden function calls after compound statement prefixes such as `else return`, including pointer dereference returns, while preserving block-scope declarations.
 
 ## [1.20.0] — 2026-10-24
 

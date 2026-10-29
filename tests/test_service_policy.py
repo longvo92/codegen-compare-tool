@@ -191,6 +191,77 @@ void Ctrl_Step(void) {
         self.assertEqual([call.line for call in forbidden], [8, 9, 10, 12, 12, 13])
         self.assertTrue(all(call.function == 'Ctrl_Step' for call in forbidden))
 
+    def test_forbidden_calls_after_control_flow_prefixes(self):
+        self.config['forbidden_functions'] = ['banned']
+        bodies = (
+            'if (flag) return 0; else return banned();',
+            'if (flag) { return 0; } else return banned();',
+            'if (flag) return 0; else\n  return /* comment */ banned();',
+            'do return banned(); while (flag);',
+            'if (flag) return 0; else do return banned(); while (flag);',
+            'return *banned();',
+            'if (flag) return 0; else return *banned();',
+            'if (flag) return banned(); else return 0;',
+            'while (flag) return banned();',
+            'if (flag) return 0; else banned();',
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                source = SERVICE_CODE + '\nint Helper(int flag) { ' + body + ' }'
+                self.code.write_text(source, encoding='utf-8')
+                check = self.check()
+                calls = [f['call'] for f in check.findings
+                         if f['reason'] == 'FORBIDDEN_FUNCTION']
+                self.assertEqual([(c.api, c.function, c.line) for c in calls],
+                                 [('banned', 'Helper', source[:source.index('banned(')].count('\n') + 1)])
+                self.assertEqual(check.exit_code, 1)
+
+    def test_block_scope_declarations_remain_excluded(self):
+        self.config['forbidden_functions'] = ['banned']
+        for declaration in ('int banned(void);', 'extern int banned(void);',
+                            'unsigned long banned(void);', 'const char *banned(void);',
+                            'struct Value *banned(void);', 'ResultType banned(void);'):
+            with self.subTest(declaration=declaration):
+                self.code.write_text(SERVICE_CODE + '\nvoid Helper(void) { ' + declaration + ' }',
+                                     encoding='utf-8')
+                check = self.check()
+                self.assertEqual(check.findings, [])
+                self.assertEqual(check.exit_code, 0)
+
+    def test_else_return_respects_glob_and_rule_severity(self):
+        self.code.write_text(SERVICE_CODE + '''
+int Helper(int flag) { if (flag) return 0; else return banned(); }
+''', encoding='utf-8')
+        for pattern in ('banned', 'ban*', '*'):
+            self.config['forbidden_functions'] = [pattern]
+            for severity, exit_code, count, skipped in (
+                    ('fail', 1, 1, 0), ('warn', 0, 1, 0),
+                    ('skip', 0, 0, 1), ('off', 0, 0, 0)):
+                with self.subTest(pattern=pattern, severity=severity):
+                    self.config['rules']['forbidden_function'] = severity
+                    check = self.check()
+                    findings = [f for f in check.findings if f['reason'] == 'FORBIDDEN_FUNCTION'
+                                and f['call'].api == 'banned']
+                    self.assertEqual(len(findings), count)
+                    self.assertEqual(check.exit_code, exit_code)
+                    self.assertEqual(check.skipped_rules, skipped * (3 if pattern == '*' else 1))
+                    self.assertTrue(all(f['severity'] == severity for f in findings))
+
+    def test_cli_else_return_failure_survives_exit_zero(self):
+        self.config['forbidden_functions'] = ['banned']
+        self.code.write_text(SERVICE_CODE + '''
+int Helper(int flag) { if (flag) return 0; else return banned(); }
+''', encoding='utf-8')
+        path = self.root / 'policy.json'
+        path.write_text(json.dumps(self.config), encoding='utf-8')
+        for flags in ([], ['--exit-zero']):
+            with self.subTest(flags=flags):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = main(['--check-current', str(self.root), '--consistency-config', str(path)] + flags)
+                self.assertEqual(code, 1)
+                self.assertIn('FORBIDDEN_FUNCTION Ctrl.c:5', output.getvalue())
+
     def test_forbidden_policy_is_not_bypassed_by_port_ignore_or_package_warning(self):
         self.config['forbidden_functions'] = ['Rte_Call_*']
         self.config['rules']['nvm_package'] = 'warn'
