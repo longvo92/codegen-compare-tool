@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.21.2] — 2026-10-29
+
 ### Fixed
 
 - Preserve real changes involving reordered statements, volatile/pointer aliases and C line continuations.
