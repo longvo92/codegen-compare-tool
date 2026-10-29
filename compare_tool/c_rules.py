@@ -534,16 +534,6 @@ def assumed_rename_map(old_lines, new_lines):
     return mapping
 
 
-# --- straight-line reorder (Embedded Coder reschedules independent stmts) ---
-#
-# Regenerating a model routinely emits the same independent assignments in a
-# different order (output ports, temporaries), which the raw and shadow text
-# both read as a change even though the block computes identical values. This
-# is the one residual churn the text rules cannot see past: it is not a rename,
-# not a comment, not a whole-block move -- it is a *reschedule*. Proving it safe
-# needs the data dependence between statements, so it is decided here on the
-# meaning of the lines, not their spelling.
-
 # --- RTE access-point summary (AUTOSAR blockset codegen) ---
 
 # Standard RTE API verbs (AUTOSAR_SWS_RTE). Unknown verbs are simply not
@@ -557,8 +547,7 @@ RTE_API_RE = re.compile(
 
 
 def extract_rte_calls(text):
-    """Sorted unique Rte_* access points referenced in C text (comments
-    stripped so a commented-out call does not count)."""
+    """Sorted unique direct RTE calls from the shared C call inventory."""
     _, calls = c_syntax.scan_calls(text)
     return sorted({call.name for call in calls if RTE_API_RE.fullmatch(call.name)})
 

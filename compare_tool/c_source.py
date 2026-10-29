@@ -36,4 +36,3 @@ class CSource:
 
 def strip_c_comments(text):
     return CSource(text).shadow()
-

@@ -14,6 +14,7 @@ Paths are relative to `compare_tool/`.
 | `scanner.py` | File discovery/comparison, move pairing and semantic rollups |
 | `diff_engine.py`, `linediff.py` | Two-pass diff, patience matching, hunk classification and verdicts |
 | `c_rules.py`, `arxml_rules.py`, `a2l_rules.py` | Language noise rules and semantic extraction |
+| `c_syntax.py` | Position-preserving C comment masking, function discovery and shared direct-call inventory |
 | `langspec.py`, `userrules.py` | Comment/string grammar, safe whitespace shadows and custom rules |
 | `filepair.py` | Conservative Added/Deleted file pairing |
 | `consistency.py` | Old/new advisories and opt-in CURRENT RTE/ARXML checks |
@@ -58,6 +59,8 @@ Generated renames require a verified one-to-one mapping; function callees need m
 ## Consistency
 
 `consistency.py` derives advisory regeneration findings from the raw comparison. CURRENT checking runs when requested by CLI or the viewer's independent Code Check workspace. HTML and comparison exports do not include CURRENT findings.
+
+`c_syntax.scan_calls` supplies both CURRENT checking and comparison RTE summaries. It excludes declarations, definitions, literals and member-pointer calls, but retains calls with unknown ownership for explicit coverage reporting. It does not expand macros or resolve conditional compilation. Implicit S/R API names must match the resolved runnable's declared name or generated symbol; a port/data suffix alone is insufficient.
 
 CURRENT policy also checks configured NVM/DEM interface packages through runnable server-call-point and required-port references, plus forbidden direct function calls in C bodies. All nine finding rules share `rules` severities in YAML/JSON; scan/input errors stay fatal. Package policy does not validate BSW integration or service operation behavior. CLI and Code Check share the scope description and checker result.
 

@@ -6,7 +6,7 @@ A raw hunk that does not intersect any real hunk is ignorable; it is labeled
 by testing single normalization rules one at a time.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
-kind in {real, moved, comment, rename, assumed-rename, reorder, uuid,
+kind in {real, moved, comment, rename, assumed-rename, uuid,
          timestamp, sw-version, description, whitespace, mixed}
 
 'assumed-rename' only ever appears when the caller asked for it

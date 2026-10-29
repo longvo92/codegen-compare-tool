@@ -14,6 +14,7 @@ Path tương đối với `compare_tool/`.
 | `scanner.py` | Tìm/compare file, ghép file move và semantic rollup |
 | `diff_engine.py`, `linediff.py` | Two-pass diff, patience matching, phân loại hunk và verdict |
 | `c_rules.py`, `arxml_rules.py`, `a2l_rules.py` | Noise rule theo ngôn ngữ và semantic extraction |
+| `c_syntax.py` | Mask comment C giữ vị trí, nhận diện function và danh sách direct call dùng chung |
 | `langspec.py`, `userrules.py` | Comment/string grammar, whitespace shadow an toàn và custom rule |
 | `filepair.py` | Ghép Added/Deleted file một cách bảo thủ |
 | `consistency.py` | Old/new advisory và CURRENT RTE/ARXML check tùy chọn |
@@ -74,6 +75,10 @@ CURRENT policy cũng check package interface NVM/DEM đã cấu hình qua server
 
 `--exit-zero` chỉ bỏ qua failure do file difference. Check giữ full runnable/SWC identity, SYMBOL/prefix và access reference; orphan match theo runnable. YAML hỗ trợ setting cũ; JSON thêm mapping/ngoại lệ có scope. Xem [Hướng dẫn sử dụng](usage.md#consistency-check) về policy và giới hạn coverage.
 
+`c_syntax.scan_calls` cung cấp danh sách call cho CURRENT check và RTE summary của Compare. Nó loại khai báo, định nghĩa, literal và member-pointer call, nhưng giữ call chưa rõ ownership để báo coverage. Nó không expand macro hay resolve conditional compilation. Tên implicit S/R API phải khớp tên khai báo hoặc generated symbol của runnable đã resolve; chỉ trùng hậu tố port/data là chưa đủ.
+
+Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/literal, giữ mapping về dòng nguồn và phân biệt direct call với declaration, kể cả tên hàm có ngoặc. Scanner tái sử dụng nội dung file, Counter của move candidate và cây XML cho interface/SWC trong mỗi lần chạy.
+
 ## Presentation dùng chung
 
 | Quyết định | Owner |
@@ -88,6 +93,8 @@ CURRENT policy cũng check package interface NVM/DEM đã cấu hình qua server
 Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Export dùng raw scan.
 
 `main.viewer_requested` chọn front end. `run_compare` xóa target HTML cũ trước scan; lỗi ghi vẫn giữ terminal result và trả 2. `--no-report` bỏ qua HTML, không đụng report cũ. `summary_lines` và `diagnostic_lines` dùng raw scan, không đổi kết quả.
+
+Render report trả HTML kèm diagnostics nội bộ; API builder trả chuỗi vẫn được giữ. Lỗi đọc khi render tạo banner incomplete toàn cục và buộc CLI/JSON exit 2; GUI export báo thiếu nội dung. Verdict/count của scan giữ nguyên.
 
 ## Verification
 
@@ -112,7 +119,3 @@ Demo có real change nên compare trả 1. Verify viewer bị ảnh hưởng b�
 Lệnh đầu build Windows executable và CLI zipapp; lệnh sau chỉ build zipapp. Xem [GUI resources](../../resources/README.md) về packaged asset.
 
 Khi được yêu cầu release, tăng `compare_tool.__version__`, ghi ngày cho changelog section và để trống `[Unreleased]`. Chạy `python packaging/release_check.py X.Y.Z`, merge version change, rồi chạy `release.yml` từ `main`. Workflow kiểm tra test/build và từ chối tag đã có; publish cần `publish=true`.
-
-Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/literal, giữ mapping về dòng nguồn và phân biệt direct call với declaration, kể cả tên hàm có ngoặc. Scanner tái sử dụng nội dung file, Counter của move candidate và cây XML cho interface/SWC trong mỗi lần chạy.
-
-Render report trả HTML kèm diagnostics nội bộ; API builder trả chuỗi vẫn được giữ. Lỗi đọc khi render tạo banner incomplete toàn cục và buộc CLI/JSON exit 2; GUI export báo thiếu nội dung. Verdict/count của scan giữ nguyên.
