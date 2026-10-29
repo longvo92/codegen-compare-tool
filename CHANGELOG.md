@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.21.2] — 2026-10-29
+
+### Fixed
+
+- Preserve real changes involving reordered statements, volatile/pointer aliases and C line continuations.
+- Detect parenthesized direct function calls while preserving the shared RTE call inventory.
+- Mark partial HTML rendering globally incomplete and return exit 2 even with `--exit-zero`; warn on incomplete viewer exports.
+- Reject ambiguous file moves with close runners-up below the similarity threshold; preserve binary metadata without decoding binary moves.
+
 ## [1.21.1] — 2026-10-27
 
 ### Fixed

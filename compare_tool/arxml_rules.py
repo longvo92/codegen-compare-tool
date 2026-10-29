@@ -114,7 +114,7 @@ def extract_interfaces(text):
     text is not well-formed XML — fail-safe: the caller reports nothing
     rather than guessing."""
     try:
-        root = ET.fromstring(text)
+        root = text if isinstance(text, ET.Element) else ET.fromstring(text)
     except ET.ParseError:
         return None
     out = {}
@@ -228,7 +228,7 @@ def extract_swcs(text):
     when the text is not well-formed XML — fail-safe like
     extract_interfaces."""
     try:
-        root = ET.fromstring(text)
+        root = text if isinstance(text, ET.Element) else ET.fromstring(text)
     except ET.ParseError:
         return None
     out = {}

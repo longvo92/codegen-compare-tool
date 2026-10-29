@@ -138,6 +138,8 @@ Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với
 
 ## Cái gì được tính là noise
 
+Đổi thứ tự lệnh được báo real change, kể cả scalar assignment có vẻ độc lập. Nối dòng C có thể đổi hành vi nên được giữ theo hướng bảo thủ. Nếu không đọc được nguồn khi render, HTML còn phần đọc được sẽ có banner REPORT INCOMPLETE và CLI trả exit 2 kể cả `--exit-zero`; viewer báo export thiếu nội dung.
+
 Rule phải giải thích toàn bộ khác biệt; phần còn lại vẫn là real change.
 
 | Kind | Noise được hỗ trợ |

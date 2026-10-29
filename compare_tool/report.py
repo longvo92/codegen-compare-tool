@@ -1518,7 +1518,7 @@ def _move_note(r):
     return '({})'.format(_esc(text)) if text else ''
 
 
-def _safe_file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
+def _safe_file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0, diagnostics=None):
     """Fail-safe wrapper: rendering one file (which re-reads it from disk)
     must not kill the whole report -- e.g. the file was deleted or locked
     between scan and render. The failure stays loud: an error section takes
@@ -1526,6 +1526,8 @@ def _safe_file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0
     try:
         return _file_section(rel, results, old_root, new_root, anchors, rv, max_rows)
     except Exception as e:
+        if diagnostics is not None:
+            diagnostics.append('{}: {}: {}'.format(rel, type(e).__name__, e))
         return (_file_open(anchors[rel], rel, 'error', expanded=True)
                 + '<div class="filenote">Rendering failed &mdash; file NOT '
                   'shown, treat as potentially changed: {}: {}</div>'
@@ -1638,7 +1640,8 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
 
 
 def build_report(results, old_root, new_root, reviews=None, old_label=None,
-                 theme_name=theme.DEFAULT, new_label=None, max_diff_lines=0):
+                 theme_name=theme.DEFAULT, new_label=None, max_diff_lines=0,
+                 diagnostics=None):
     """Full self-contained HTML report.
 
     ``old_label`` / ``new_label`` name a side when its folder does not:
@@ -1659,6 +1662,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     the compare found, and a record that opens with real changes already
     hidden is not one.
     """
+    diagnostics = [] if diagnostics is None else diagnostics
     counts = summarize(results)
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     rv = _Review(reviews)
@@ -1695,12 +1699,12 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                                                        opn, _esc(m), counts_html))
             for rel in drels:
                 detail.append(_safe_file_section(rel, results, old_root, new_root,
-                                                 anchors, rv, max_diff_lines))
+                                                 anchors, rv, max_diff_lines, diagnostics))
             detail.append('</div></details>')
     else:
         for rel in detail_files:
             detail.append(_safe_file_section(rel, results, old_root, new_root,
-                                             anchors, rv, max_diff_lines))
+                                             anchors, rv, max_diff_lines, diagnostics))
 
     parts = []
     parts.append(_head('AUTOSAR Code Generation Report', theme_name,
@@ -1710,6 +1714,9 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
         _root_html('BASELINE', old_root, old_label),
         _root_html('CURRENT', new_root, new_label), now))
     parts.append(_error_banner(results))
+    if diagnostics:
+        parts.append('<div class="errbox"><div class="errtitle">REPORT INCOMPLETE</div>'
+                     + '<br>'.join(_esc(d) for d in diagnostics) + '</div>')
     if reviews is not None and reviews.error:
         # the notes are missing, not merely absent -- say so, or the reader
         # would take "nothing reviewed" at face value
@@ -1820,3 +1827,13 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  '</script>')
     parts.append('</body></html>')
     return ''.join(parts)
+
+
+RenderedReport = namedtuple('RenderedReport', 'html diagnostics')
+
+
+def render_report(*args, **kwargs):
+    """Render HTML with output diagnostics, without rewriting raw scan verdicts."""
+    diagnostics = []
+    page = build_report(*args, diagnostics=diagnostics, **kwargs)
+    return RenderedReport(page, diagnostics)

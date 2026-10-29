@@ -50,9 +50,9 @@ Both passes use `linediff.hunks`, with patience anchors and exact gap matching:
 1. **Truth:** compare normalized shadows while preserving literals and significant Python/YAML indentation. Remaining differences are real.
 2. **Display:** diff raw lines. Non-real hunks receive a single-rule kind, or `mixed` when several rules are needed.
 
-Hunk kinds include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `reorder`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace` and `mixed`.
+Hunk kinds include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace` and `mixed`.
 
-Generated renames require a verified one-to-one mapping; function callees need matching generated checksum roots. Reorders require identical side-effect-free scalar assignments with dependency order preserved. Calls, increments, nested assignments, declarations, control flow and indirect writes disqualify reorder folding.
+Generated renames require a verified one-to-one mapping; function callees need matching generated checksum roots. Reorders remain real changes: textual scalar dependencies cannot prove the absence of volatile effects, pointer aliases or macro aliases. Moved-block labels remain available.
 
 `--skip-var-renames` deliberately relaxes rename proof. Its hunks use `assumed-rename`; every output surface must disclose the option.
 
@@ -77,6 +77,8 @@ CURRENT policy also checks configured NVM/DEM interface packages through runnabl
 
 `--exit-zero` suppresses file-difference failures only. Checks preserve full runnable/SWC identity, SYMBOL/prefix and access references; orphan matching is per runnable. YAML supports the existing settings; JSON adds scoped mappings/exceptions. See [User Guide](usage.md#consistency-check) for policy and coverage boundaries.
 
+The shared `c_source.py` lexical view handles C line splicing before comments/literals and maps findings back to physical source lines. Direct-call inspection excludes declarations and recognizes parenthesized function names. Scanner file contents and move counters are reused within a run; interface/SWC summaries share parsed XML trees.
+
 ## Shared presentation
 
 | Decision | Owner |
@@ -90,7 +92,7 @@ CURRENT policy also checks configured NVM/DEM interface packages through runnabl
 
 Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Exports use the raw scan.
 
-`main.viewer_requested` selects the front end. `run_compare` removes stale target HTML before scanning; write failures preserve terminal results and exit 2. `--no-report` skips HTML and leaves existing reports untouched. `summary_lines` and `diagnostic_lines` consume the raw scan without changing results.
+`main.viewer_requested` selects the front end. `run_compare` removes stale target HTML before scanning; write failures preserve terminal results and exit 2. Full report rendering returns HTML plus diagnostics internally; the string-returning builder remains available. Source rendering failures retain partial HTML with a global incomplete banner and force CLI exit 2, including JSON exit metadata; GUI export reports the incomplete output. Raw scan verdicts/counts remain unchanged. `--no-report` skips HTML and leaves existing reports untouched. `summary_lines` and `diagnostic_lines` consume the raw scan without changing results.
 
 ## Verification
 

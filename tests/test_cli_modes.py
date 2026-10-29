@@ -197,7 +197,7 @@ class TestNoReport(unittest.TestCase):
             self._file(side, 'same.c', 'int value = 1;\n')
         before = sorted(self.root.rglob('*'))
         with mock.patch('compare_tool.main.default_report_name', return_value=str(stale)), \
-                mock.patch('compare_tool.main.build_report') as report, \
+                mock.patch('compare_tool.main.render_report') as report, \
                 mock.patch('compare_tool.main.build_arxml_report') as arxml_report:
             code, output, errors = self._run()
         self.assertEqual(code, 0)
@@ -260,7 +260,7 @@ class TestNoReport(unittest.TestCase):
             'NoiseDemo       4 Modified  1 Deleted  '
             '+1/-1 Interface | -1 Characteristic | +1 Measurement',
             'PedalMap        3 Modified             +1 Port | +1 Characteristic',
-            'SpeedCtrl       1 Added                -',
+            'SpeedCtrl       1 Modified  1 Added    -',
             'StaleGen        2 Modified             +1 Port | +1 Characteristic',
             'TorqueLimiter   2 Modified             -',
             'Shared / other  No functional change   -',

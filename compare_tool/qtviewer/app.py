@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
 from .. import APP_NAME, gitsource, theme, zipsource
 from ..diff_engine import RULES
 from ..main import default_report_name
-from ..report import build_arxml_report, build_report, consistency_advisories
+from ..report import build_arxml_report, render_report, consistency_advisories
 from ..scanner import summarize
 from .advisories import AdvisoryPanel
 from .codecheck import CodeCheckPage
@@ -989,11 +989,15 @@ class MainWindow(QMainWindow):
             else:
                 # the report opens in whatever the viewer is showing, and
                 # carries both palettes so the reader can still switch
-                page = build_report(self._raw_results, self.old, self.new,
+                rendered = render_report(self._raw_results, self.old, self.new,
                                     old_label=self._old_label,
                                     new_label=self._new_label,
                                     theme_name=self._theme)
+                page = rendered.html
             Path(out).write_text(page, encoding='utf-8')
+            if not self.arxml_only and rendered.diagnostics:
+                QMessageBox.warning(self, 'Report incomplete', '\n'.join(rendered.diagnostics))
+                return
         except Exception as e:
             QMessageBox.critical(self, 'Export failed',
                                  '{}: {}'.format(type(e).__name__, e))

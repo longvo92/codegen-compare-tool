@@ -8,11 +8,12 @@ checker can report incomplete coverage instead of silently dropping them.
 from __future__ import annotations
 
 import re
-from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Optional
 
-_C_CALL_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\(')
+from .c_source import CSource, strip_c_comments as strip_c_comments
+
+_C_CALL_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\)\s*)*\(')
 _C_NON_CALL_WORDS = frozenset(('if', 'for', 'while', 'switch', 'sizeof', '_Alignof', 'alignof'))
 _AUTOSAR_FUNCTION_RE = re.compile(
     r'\bFUNC\s*\([^)]*\)\s*([A-Za-z_][A-Za-z0-9_]*)'
@@ -27,103 +28,6 @@ _NORMAL_FUNCTION_RE = re.compile(
     r'([A-Za-z_][A-Za-z0-9_]*)\s*\([^;{}]*\)\s*\{',
     re.MULTILINE,
 )
-
-
-def strip_c_comments(text):
-    """Replace // and /* */ comments with spaces (newlines kept).
-
-    Comment markers inside string/char literals are left untouched.
-    """
-    out = []
-    i = 0
-    n = len(text)
-    state = 'code'
-    while i < n:
-        c = text[i]
-        nxt = text[i + 1] if i + 1 < n else ''
-        if state == 'code':
-            if c == '/' and nxt == '/':
-                state = 'line'
-                out.append('  ')
-                i += 2
-            elif c == '/' and nxt == '*':
-                state = 'block'
-                out.append('  ')
-                i += 2
-            elif c == '"':
-                state = 'str'
-                out.append(c)
-                i += 1
-            elif c == "'":
-                state = 'chr'
-                out.append(c)
-                i += 1
-            else:
-                out.append(c)
-                i += 1
-        elif state == 'line':
-            if c == '\n':
-                state = 'code'
-                out.append(c)
-            else:
-                out.append(' ')
-            i += 1
-        elif state == 'block':
-            if c == '*' and nxt == '/':
-                state = 'code'
-                out.append('  ')
-                i += 2
-            else:
-                out.append(c if c == '\n' else ' ')
-                i += 1
-        elif state == 'str':
-            if c == '\\' and nxt:
-                out.append(c)
-                out.append(nxt)
-                i += 2
-            else:
-                if c == '"' or c == '\n':  # unterminated string safety
-                    state = 'code'
-                out.append(c)
-                i += 1
-        else:  # chr
-            if c == '\\' and nxt:
-                out.append(c)
-                out.append(nxt)
-                i += 2
-            else:
-                if c == "'" or c == '\n':  # unterminated char safety
-                    state = 'code'
-                out.append(c)
-                i += 1
-    return ''.join(out)
-
-
-def _mask_c_literals(text):
-    """Mask string and character contents while preserving every position."""
-    out = list(text)
-    i = 0
-    quote = None
-    while i < len(out):
-        char = out[i]
-        if quote is None:
-            if char in ('"', "'"):
-                quote = char
-            i += 1
-            continue
-        if char == '\\' and i + 1 < len(out):
-            if out[i] != '\n':
-                out[i] = ' '
-            if out[i + 1] != '\n':
-                out[i + 1] = ' '
-            i += 2
-            continue
-        if char == quote:
-            quote = None
-        elif char != '\n':
-            out[i] = ' '
-        i += 1
-    return ''.join(out)
 
 
 def _matching_brace(text, open_pos):
@@ -198,10 +102,10 @@ def scan_calls(content):
     with no owner (e.g. a macro body or an unsupported function signature).
     Bare snippets are supported for comparison semantic summaries.
     """
-    searchable = _mask_c_literals(strip_c_comments(content))
+    source = CSource(content)
+    searchable = source.code
     functions = _discover_functions(searchable)
     definitions = {item['name_pos'] for item in functions}
-    newlines = [i for i, char in enumerate(searchable) if char == '\n']
     calls = []
     for match in _C_CALL_RE.finditer(searchable):
         name = match.group(1)
@@ -213,6 +117,6 @@ def scan_calls(content):
         if (searchable.endswith(('.', '->'), 0, prefix_end)
                 or _is_declaration(searchable, match.start())):
             continue
-        calls.append(CallSite(name, bisect_right(newlines, match.start()) + 1,
+        calls.append(CallSite(name, source.line_at(match.start()),
                               _containing_function(match.start(), functions)))
     return functions, calls

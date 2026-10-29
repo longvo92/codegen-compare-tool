@@ -7,7 +7,7 @@ a human runs (see fixtures/demo/README.md). Each model owns a
 `arxml/` and the calibration files under `a2l/` -- so a path in an assertion
 below is a path a reviewer would really see.
 
-Six models carry the whole matrix between them: SpeedCtrl (reorder is noise),
+Six models carry the whole matrix between them: SpeedCtrl (reorder remains real),
 StaleGen (surfaces moved, code did not), TorqueLimiter (code-only change),
 PedalMap (everything moved together), Ctrl (+RTE while a peer stayed
 identical), and NoiseDemo (every ignorable kind, plus an added and a deleted
@@ -36,12 +36,12 @@ class TestDemoTree(unittest.TestCase):
     def setUpClass(cls):
         cls.res = scan(str(DEMO / 'old'), str(DEMO / 'new'))
 
-    # --- feature 1: provably-safe statement reorder folds to noise ---
+    # --- feature 1: statement reorder remains actionable ---
 
-    def test_reorder_folds_speedctrl_to_unimportant(self):
+    def test_reorder_keeps_speedctrl_actionable(self):
         r = self.res['SpeedCtrl_autosar_rtw/SpeedCtrl.c']
-        self.assertEqual(r['status'], 'ignorable-only')
-        self.assertIn('reorder', _kinds(r))
+        self.assertEqual(r['status'], 'real-change')
+        self.assertIn('moved', _kinds(r))
         self.assertNotIn('real', _kinds(r))
 
     # --- feature 4: cross-artifact consistency advisory ---
@@ -102,15 +102,15 @@ class TestDemoTree(unittest.TestCase):
         log = serialize.build_sarif(self.res)
         uris = {r['locations'][0]['physicalLocation']['artifactLocation']['uri']
                 for r in log['runs'][0]['results']}
-        # the reordered file, the stale (identical) C, and any Unimportant /
+        # The stale (identical) C and any Unimportant /
         # Comment file are NOT findings
-        for rel in ('SpeedCtrl_autosar_rtw/SpeedCtrl.c',
-                    'StaleGen_autosar_rtw/StaleGen.c',
+        for rel in ('StaleGen_autosar_rtw/StaleGen.c',
                     'arxml/NoiseDemo_component.arxml',
                     'NoiseDemo_autosar_rtw/ert_main.c',
                     'NoiseDemo_autosar_rtw/NoiseDemo_data.c'):
             self.assertNotIn(rel, uris)
-        for rel in ('TorqueLimiter_autosar_rtw/TorqueLimiter.c',
+        for rel in ('SpeedCtrl_autosar_rtw/SpeedCtrl.c',
+                    'TorqueLimiter_autosar_rtw/TorqueLimiter.c',
                     'PedalMap_autosar_rtw/PedalMap.c',
                     'arxml/PedalMap_component.arxml',
                     'a2l/PedalMap.a2l', 'arxml/StaleGen_component.arxml',
@@ -124,7 +124,7 @@ class TestDemoTree(unittest.TestCase):
 
     def test_every_ignorable_kind_is_represented(self):
         seen = {h['kind'] for r in self.res.values() for h in r.get('hunks', [])}
-        for kind in ('comment', 'reorder', 'rename', 'uuid', 'timestamp'):
+        for kind in ('comment', 'moved', 'rename', 'uuid', 'timestamp'):
             self.assertIn(kind, seen)
 
     def test_added_and_deleted_are_represented(self):
@@ -150,8 +150,8 @@ class TestDemoTree(unittest.TestCase):
         doc = json.loads(text)
         speed = next(f for f in doc['files']
                      if f['path'] == 'SpeedCtrl_autosar_rtw/SpeedCtrl.c')
-        self.assertEqual(speed['status'], 'ignorable-only')
-        self.assertIn('reorder', {h['kind'] for h in speed['hunks']})
+        self.assertEqual(speed['status'], 'real-change')
+        self.assertIn('moved', {h['kind'] for h in speed['hunks']})
 
 
 if __name__ == '__main__':

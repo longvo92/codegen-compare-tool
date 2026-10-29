@@ -138,6 +138,8 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 ## What counts as noise
 
+Statement reorders are reported as real changes, including apparently independent scalar assignments. C line continuations affect execution and are preserved conservatively. If source content cannot be rendered, the partial HTML carries a REPORT INCOMPLETE banner and the CLI exits 2 even with `--exit-zero`; the viewer reports an incomplete export.
+
 A rule must explain the whole difference; anything left remains real.
 
 | Kind | Supported noise |

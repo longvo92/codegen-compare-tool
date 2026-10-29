@@ -100,14 +100,14 @@ class TestComparePair(unittest.TestCase):
         self.assertEqual(r['status'], 'real-change')
         self.assertEqual(r['renames'], {})
 
-    def test_independent_reorder_is_noise(self):
+    def test_independent_reorder_stays_real(self):
         # Embedded Coder emits the same independent assignments in a different
         # order; the values are identical, so it is proven noise, not a change
         old = "a = u + 1;\nb = v + 2;\nc = w + 3;\n"
         new = "c = w + 3;\nb = v + 2;\na = u + 1;\n"
         r = compare_pair(old, new, 'f.c')
-        self.assertEqual(r['status'], 'ignorable-only')
-        self.assertEqual(set(kinds(r)), {'reorder'})
+        self.assertEqual(r['status'], 'real-change')
+        self.assertTrue(set(kinds(r)) <= {'real', 'moved'})
 
     def test_dependent_reorder_stays_real(self):
         # moving 'y = t + 2' above the line that computes t changes the result,

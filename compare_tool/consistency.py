@@ -549,6 +549,14 @@ def _scan_error(rel, exc):
 
 
 def _find_runnable(function_name, file, runnables, config):
+    cache = config.setdefault('_resolved_functions', {})
+    key = (function_name, file)
+    if key not in cache:
+        cache[key] = _resolve_runnable(function_name, file, runnables, config)
+    return cache[key]
+
+
+def _resolve_runnable(function_name, file, runnables, config):
     if not function_name:
         return None
     mapped = {entry['runnable'] for entry in config.get('function_mappings', [])
@@ -620,6 +628,11 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
     ignored = checked = 0
     skipped = []
     used = set()
+    by_scope, by_source = {}, {}
+    for access in access_points:
+        by_scope.setdefault(access.swc or access.runnable, []).append(access)
+        key = (access.runnable, access.source_file, access.port_ref, access.data_ref)
+        by_source.setdefault(key, []).append(access)
     for call in calls:
         runnable = _find_runnable(call.function, call.file, runnables, config)
         context = {'call': call, 'runnable': runnable,
@@ -640,7 +653,8 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
                 issues.append(dict(context, reason='NO_MATCHING_PORT_DATAELEMENT'))
             skipped.append(dict(context, reason='RUNNABLE_NOT_RESOLVED'))
             continue
-        pairs = _candidate_pairs(call, access_points, runnable, runnables)
+        scoped = by_scope.get(runnables[runnable][0].swc or runnable, [])
+        pairs = _candidate_pairs(call, scoped, runnable, runnables)
         if len(pairs) > 1:
             skipped.append(dict(context, reason='AMBIGUOUS_PORT_DATAELEMENT'))
             continue
@@ -653,9 +667,7 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
         used.add((runnable, port_ref, data_ref, expected))
         context.update(port=_ref_short_name(port_ref), data_element=_ref_short_name(data_ref))
         for source_file in sorted({r.source_file for r in runnables[runnable]}):
-            accesses = [a for a in access_points if a.runnable == runnable
-                        and a.source_file == source_file
-                        and (a.port_ref, a.data_ref) == (port_ref, data_ref)]
+            accesses = by_source.get((runnable, source_file, port_ref, data_ref), [])
             if not accesses:
                 issues.append(dict(context, reason='MISSING_ACCESS_POINT_IN_ARXML',
                                    arxml_file=source_file))
@@ -769,6 +781,7 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     config = dict(defaults, **supplied)
     config['rules'] = dict(defaults['rules'], **supplied.get('rules', {}))
     _validate_config(config)
+    config['_resolved_functions'] = {}
     if policy not in ('standard', 'delivery'):
         raise ValueError('unknown consistency policy: {}'.format(policy))
     listing_errors: List[Tuple[str, str]] = []
