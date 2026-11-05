@@ -47,8 +47,8 @@ These flags control CLI checks. The viewer offers the same checker in **Code Che
 |---|---|
 | `--check-consistency` | Check generated RTE calls against ARXML in CURRENT during a two-input comparison. Off by default; findings appear in the terminal. |
 | `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. Uses `delivery` policy by default. |
-| `--consistency-policy standard\|delivery` | Select coverage enforcement. Default: `standard` for comparison checks, `delivery` for `--check-current`. Delivery gates unchecked items with exit `2`; standard reports them without gating. |
-| `--consistency-config FILE` | Load the supported YAML subset or JSON policy. Controls forbidden prefixes, ignored ports and rule severities; JSON also supports mappings/exceptions. Omitted settings keep built-in defaults. |
+| `--consistency-policy standard\|delivery` | Select how remaining unchecked items affect exit status. Defaults to `standard` for comparisons and `delivery` for `--check-current`. Delivery gates them with exit `2`. Standard reports them without gating. |
+| `--consistency-config FILE` | Load YAML or JSON policy for forbidden prefixes, ignored ports and service calls, and rule severities. JSON also supports mappings and exceptions. Omitted settings keep built-in defaults. |
 | `--ignore-access-port-regex REGEX` | Add one temporary ignored-port regex, OR-ed with configured patterns. Matches the payload after `Rte_<verb>_`; does not disable forbidden-API checks. No extra regex by default. |
 
 #### Noise rules and help
@@ -197,9 +197,12 @@ python -m compare_tool baseline current --no-report --check-consistency
 | Complete check, no failed rule | 0 | 0 |
 | Rule set to `fail` | 1 | 1 |
 | Read/list/parse error or missing required input | 2 | 2 |
-| Unsupported API, ambiguous reference or unresolved call/runnable | INCOMPLETE, non-gating | 2 |
+| Documented coverage limits, no failed rule | 0 | 0 |
+| Other unchecked items | 0 (INCOMPLETE) | 2 |
 
-Use `--consistency-policy delivery` to enforce coverage on comparison checks. The terminal shows PASS, PASS WITH EXCEPTIONS, FAIL or INCOMPLETE, findings and coverage. Comparison differences also affect exit status; `--exit-zero` suppresses only those differences, never consistency failures or errors.
+Coverage groups documented limits as `IGNORED` in the terminal and Code Check. `NOT CHECKED` means coverage was skipped, zero RTE calls were checked against ARXML, and there are no findings. A passing check with partial coverage shows `PASS WITH EXCEPTIONS`.
+
+Delivery pipelines can now receive exit `0` where a documented limit previously caused exit `2`. Use the coverage summary to see what was checked. Comparison differences also affect exit status. `--exit-zero` suppresses only those differences.
 
 CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
 
@@ -247,9 +250,9 @@ rules:
   forbidden_function: fail
 ```
 
-`nvm_packages` / `dem_packages` contain exact absolute AR-PACKAGE paths, without trailing slashes. Matching checks the immediate package of the referenced interface; it does not accept similarly named packages or child packages. No project package is assumed by default. A recognized service without configured packages remains UNCHECKED.
+`nvm_packages` / `dem_packages` contain exact absolute AR-PACKAGE paths, without trailing slashes. Matching checks the immediate package of the referenced interface; it does not accept similarly named packages or child packages. A recognized service without configured packages is counted as ignored coverage.
 
-Services are identified by interface short names: `nvm_interface_names` defaults to `["NvMService"]`, and `dem_interface_names` to `["DiagnosticMonitor"]`. Override these lists for project interfaces. The checker resolves the C call through its runnable's server-call-point and required port's interface reference; it does not infer NVM/DEM from the C port name. Missing, conflicting or ambiguous references remain UNCHECKED. Only package placement is checked; operation signatures, NvM blocks, DEM events/DTCs, asynchronous behavior and BSW integration are outside this check. Service call-point references follow [MathWorks' generated client/server ARXML structure](https://www.mathworks.com/help/autosar/ug/configure-client-server-communication.html).
+Services are identified by interface short names: `nvm_interface_names` defaults to `["NvMService"]`, and `dem_interface_names` to `["DiagnosticMonitor"]`. Override these lists for project interfaces. The checker resolves the C call through its runnable's server-call-point and required port's interface reference; it does not infer NVM/DEM from the C port name. Missing, conflicting or ambiguous references count as ignored coverage. Only package placement is checked; operation signatures, NvM blocks, DEM events/DTCs, asynchronous behavior and BSW integration are outside this check. Service call-point references follow [MathWorks' generated client/server ARXML structure](https://www.mathworks.com/help/autosar/ug/configure-client-server-communication.html).
 
 `forbidden_functions` accepts exact names and case-sensitive `*` / `?` globs, including direct BSW and `Rte_Call_*` names. It checks direct invocations in detected `.c` function bodies, ignoring comments, strings, prototypes and definitions. It does not resolve indirect function-pointer calls or expand macros. Forbidden calls are checked independently of package severity and ignored-port patterns. The default list is empty.
 
@@ -260,6 +263,15 @@ With `^Bsw_` saved under `ignore_access_port_regex` in `project.yaml`, add a tem
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
+
+Set `ignore_rte_call_regex` to skip matching client/server calls in CURRENT ARXML checks, including NVM/DEM package checks. Each regex searches the full C API name. Coverage reports how many calls were ignored. Forbidden API and function rules still apply. The default list is empty.
+
+```yaml
+ignore_rte_call_regex:
+  - ^Rte_Call_
+```
+
+The example policy leaves the list empty so supported NvM/DEM package checks run. Use `^Rte_Call_` to skip all client/server ARXML checks, or a narrower pattern such as `^Rte_Call_Storage_`.
 
 ### Mappings and exceptions
 
@@ -297,7 +309,7 @@ This reason cannot waive read/parse errors, missing C files or real RTE usage.
 
 ### Coverage boundaries
 
-The checker reads `.c` files and matches `Rte_Read`, `Rte_Write`, `Rte_IRead` and `Rte_IWrite` to Sender/Receiver declarations. Configured NVM/DEM `Rte_Call` operations receive only the package check described above. Other detected APIs, including general `Rte_Call`, `Rte_Send` and `Rte_Receive`, are UNCHECKED. Unresolved C implementations and ambiguous references are also UNCHECKED.
+The checker reads `.c` files and matches `Rte_Read`, `Rte_Write`, `Rte_IRead` and `Rte_IWrite` to Sender/Receiver declarations. Configured NVM/DEM `Rte_Call` operations receive the package check described above. Coverage counts unsupported APIs such as general `Rte_Call`, `Rte_Send` and `Rte_Receive` as ignored, along with unresolved calls or runnable implementations, ambiguous Port/DataElement references, unresolved service references and unconfigured service packages. These items remain in the detected inventory. Any independently proven violation still produces a finding.
 
 Matching uses full package/SWC/runnable identity and declared SYMBOL/component prefixes, with only unambiguous name fallbacks. Implicit `Rte_IRead` / `Rte_IWrite` names must identify that runnable as well as the port/data element. Orphan matching includes runnable, reference, direction and access mode. Helpers may need an explicit mapping.
 

@@ -1,3 +1,4 @@
+# Code Check groups documented coverage limits as IGNORED automatically.
 # Replace these example AR-PACKAGE paths with your project's exact paths.
 nvm_packages:
   - /Services/NvM
@@ -16,6 +17,12 @@ forbidden_rte_prefixes:
   - Rte_IRead_
   - Rte_IWrite_
 ignore_access_port_regex: []
+# Keep this list empty to check supported NvM/DEM calls.
+ignore_rte_call_regex: []
+# To skip selected calls, replace the empty list with a list of API patterns.
+# ignore_rte_call_regex:
+#   - ^Rte_Call_Storage_
+# Use ^Rte_Call_ to skip all client/server ARXML checks.
 # Every check rule accepts fail, warn, skip or off independently.
 rules:
   forbidden_rte_api: fail

@@ -65,7 +65,7 @@ class CodeCheckPage(QWidget):
         fields.addWidget(self.use_current)
         fields.addWidget(QLabel('Coverage policy'))
         self.policy = QComboBox()
-        self.policy.addItem('Delivery — require complete coverage', 'delivery')
+        self.policy.addItem('Delivery — gate unchecked items', 'delivery')
         self.policy.addItem('Standard — report coverage gaps', 'standard')
         fields.addWidget(self.policy)
         fields.addWidget(QLabel('Policy config (optional YAML / JSON)'))
@@ -268,7 +268,9 @@ class CodeCheckPage(QWidget):
 
     def _done(self, check, root):
         self.check, self.root = check, Path(root)
-        self._set_status(check.status, 'state-error' if check.status in ('FAIL', 'INCOMPLETE') else 'state-ready')
+        status = check.status
+        role = {'FAIL': 'state-error', 'INCOMPLETE': 'state-error', 'NOT CHECKED': 'fg-dim'}
+        self._set_status(status, role.get(status, 'state-ready'))
         self.summary.setText('{} FAIL    ·    {} WARN    ·    {} UNCHECKED    ·    '
                              '{} EXCEPTION'.format(
                                  sum(f['severity'] == 'fail' for f in check.findings),
@@ -291,6 +293,9 @@ class CodeCheckPage(QWidget):
             '', self._run_policy,
             '', CHECKER_SCOPE,
         ]
+        ignored_summary = check.ignored_coverage_summary
+        if ignored_summary:
+            lines.append(ignored_summary)
         if check.notes:
             lines.extend(['', 'Applied settings:'] + list(check.notes))
         if check.skipped_rules:
