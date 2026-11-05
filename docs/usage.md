@@ -48,7 +48,7 @@ These flags control CLI checks. The viewer offers the same checker in **Code Che
 | `--check-consistency` | Check generated RTE calls against ARXML in CURRENT during a two-input comparison. Off by default; findings appear in the terminal. |
 | `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. Uses `delivery` policy by default. |
 | `--consistency-policy standard\|delivery` | Select coverage enforcement. Default: `standard` for comparison checks, `delivery` for `--check-current`. Delivery gates unchecked items with exit `2`; standard reports them without gating. |
-| `--consistency-config FILE` | Load the supported YAML subset or JSON policy. Controls forbidden prefixes, ignored ports and rule severities; JSON also supports mappings/exceptions. Omitted settings keep built-in defaults. |
+| `--consistency-config FILE` | Load YAML or JSON policy for forbidden prefixes, ignored ports and service calls, and rule severities. JSON also supports mappings and exceptions. Omitted settings keep built-in defaults. |
 | `--ignore-access-port-regex REGEX` | Add one temporary ignored-port regex, OR-ed with configured patterns. Matches the payload after `Rte_<verb>_`; does not disable forbidden-API checks. No extra regex by default. |
 
 #### Noise rules and help
@@ -260,6 +260,15 @@ With `^Bsw_` saved under `ignore_access_port_regex` in `project.yaml`, add a tem
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
+
+Set `ignore_rte_call_regex` to skip matching client/server calls in CURRENT ARXML checks, including NVM/DEM package checks. Each regex searches the full C API name. Coverage reports how many calls were ignored. Forbidden API and function rules still apply. The default list is empty.
+
+```yaml
+ignore_rte_call_regex:
+  - ^Rte_Call_
+```
+
+The example policy uses this pattern to skip all `Rte_Call_*` calls. Set the list to `[]` to enable their package checks, or use a narrower pattern such as `^Rte_Call_Storage_`.
 
 ### Mappings and exceptions
 

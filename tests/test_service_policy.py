@@ -162,6 +162,40 @@ class TestServicePolicy(unittest.TestCase):
         self.assertEqual(set(config['rules']), set(self.config['rules']))
         self.assertEqual(config['nvm_packages'], self.config['nvm_packages'])
 
+    def test_rte_call_ignore_regex_only_skips_matching_contract_checks(self):
+        self.xml.write_text(service_xml('/Wrong/NvM', '/Wrong/Dem'), encoding='utf-8')
+        self.config['ignore_rte_call_regex'] = ['^Rte_Call_StoredData_', '(?i)^rte_call_custom_']
+        self.config['forbidden_functions'] = ['Rte_Call_StoredData_ReadBlock']
+        self.config['forbidden_rte_prefixes'].append('Rte_Call_StoredData_')
+        self.code.write_text(SERVICE_CODE.replace(
+            '  Rte_Call_Fault', '  Rte_Call_Custom_Run();\n  Rte_Call_Fault'), encoding='utf-8')
+
+        check = self.check()
+        self.assertEqual(check.exit_code, 1)
+        self.assertEqual([f['reason'] for f in check.findings],
+                         ['FORBIDDEN_FUNCTION', 'FORBIDDEN_RTE_API', 'DEM_PACKAGE'])
+        self.assertEqual(check.skipped_accesses, [])
+        self.assertEqual((check.checked_calls, check.rte_calls_detected), (1, 3))
+        self.assertIn('(2 call(s))', check.notes[0])
+
+        self.config['ignore_rte_call_regex'] = ['.*']
+        self.code.write_text(SERVICE_CODE.replace(
+            '  Rte_Call_Fault', '  Rte_Send_Other_Value();\n  Rte_Call_Fault'), encoding='utf-8')
+        check = self.check()
+        self.assertEqual(check.exit_code, 2)
+        self.assertEqual([item['call'].api for item in check.skipped_accesses],
+                         ['Rte_Send_Other_Value'])
+
+    def test_invalid_rte_call_regex_is_rejected_by_cli(self):
+        path = self.root / 'policy.yaml'
+        path.write_text('ignore_rte_call_regex:\n  - "["\n', encoding='utf-8')
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            with self.assertRaises(SystemExit) as exc:
+                main(['--check-current', str(self.root), '--consistency-config', str(path)])
+        self.assertEqual(exc.exception.code, 2)
+        self.assertIn('invalid Rte_Call ignore regex', errors.getvalue())
+
     def test_interface_names_are_configurable_and_call_names_do_not_imply_service(self):
         self.xml.write_text(service_xml(nvm_interface='ProjectStorage'), encoding='utf-8')
         self.assertEqual(self.check().exit_code, 2)

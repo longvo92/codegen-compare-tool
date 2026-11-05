@@ -16,6 +16,9 @@ forbidden_rte_prefixes:
   - Rte_IRead_
   - Rte_IWrite_
 ignore_access_port_regex: []
+# Skip ARXML checks for matching Rte_Call APIs. Use [] to check them.
+ignore_rte_call_regex:
+  - ^Rte_Call_
 # Every check rule accepts fail, warn, skip or off independently.
 rules:
   forbidden_rte_api: fail

@@ -48,7 +48,7 @@ Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong
 | `--check-consistency` | Check generated RTE call với ARXML trong CURRENT khi compare hai input. Mặc định tắt; finding hiện trên terminal. |
 | `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. Mặc định dùng policy `delivery`. |
 | `--consistency-policy standard\|delivery` | Chọn cách gate coverage. Mặc định: `standard` cho comparison check, `delivery` cho `--check-current`. Delivery trả `2` khi còn mục chưa check được; standard chỉ báo, không gate. |
-| `--consistency-config FILE` | Đọc policy từ YAML subset được hỗ trợ hoặc JSON. Cấu hình forbidden prefix, ignored port và rule severity; JSON thêm mapping/ngoại lệ. Setting bỏ qua giữ default có sẵn. |
+| `--consistency-config FILE` | Đọc policy YAML hoặc JSON để cấu hình prefix cấm, port và lời gọi service cần bỏ qua, cùng severity của rule. JSON hỗ trợ thêm mapping và ngoại lệ. Setting không khai báo giữ mặc định. |
 | `--ignore-access-port-regex REGEX` | Thêm một regex ignored-port tạm thời, kết hợp OR với pattern trong config. Match payload sau `Rte_<verb>_`; không tắt forbidden-API check. Mặc định không thêm regex. |
 
 #### Noise rule và trợ giúp
@@ -260,6 +260,15 @@ Khi đã lưu `^Bsw_` trong `ignore_access_port_regex` của `project.yaml`, th�
 ```bash
 python -m compare_tool --check-current current --consistency-config project.yaml --ignore-access-port-regex "^Diag_"
 ```
+
+Dùng `ignore_rte_call_regex` để bỏ qua lời gọi client/server khớp regex trong CURRENT ARXML check, gồm cả kiểm tra package NVM/DEM. Mỗi regex được áp dụng trên tên đầy đủ của API C. Coverage hiển thị số lời gọi được bỏ qua. Các rule cấm API và function vẫn áp dụng. Mặc định danh sách rỗng.
+
+```yaml
+ignore_rte_call_regex:
+  - ^Rte_Call_
+```
+
+Policy mẫu dùng pattern này để bỏ qua mọi lời gọi `Rte_Call_*`. Đặt danh sách thành `[]` để bật kiểm tra package hoặc dùng pattern hẹp hơn như `^Rte_Call_Storage_`.
 
 ### Mapping và ngoại lệ
 

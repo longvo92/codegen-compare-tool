@@ -545,7 +545,7 @@ def _parser():
                     'delivery for --check-current')
     ap.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
                     help='settings for --check-consistency: NVM/DEM packages, '
-                         'forbidden functions/RTE prefixes, ignored port regexes and per-rule '
+                         'forbidden functions/RTE prefixes, port and Rte_Call ignore regexes, and per-rule '
                          'fail/warn/skip/off severities. Uses a small YAML '
                          'subset, or JSON with scoped exceptions and function '
                          'mappings; also accepted with --check-current')

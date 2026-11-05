@@ -167,6 +167,25 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
             self.page.severity.setCurrentText('UNCHECKED')
             self.assertIn('UNSUPPORTED_RTE_API', self.page.findings.topLevelItem(0).text(1))
 
+    def test_example_yaml_ignores_rte_call_in_cli_and_code_check(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Read_Speed_Value(); '
+                             'Rte_Call_Service_Run(); }', encoding='utf-8')
+        config = Path(__file__).resolve().parent.parent / 'examples' / 'checker-policy.yaml'
+        self.page.config.setText(str(config))
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'PASS WITH EXCEPTIONS')
+        self.assertEqual((self.page.check.checked_calls, self.page.check.rte_calls_detected), (1, 2))
+        coverage = self.page.coverage.toPlainText()
+        self.assertIn('Ignored Rte_Call regex', coverage)
+        self.assertIn('(1 call(s))', coverage)
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(['--check-current', str(self.root), '--consistency-config', str(config)])
+        self.assertEqual(code, self.page.check.exit_code)
+        self.assertEqual(code, 0)
+        self.assertIn('Ignored Rte_Call regex', output.getvalue())
+
     def test_service_packages_and_forbidden_calls_share_cli_policy_and_source_context(self):
         self.code.write_text('''void Ctrl_Step(void) {
   Rte_Read_Speed_Value();

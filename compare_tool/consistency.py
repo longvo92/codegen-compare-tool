@@ -174,7 +174,8 @@ _CHECKER_RULES = frozenset((
     'forbidden_function',
 ))
 _CONFIG_LISTS = (
-    'forbidden_rte_prefixes', 'ignore_access_port_regex', 'forbidden_functions',
+    'forbidden_rte_prefixes', 'ignore_access_port_regex', 'ignore_rte_call_regex',
+    'forbidden_functions',
     'nvm_packages', 'dem_packages', 'nvm_interface_names', 'dem_interface_names',
 )
 CHECKER_SCOPE = (
@@ -185,6 +186,7 @@ CHECKER_SCOPE = (
 DEFAULT_CHECKER_CONFIG = {
     'forbidden_rte_prefixes': ['Rte_IRead_', 'Rte_IWrite_'],
     'ignore_access_port_regex': [],
+    'ignore_rte_call_regex': [],
     'forbidden_functions': [],
     'nvm_packages': [],
     'dem_packages': [],
@@ -725,23 +727,29 @@ def _apply_exceptions(items, exceptions):
     return kept, waived
 
 
-def _compile_ignore_pattern(config, cli_pattern):
-    patterns = [pattern for pattern in config['ignore_access_port_regex']
-                if pattern]
+def _compile_ignore_pattern(pattern, label):
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        raise ValueError('invalid {} ignore regex: {}'.format(label, exc)) from exc
+
+
+def _checker_ignore_patterns(config, cli_pattern):
+    access_patterns = list(config['ignore_access_port_regex'])
     if cli_pattern:
-        patterns.append(cli_pattern)
-    return re.compile('|'.join('(?:{})'.format(pattern) for pattern in patterns)) \
-        if patterns else None
+        access_patterns.append(cli_pattern)
+    access_regex = '|'.join('(?:{})'.format(pattern) for pattern in access_patterns)
+    return (
+        _compile_ignore_pattern(access_regex, 'access-port') if access_regex else None,
+        tuple(_compile_ignore_pattern(pattern, 'Rte_Call')
+              for pattern in config.get('ignore_rte_call_regex', [])),
+    )
 
 
 def validate_checker_regex(config: Dict[str, Any],
                            cli_pattern: Optional[str] = None) -> None:
     """Reject an invalid configured or CLI ignore regex before scanning."""
-    try:
-        _compile_ignore_pattern(config, cli_pattern)
-    except re.error as exc:
-        raise ValueError(
-            'invalid access-port ignore regex: {}'.format(exc)) from exc
+    _checker_ignore_patterns(config, cli_pattern)
 
 
 def _classify(findings, config):
@@ -781,6 +789,8 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     config = dict(defaults, **supplied)
     config['rules'] = dict(defaults['rules'], **supplied.get('rules', {}))
     _validate_config(config)
+    ignore_pattern, rte_call_patterns = _checker_ignore_patterns(
+        config, ignore_access_port_regex)
     config['_resolved_functions'] = {}
     if policy not in ('standard', 'delivery'):
         raise ValueError('unknown consistency policy: {}'.format(policy))
@@ -795,9 +805,6 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     access_points, runnables, arxml_errors, service_points, ports = _parse_arxml(root, arxml_rels)
     listing_findings = [_scan_error(rel, RuntimeError(message))
                         for rel, message in listing_errors]
-    validate_checker_regex(config, ignore_access_port_regex)
-    ignore_pattern = _compile_ignore_pattern(config, ignore_access_port_regex)
-
     raw = list(code_errors) + list(arxml_errors) + listing_findings
     notes = []
     no_rte_reason = config.get('no_rte_expected', '').strip()
@@ -841,11 +848,21 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
                 if len(pairs) == 1:
                     finding['port'] = _ref_short_name(next(iter(pairs))[0])
             raw.append(finding)
+    contract_calls = calls
+    if rte_call_patterns:
+        contract_calls = [
+            call for call in calls
+            if not (call.api_type == 'Call'
+                    and any(pattern.search(call.api) for pattern in rte_call_patterns))
+        ]
+        notes.append('Ignored Rte_Call regex: {} ({} call(s))'.format(
+            ', '.join(pattern.pattern for pattern in rte_call_patterns),
+            len(calls) - len(contract_calls)))
     service_issues, service_skips, handled, service_checked = _check_service_packages(
-        calls, runnables, service_points, ports, config)
+        contract_calls, runnables, service_points, ports, config)
     raw.extend(service_issues)
     issues, ignored, skipped, checked, used = _check_access_points(
-        [call for call in calls if call not in handled],
+        [call for call in contract_calls if call not in handled],
         access_points, runnables, ignore_pattern, config)
     skipped.extend(service_skips)
     checked += service_checked
