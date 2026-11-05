@@ -87,7 +87,11 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.assertEqual(check.checked_calls, 1)
         self.assertEqual(check.skipped_accesses, [])
         self.write('Ctrl.c', 'void Ctrl_Step(void) { Rte_Read_Speed_Value(); }')
-        self.assertEqual(self.check().exit_code, 2)
+        check = self.check()
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual(check.checked_calls, 0)
+        self.assertEqual({item['reason'] for item in check.ignored_coverage},
+                         {'RUNNABLE_NOT_RESOLVED', 'RUNNABLE_NOT_IMPLEMENTED'})
 
     def test_symbol_resolution_preserves_real_mode_mismatch(self):
         self.fixture('void Entry(void) { Rte_Write_Speed_Value(); }',
@@ -111,8 +115,11 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.fixture('void Step(void) { Rte_Read_Speed_Value(); }')
         self.write('Other.arxml', arxml(component('Ctrl', runnable())).replace(
             '<SHORT-NAME>Pkg</SHORT-NAME>', '<SHORT-NAME>OtherPkg</SHORT-NAME>'))
-        self.assertEqual(self.check().exit_code, 2)
-        self.assertIn('RUNNABLE_NOT_RESOLVED', [f['reason'] for f in self.check().skipped_accesses])
+        check = self.check()
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual(check.ignored_coverage_summary, 'IGNORED coverage: 3 item(s) '
+                         '(RUNNABLE_NOT_IMPLEMENTED: 2, RUNNABLE_NOT_RESOLVED: 1).')
 
     def test_orphan_is_per_runnable_and_access_mode(self):
         self.fixture('void A(void) { Rte_Read_Speed_Value(); }\nvoid B(void) {}',
@@ -130,22 +137,31 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.write('duplicate.arxml', arxml(component('Ctrl', runnable(
             data_ref='/DifferentInterface/Value'))))
         check = self.check()
-        self.assertEqual(check.exit_code, 2)
-        self.assertIn('AMBIGUOUS_PORT_DATAELEMENT', [f['reason'] for f in check.skipped_accesses])
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.checked_calls, 0)
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['AMBIGUOUS_PORT_DATAELEMENT'])
 
     def test_underscore_collision_is_not_resolved_arbitrarily(self):
         self.fixture('void Ctrl_Step(void) { Rte_Read_A_B_C(); }', component('Ctrl',
                      runnable(port='A_B', data_ref='/If/C') + runnable(
                          port='A', data_ref='/If/B_C')))
-        self.assertEqual(self.check().exit_code, 2)
+        check = self.check()
+        self.assertEqual(check.checked_calls, 0)
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['AMBIGUOUS_PORT_DATAELEMENT'])
 
-    def test_unresolved_helper_is_visible_and_delivery_gates_it(self):
+    def test_unresolved_helper_is_ignored_and_orphan_warning_is_preserved(self):
         self.fixture('void helper(void) { Rte_Read_Speed_Value(); }\n'
                      'void Ctrl_Step(void) { helper(); }')
-        check = self.check(policy='standard')
-        self.assertEqual(check.exit_code, 0)
-        self.assertEqual(check.status, 'INCOMPLETE')
-        self.assertEqual(self.check().exit_code, 2)
+        for policy in ('standard', 'delivery'):
+            with self.subTest(policy=policy):
+                check = self.check(policy=policy)
+                self.assertEqual(check.exit_code, 0)
+                self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
+                self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                                 ['RUNNABLE_NOT_RESOLVED'])
+                self.assertEqual([f['reason'] for f in check.findings], ['ORPHAN_ACCESS'])
 
     def test_unresolved_helper_cannot_weaken_existing_missing_pair_failure(self):
         self.fixture('void helper(void) { Rte_Read_Unknown_Value(); }\n'
@@ -155,7 +171,11 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.assertIn('NO_MATCHING_PORT_DATAELEMENT', [f['reason'] for f in check.findings])
         self.assertEqual(self.cli(str(self.root), str(self.root), '--no-report',
                                  '--check-consistency', '--exit-zero')[0], 1)
-        self.assertEqual(self.check().exit_code, 2)
+        delivery = self.check()
+        self.assertEqual(delivery.exit_code, 1)
+        self.assertEqual(delivery.status, 'FAIL')
+        self.assertEqual([f['reason'] for f in delivery.ignored_coverage],
+                         ['RUNNABLE_NOT_RESOLVED'])
 
     def test_helper_mapping_is_scoped_and_has_a_reason(self):
         self.fixture('void helper(void) { Rte_Read_Speed_Value(); }\n'
@@ -170,7 +190,10 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.assertEqual(check.findings, [])
         self.assertTrue(check.notes)
         self.write('Other.c', 'void helper(void) { Rte_Read_Speed_Value(); }')
-        self.assertEqual(self.check(config).exit_code, 2)
+        check = self.check(config)
+        self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
+        self.assertEqual(check.checked_calls, 1)
+        self.assertEqual([item['call'].file for item in check.ignored_coverage], ['Other.c'])
 
     def test_unknown_mapping_target_is_incomplete(self):
         self.fixture()
@@ -179,25 +202,40 @@ class TestDeliveryConsistency(unittest.TestCase):
                                        'runnable': '/missing', 'reason': 'test'}]
         self.assertEqual(self.check(config).exit_code, 2)
 
-    def test_unsupported_rte_api_is_counted_and_not_reported_clean(self):
-        self.fixture('void Ctrl_Step(void) { Rte_Call_Service_Run(); }')
+    def test_unsupported_rte_api_is_counted_as_ignored(self):
+        self.fixture('void Ctrl_Step(void) { Rte_Call_Service_Run(); }',
+                     component('Ctrl', '<RUNNABLE-ENTITY><SHORT-NAME>Step</SHORT-NAME></RUNNABLE-ENTITY>'))
         check = self.check()
         self.assertEqual(check.rte_calls_detected, 1)
         self.assertEqual(check.checked_calls, 0)
-        self.assertEqual(check.exit_code, 2)
-        self.assertIn('UNSUPPORTED_RTE_API', [f['reason'] for f in check.skipped_accesses])
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual(check.skipped_accesses, [])
+        self.assertEqual([f['reason'] for f in check.ignored_coverage], ['UNSUPPORTED_RTE_API'])
+
+    def test_port_regex_ignore_only_is_not_checked(self):
+        self.fixture()
+        check = self.check(ignore_access_port_regex='^Speed_')
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual(check.ignored_accesses, 1)
 
     def test_exception_only_waives_matching_rule_and_scope(self):
-        self.fixture('void Ctrl_Step(void) { Rte_Call_Service_Run(); }')
+        self.fixture('void Ctrl_Step(void) { Rte_Call_Service_Run(); }',
+                     component('Ctrl', '<RUNNABLE-ENTITY><SHORT-NAME>Step</SHORT-NAME></RUNNABLE-ENTITY>'))
         config = consistency.load_checker_config(None)
         config['exceptions'] = [{'rule': 'unsupported_rte_api', 'file': 'Ctrl.c',
                                  'runnable': '/Pkg/Ctrl/IB/Step', 'reason': 'Reviewed by integration'}]
         check = self.check(config)
         self.assertEqual(check.exit_code, 0)
-        self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
+        self.assertEqual(check.status, 'NOT CHECKED')
         self.assertEqual(len(check.exemptions), 1)
         self.write('Other.c', 'void Other(void) { Rte_Call_Service_Run(); }')
-        self.assertEqual(self.check(config).exit_code, 2)
+        check = self.check(config)
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual(len(check.exemptions), 1)
+        self.assertEqual([item['call'].file for item in check.ignored_coverage], ['Other.c'])
 
     def test_no_rte_expected_requires_reason_and_does_not_hide_real_calls(self):
         self.write('Utility.c', 'void Utility(void) {}')
@@ -244,16 +282,17 @@ extern void Rte_Write_Output_Value(float32 value);
         self.assertEqual(code, 0)
         self.assertIn('1 / 1 RTE call(s) checked', output)
 
-    def test_real_unsupported_rte_use_in_stub_remains_unchecked(self):
+    def test_real_unsupported_rte_use_in_stub_is_counted_as_ignored(self):
         self.fixture()
         self.write('stub/Rte_Ctrl.c', '''float32* Rte_Pim_Ctrl_Buffer(void) {
   return Rte_Unknown_Storage();
 }
 ''')
         result = self.check()
-        self.assertEqual(result.exit_code, 2)
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(result.status, 'PASS WITH EXCEPTIONS')
         self.assertEqual(result.rte_calls_detected, 2)
-        self.assertEqual(result.skipped_accesses[0]['call'].api, 'Rte_Unknown_Storage')
+        self.assertEqual(result.ignored_coverage[0]['call'].api, 'Rte_Unknown_Storage')
 
     def test_implicit_api_must_name_the_resolved_runnable(self):
         config = consistency.load_checker_config(None)
@@ -283,7 +322,10 @@ void Ctrl_Other(void) { Rte_IRead_Ctrl_Other_Speed_Value(); }
         self.fixture('''static void helper(void) { Rte_IRead_App_Entry_Speed_Value(); }
 void App_Entry(void) { helper(); }
 ''', component('Ctrl', runnable(symbol='Entry', mode='DATA-READ-ACCESSS'), prefix='App_'))
-        self.assertEqual(self.check(config).exit_code, 2)
+        check = self.check(config)
+        self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['RUNNABLE_NOT_RESOLVED'])
         config['function_mappings'] = [{'file': 'Ctrl.c', 'function': 'helper',
                                        'runnable': '/Pkg/Ctrl/IB/Step',
                                        'reason': 'Generated helper owned by Entry'}]
@@ -341,18 +383,32 @@ rules:
         with zipfile.ZipFile(path, 'w') as archive:
             for file in self.root.iterdir():
                 archive.write(file, 'drop/' + file.name)
-        self.assertEqual(self.cli('--check-current', str(path))[0], 2)
+        self.assertEqual(self.cli('--check-current', str(path))[0], 0)
         code, output = self.cli('--check-current', str(path), '--consistency-policy', 'standard')
         self.assertEqual(code, 0)
-        self.assertIn('INCOMPLETE', output)
+        self.assertIn('Consistency: NOT CHECKED', output)
+        self.assertIn('IGNORED coverage: 2 item(s)', output)
         self.assertIn('CURRENT: delivery.zip', output)
 
-    def test_delivery_gating_cannot_be_suppressed_by_exit_zero(self):
-        self.fixture('void helper(void) { Rte_Read_Speed_Value(); }')
+    def test_scan_error_with_ignored_coverage_cannot_be_suppressed_by_exit_zero(self):
+        self.fixture('void Ctrl_Step(void) { Rte_Call_Service_Run(); }')
+        self.write('Broken.arxml', '<AUTOSAR>')
         self.assertEqual(self.cli('--check-current', str(self.root), '--exit-zero')[0], 2)
         self.assertEqual(self.cli(str(self.root), str(self.root), '--no-report',
                                  '--check-consistency', '--consistency-policy', 'delivery',
                                  '--exit-zero')[0], 2)
+
+    def test_new_coverage_reason_defaults_to_unchecked(self):
+        self.fixture()
+        skipped = {'reason': 'NEW_COVERAGE_GAP', 'arxml_file': 'Ctrl.arxml'}
+        with mock.patch.object(consistency, '_orphan_accesses', return_value=([], [skipped])):
+            for policy, exit_code in (('standard', 0), ('delivery', 2)):
+                with self.subTest(policy=policy):
+                    check = self.check(policy=policy)
+                    self.assertEqual(check.exit_code, exit_code)
+                    self.assertEqual(check.status, 'INCOMPLETE')
+                    self.assertEqual(check.skipped_accesses, [skipped])
+                    self.assertEqual(check.ignored_coverage, [])
 
     def test_current_rejects_unsupported_outputs_without_touching_them(self):
         self.fixture()

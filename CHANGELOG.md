@@ -9,6 +9,10 @@ All notable changes to this project are documented here. Versions follow
 
 - Skip selected `Rte_Call_*` APIs in CURRENT consistency checks with a YAML or JSON regex policy.
 
+### Changed
+
+- Group documented CURRENT coverage limits as ignored in CLI and Code Check. Delivery runs can now exit 0 for those limits and show `NOT CHECKED` when coverage was skipped, zero RTE calls were checked and there are no findings.
+
 ## [1.21.2] — 2026-10-29
 
 ### Fixed

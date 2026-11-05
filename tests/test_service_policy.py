@@ -83,9 +83,13 @@ class TestServicePolicy(unittest.TestCase):
 
     def test_wrong_packages_are_independent_findings_with_call_evidence(self):
         self.xml.write_text(service_xml('/Wrong/NvM', '/Wrong/Dem'), encoding='utf-8')
+        self.code.write_text(SERVICE_CODE.replace('}', '  Rte_Call_Custom_Run();\n}'),
+                             encoding='utf-8')
         check = self.check()
         self.assertEqual(check.exit_code, 1)
+        self.assertEqual(check.status, 'FAIL')
         self.assertEqual([f['reason'] for f in check.findings], ['NVM_PACKAGE', 'DEM_PACKAGE'])
+        self.assertEqual([f['reason'] for f in check.ignored_coverage], ['UNSUPPORTED_RTE_API'])
         self.assertEqual([f['call'].line for f in check.findings], [2, 3])
         self.assertEqual(check.findings[0]['expected_packages'], ['/Services/NvM'])
         self.assertEqual(check.findings[0]['interface'], '/Wrong/NvM/NvMService')
@@ -113,39 +117,49 @@ class TestServicePolicy(unittest.TestCase):
                 self.assertEqual(check.skipped_rules, skipped)
                 self.assertTrue(all(f['severity'] == severity for f in check.findings))
 
-    def test_missing_package_policy_and_missing_reference_are_incomplete(self):
+    def test_missing_package_policy_and_missing_reference_are_ignored(self):
         self.config['nvm_packages'] = []
         check = self.check()
-        self.assertEqual(check.exit_code, 2)
-        self.assertEqual(check.skipped_accesses[0]['reason'], 'SERVICE_PACKAGE_NOT_CONFIGURED')
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
+        self.assertEqual(check.checked_calls, 1)
+        self.assertEqual(check.ignored_coverage[0]['reason'], 'SERVICE_PACKAGE_NOT_CONFIGURED')
         self.config['nvm_packages'] = ['/Services/NvM']
         self.xml.write_text(service_xml().replace(
             '<REQUIRED-INTERFACE-TREF DEST="CLIENT-SERVER-INTERFACE">/Services/NvM/NvMService</REQUIRED-INTERFACE-TREF>', ''))
         check = self.check()
-        self.assertEqual(check.exit_code, 2)
-        self.assertEqual(check.skipped_accesses[0]['reason'], 'SERVICE_REFERENCE_UNRESOLVED')
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.checked_calls, 1)
+        self.assertEqual(check.ignored_coverage[0]['reason'], 'SERVICE_REFERENCE_UNRESOLVED')
 
-    def test_conflicting_port_or_operation_copies_do_not_pass(self):
+    def test_conflicting_port_or_operation_copies_do_not_count_as_checked(self):
         for xml in (service_xml('/Other'), service_xml().replace(
                 '/Services/NvM/NvMService</REQUIRED', '/Other/NvMService</REQUIRED')):
             with self.subTest(xml=xml):
                 duplicate = self.root / 'Duplicate.arxml'
                 duplicate.write_text(xml, encoding='utf-8')
-                self.assertEqual(self.check().exit_code, 2)
+                check = self.check()
+                self.assertEqual(check.checked_calls, 1)
+                self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                                 ['SERVICE_REFERENCE_UNRESOLVED'])
 
     def test_other_component_cannot_supply_a_missing_port(self):
         self.xml.write_text(service_xml().replace('/Pkg/Ctrl/StoredData', '/Pkg/Other/StoredData'))
         (self.root / 'Other.arxml').write_text(service_xml(component='Other'))
-        self.assertEqual(self.check().exit_code, 2)
+        check = self.check()
+        self.assertEqual(check.checked_calls, 1)
         self.assertIn('SERVICE_REFERENCE_UNRESOLVED',
-                      [f['reason'] for f in self.check().skipped_accesses])
+                      [f['reason'] for f in check.ignored_coverage])
 
     def test_duplicate_runnable_cannot_omit_a_used_service_call_point(self):
         xml = service_xml()
         start = xml.index('<SYNCHRONOUS-SERVER-CALL-POINT>')
         end = xml.index('</SYNCHRONOUS-SERVER-CALL-POINT>') + len('</SYNCHRONOUS-SERVER-CALL-POINT>')
         (self.root / 'Duplicate.arxml').write_text(xml[:start] + xml[end:])
-        self.assertEqual(self.check().exit_code, 2)
+        check = self.check()
+        self.assertEqual(check.checked_calls, 1)
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['SERVICE_REFERENCE_UNRESOLVED'])
 
     def test_scoped_service_exception_preserves_the_other_package_failure(self):
         self.xml.write_text(service_xml('/Wrong/NvM', '/Wrong/Dem'))
@@ -182,9 +196,18 @@ class TestServicePolicy(unittest.TestCase):
         self.code.write_text(SERVICE_CODE.replace(
             '  Rte_Call_Fault', '  Rte_Send_Other_Value();\n  Rte_Call_Fault'), encoding='utf-8')
         check = self.check()
-        self.assertEqual(check.exit_code, 2)
-        self.assertEqual([item['call'].api for item in check.skipped_accesses],
+        self.assertEqual(check.exit_code, 1)
+        self.assertEqual(check.status, 'FAIL')
+        self.assertEqual([item['call'].api for item in check.ignored_coverage],
                          ['Rte_Send_Other_Value'])
+
+    def test_rte_call_regex_ignore_only_is_not_checked(self):
+        self.config['ignore_rte_call_regex'] = ['^Rte_Call_']
+        check = self.check()
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual(check.ignored_rte_calls, 2)
+        self.assertEqual(check.ignored_coverage, [])
 
     def test_invalid_rte_call_regex_is_rejected_by_cli(self):
         path = self.root / 'policy.yaml'
@@ -198,11 +221,15 @@ class TestServicePolicy(unittest.TestCase):
 
     def test_interface_names_are_configurable_and_call_names_do_not_imply_service(self):
         self.xml.write_text(service_xml(nvm_interface='ProjectStorage'), encoding='utf-8')
-        self.assertEqual(self.check().exit_code, 2)
+        check = self.check()
+        self.assertEqual(check.checked_calls, 1)
+        self.assertEqual([f['reason'] for f in check.ignored_coverage], ['UNSUPPORTED_RTE_API'])
         self.config['nvm_interface_names'] = ['ProjectStorage']
         self.assertEqual(self.check().exit_code, 0)
         self.code.write_text(SERVICE_CODE.replace('StoredData', 'NvMService'))
-        self.assertEqual(self.check().exit_code, 2)
+        check = self.check()
+        self.assertEqual(check.checked_calls, 1)
+        self.assertEqual([f['reason'] for f in check.ignored_coverage], ['UNSUPPORTED_RTE_API'])
 
     def test_forbidden_calls_cover_non_rte_calls_and_keep_real_line_numbers(self):
         self.config['forbidden_functions'] = ['NvM_*', 'Dem_SetEventStatus', 'banned']
@@ -330,8 +357,10 @@ struct Value *GetValue(void) { banned(); }
         legacy = {key: self.config[key] for key in
                   ('rules', 'forbidden_rte_prefixes', 'ignore_access_port_regex')}
         check = current_tree_check(self.root, legacy, policy='delivery')
-        self.assertEqual(check.exit_code, 2)  # No package policy was supplied.
-        self.assertEqual(check.skipped_accesses[0]['reason'], 'SERVICE_PACKAGE_NOT_CONFIGURED')
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'NOT CHECKED')
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['SERVICE_PACKAGE_NOT_CONFIGURED'] * 2)
 
     def test_cli_uses_same_config_and_exit_zero_cannot_hide_failures(self):
         path = self.root / 'policy.json'

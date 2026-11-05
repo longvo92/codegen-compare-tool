@@ -45,6 +45,7 @@ import fnmatch
 import json
 import re
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -134,6 +135,17 @@ class CurrentTreeCheck:
     checked_calls: int = 0
     exemptions: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    ignored_coverage: List[Dict[str, Any]] = field(default_factory=list)
+    ignored_rte_calls: int = 0
+
+    @property
+    def ignored_coverage_summary(self):
+        if not self.ignored_coverage:
+            return ''
+        counts = Counter(item['reason'] for item in self.ignored_coverage)
+        details = ', '.join('{}: {}'.format(reason, count)
+                            for reason, count in sorted(counts.items()))
+        return 'IGNORED coverage: {} item(s) ({}).'.format(len(self.ignored_coverage), details)
 
     @property
     def exit_code(self):
@@ -146,11 +158,17 @@ class CurrentTreeCheck:
 
     @property
     def status(self):
-        if self.exit_code == 2 or self.skipped_accesses:
+        exit_code = self.exit_code
+        if exit_code == 2 or self.skipped_accesses:
             return 'INCOMPLETE'
-        if self.exit_code == 1:
+        if exit_code == 1:
             return 'FAIL'
-        if self.ignored_accesses or self.skipped_rules or self.exemptions or self.notes:
+        has_ignored_coverage = bool(
+            self.ignored_coverage or self.ignored_accesses or self.ignored_rte_calls
+            or any(item['reason'] in _COVERAGE_LIMITS for item in self.exemptions))
+        if has_ignored_coverage and self.checked_calls == 0 and not self.findings:
+            return 'NOT CHECKED'
+        if has_ignored_coverage or self.skipped_rules or self.exemptions or self.notes:
             return 'PASS WITH EXCEPTIONS'
         return 'PASS'
 
@@ -173,6 +191,15 @@ _CHECKER_RULES = frozenset((
     'dem_package',
     'forbidden_function',
 ))
+_COVERAGE_LIMITS = frozenset((
+    'UNSUPPORTED_RTE_API',
+    'RUNNABLE_NOT_RESOLVED',
+    'RUNNABLE_NOT_IMPLEMENTED',
+    'AMBIGUOUS_PORT_DATAELEMENT',
+    'SERVICE_REFERENCE_UNRESOLVED',
+    'SERVICE_PACKAGE_NOT_CONFIGURED',
+))
+_EXCEPTION_RULES = _CHECKER_RULES | {reason.lower() for reason in _COVERAGE_LIMITS}
 _CONFIG_LISTS = (
     'forbidden_rte_prefixes', 'ignore_access_port_regex', 'ignore_rte_call_regex',
     'forbidden_functions',
@@ -181,7 +208,7 @@ _CONFIG_LISTS = (
 CHECKER_SCOPE = (
     'Scope: .c Sender/Receiver RTE calls against ARXML access declarations; '
     'configured NVM/DEM Rte_Call interface packages and forbidden function calls. '
-    'Other RTE APIs are UNCHECKED. BSW integration NOT CHECKED.'
+    'Documented coverage limits are counted as IGNORED. BSW integration NOT CHECKED.'
 )
 DEFAULT_CHECKER_CONFIG = {
     'forbidden_rte_prefixes': ['Rte_IRead_', 'Rte_IWrite_'],
@@ -339,10 +366,7 @@ def _validate_config(config):
             if key == 'exceptions':
                 if not set(entry) & {'file', 'swc', 'runnable', 'port'}:
                     raise ValueError('exception requires a file, swc, runnable or port scope')
-                if entry['rule'] not in _CHECKER_RULES | {
-                        'unsupported_rte_api', 'runnable_not_resolved',
-                        'ambiguous_port_dataelement', 'runnable_not_implemented',
-                        'service_reference_unresolved', 'service_package_not_configured'}:
+                if entry['rule'] not in _EXCEPTION_RULES:
                     raise ValueError('unknown exception rule: {}'.format(entry['rule']))
             for scope in ('swc', 'runnable'):
                 if scope in entry and not entry[scope].startswith('/'):
@@ -849,15 +873,17 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
                     finding['port'] = _ref_short_name(next(iter(pairs))[0])
             raw.append(finding)
     contract_calls = calls
+    ignored_rte_calls = 0
     if rte_call_patterns:
         contract_calls = [
             call for call in calls
             if not (call.api_type == 'Call'
                     and any(pattern.search(call.api) for pattern in rte_call_patterns))
         ]
+        ignored_rte_calls = len(calls) - len(contract_calls)
         notes.append('Ignored Rte_Call regex: {} ({} call(s))'.format(
             ', '.join(pattern.pattern for pattern in rte_call_patterns),
-            len(calls) - len(contract_calls)))
+            ignored_rte_calls))
     service_issues, service_skips, handled, service_checked = _check_service_packages(
         contract_calls, runnables, service_points, ports, config)
     raw.extend(service_issues)
@@ -874,6 +900,12 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     raw, exemptions = _apply_exceptions(raw, config.get('exceptions', []))
     skipped, waived_skips = _apply_exceptions(skipped, config.get('exceptions', []))
     exemptions.extend(waived_skips)
+    ignored_coverage, unchecked = [], []
+    for item in skipped:
+        if item['reason'] in _COVERAGE_LIMITS:
+            ignored_coverage.append(item)
+        else:
+            unchecked.append(item)
     for name, severity in sorted(config['rules'].items()):
         if severity in ('skip', 'off'):
             notes.append('Rule {} configured {}'.format(name, severity))
@@ -883,9 +915,10 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
         notes.append('Ignored access regex: {}'.format(ignore_pattern.pattern))
     findings, skipped_rules = _classify(raw, config)
     return CurrentTreeCheck(
-        findings, skipped, skipped_rules, ignored, len(c_rels),
+        findings, unchecked, skipped_rules, ignored, len(c_rels),
         len(arxml_rels), len(functions), len(calls), len(access_points),
-        policy, checked, exemptions, notes)
+        policy, checked, exemptions, notes, ignored_coverage=ignored_coverage,
+        ignored_rte_calls=ignored_rte_calls)
 
 
 def _iface_changed(r):

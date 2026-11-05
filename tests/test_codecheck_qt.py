@@ -157,15 +157,38 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertIn('Policy: delivery', self.page.coverage.toPlainText())
         self.assertIn(str(self.root.resolve()), self.page.result_source.text())
 
-    def test_unsupported_api_incomplete_in_both_policies(self):
-        self.code.write_text('void Ctrl_Step(void) { Rte_Call_Service_Run(); }', encoding='utf-8')
-        for index, expected_exit in ((0, 2), (1, 0)):
-            self.page.policy.setCurrentIndex(index)
-            self.run_check()
-            self.assertEqual(self.page.status.text(), 'INCOMPLETE')
-            self.assertEqual(self.page.check.exit_code, expected_exit)
-            self.page.severity.setCurrentText('UNCHECKED')
-            self.assertIn('UNSUPPORTED_RTE_API', self.page.findings.topLevelItem(0).text(1))
+    def test_unsupported_calls_are_aggregated_in_coverage_for_both_policies(self):
+        xml = self.root / 'Ctrl.arxml'
+        with_access = xml.read_text(encoding='utf-8')
+        start = with_access.index('<DATA-RECEIVE-POINT-BY-ARGUMENTS>')
+        end = with_access.index('</RUNNABLE-ENTITY>')
+        without_access = with_access[:start] + with_access[end:]
+        for index, policy in enumerate(('delivery', 'standard')):
+            for read, status in (('', 'NOT CHECKED'),
+                                 ('Rte_Read_Speed_Value();', 'PASS WITH EXCEPTIONS')):
+                with self.subTest(policy=policy, status=status):
+                    xml.write_text(with_access if read else without_access, encoding='utf-8')
+                    self.code.write_text(
+                        'void Ctrl_Step(void) { Rte_Call_Service_Run(); '
+                        'Rte_Send_Event_Value(); ' + read + ' }', encoding='utf-8')
+                    self.page.policy.setCurrentIndex(index)
+                    self.run_check()
+                    self.assertEqual(self.page.status.text(), status)
+                    self.assertEqual(self.page.check.exit_code, 0)
+                    self.assertEqual(self.page.findings.topLevelItemCount(), 0)
+                    coverage = 'IGNORED coverage: 2 item(s) (UNSUPPORTED_RTE_API: 2).'
+                    ratio = '1 / 3 RTE call(s) checked' if read else '0 / 2 RTE call(s) checked'
+                    self.assertIn(coverage, self.page.coverage.toPlainText())
+                    self.assertIn(ratio, self.page.coverage.toPlainText())
+
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        code = main(['--check-current', str(self.root), '--consistency-policy', policy])
+                    self.assertEqual(code, self.page.check.exit_code)
+                    self.assertIn('Consistency: ' + status, output.getvalue())
+                    self.assertIn(coverage, output.getvalue())
+                    self.assertIn(ratio, output.getvalue())
+                    self.assertNotIn('[UNCHECKED]', output.getvalue())
 
     def test_example_yaml_ignores_rte_call_in_cli_and_code_check(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Read_Speed_Value(); '

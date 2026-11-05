@@ -47,7 +47,7 @@ Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong
 |---|---|
 | `--check-consistency` | Check generated RTE call với ARXML trong CURRENT khi compare hai input. Mặc định tắt; finding hiện trên terminal. |
 | `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. Mặc định dùng policy `delivery`. |
-| `--consistency-policy standard\|delivery` | Chọn cách gate coverage. Mặc định: `standard` cho comparison check, `delivery` cho `--check-current`. Delivery trả `2` khi còn mục chưa check được; standard chỉ báo, không gate. |
+| `--consistency-policy standard\|delivery` | Chọn cách xử lý các mục còn ở trạng thái `UNCHECKED`. Mặc định dùng `standard` cho Compare và `delivery` cho `--check-current`. Delivery trả exit `2`. Standard hiển thị các mục này và cho phép tiếp tục. |
 | `--consistency-config FILE` | Đọc policy YAML hoặc JSON để cấu hình prefix cấm, port và lời gọi service cần bỏ qua, cùng severity của rule. JSON hỗ trợ thêm mapping và ngoại lệ. Setting không khai báo giữ mặc định. |
 | `--ignore-access-port-regex REGEX` | Thêm một regex ignored-port tạm thời, kết hợp OR với pattern trong config. Match payload sau `Rte_<verb>_`; không tắt forbidden-API check. Mặc định không thêm regex. |
 
@@ -197,9 +197,12 @@ python -m compare_tool baseline current --no-report --check-consistency
 | Check đầy đủ, không rule fail | 0 | 0 |
 | Rule đặt `fail` | 1 | 1 |
 | Lỗi đọc/list/parse hoặc thiếu input bắt buộc | 2 | 2 |
-| API chưa hỗ trợ, reference mơ hồ hoặc call/runnable chưa resolve | INCOMPLETE, không gate | 2 |
+| Giới hạn coverage đã công bố, không có rule fail | 0 | 0 |
+| Các mục khác còn `UNCHECKED` | 0 (INCOMPLETE) | 2 |
 
-Dùng `--consistency-policy delivery` để bắt buộc coverage trong comparison check. Terminal hiện PASS, PASS WITH EXCEPTIONS, FAIL hoặc INCOMPLETE, finding và coverage. File difference cũng ảnh hưởng exit status của comparison; `--exit-zero` chỉ bỏ qua phần difference đó, không bỏ qua consistency failure hoặc lỗi.
+CLI và Code Check gộp các giới hạn đã công bố vào nhóm `IGNORED` trong Coverage. `NOT CHECKED` nghĩa là có mục coverage bị bỏ qua, chưa có lời gọi RTE nào được đối chiếu với ARXML và không có finding. Kiểm tra đạt với coverage một phần hiển thị `PASS WITH EXCEPTIONS`.
+
+Pipeline dùng delivery có thể nhận exit `0` cho các giới hạn trước đây trả exit `2`. Xem Coverage để biết phần đã kiểm tra. Khác biệt file vẫn ảnh hưởng exit code của Compare. `--exit-zero` chỉ bỏ qua phần khác biệt đó.
 
 CURRENT finding hiện trên terminal hoặc Code Check, không nằm trong comparison report/export. Lưu CLI terminal output nếu cần delivery record.
 
@@ -247,9 +250,9 @@ rules:
   forbidden_function: fail
 ```
 
-`nvm_packages` / `dem_packages` chứa đường dẫn AR-PACKAGE tuyệt đối, chính xác, không có dấu `/` cuối. Check xét package trực tiếp chứa interface được tham chiếu; không chấp nhận package gần tên hoặc package con. Mặc định không giả định package của dự án. Service đã nhận diện nhưng chưa cấu hình package vẫn là UNCHECKED.
+`nvm_packages` / `dem_packages` chứa đường dẫn AR-PACKAGE tuyệt đối, chính xác, không có dấu `/` cuối. Check xét package trực tiếp chứa interface được tham chiếu; không chấp nhận package gần tên hoặc package con. Service đã nhận diện nhưng chưa cấu hình package được tính vào coverage bỏ qua.
 
-Service được nhận diện bằng short name của interface: `nvm_interface_names` mặc định là `["NvMService"]`, `dem_interface_names` là `["DiagnosticMonitor"]`. Thay các danh sách này nếu dự án dùng interface khác. Checker resolve C call qua server-call-point của runnable và interface reference của required port; không suy luận NVM/DEM từ tên C port. Reference thiếu, xung đột hoặc mơ hồ vẫn là UNCHECKED. Chỉ check vị trí package; không check operation signature, NvM block, DEM event/DTC, xử lý bất đồng bộ hoặc tích hợp BSW. Reference của service call-point theo [cấu trúc ARXML client/server do MathWorks sinh](https://www.mathworks.com/help/autosar/ug/configure-client-server-communication.html).
+Service được nhận diện bằng short name của interface: `nvm_interface_names` mặc định là `["NvMService"]`, `dem_interface_names` là `["DiagnosticMonitor"]`. Thay các danh sách này nếu dự án dùng interface khác. Checker resolve C call qua server-call-point của runnable và interface reference của required port; không suy luận NVM/DEM từ tên C port. Reference thiếu, xung đột hoặc mơ hồ được tính vào coverage bỏ qua. Chỉ check vị trí package; không check operation signature, NvM block, DEM event/DTC, xử lý bất đồng bộ hoặc tích hợp BSW. Reference của service call-point theo [cấu trúc ARXML client/server do MathWorks sinh](https://www.mathworks.com/help/autosar/ug/configure-client-server-communication.html).
 
 `forbidden_functions` nhận tên chính xác và glob `*` / `?` phân biệt hoa thường, gồm tên BSW trực tiếp và `Rte_Call_*`. Check lời gọi trực tiếp trong thân function `.c` đã nhận diện, bỏ qua comment, string, prototype và definition. Không resolve lời gọi gián tiếp qua function pointer hoặc expand macro. Hàm cấm được check độc lập với severity package và ignored-port pattern. Mặc định danh sách rỗng.
 
@@ -306,7 +309,7 @@ Lý do này không bỏ qua lỗi đọc/parse, thiếu C file hoặc RTE usage 
 
 ### Giới hạn coverage
 
-Checker đọc `.c` và match `Rte_Read`, `Rte_Write`, `Rte_IRead`, `Rte_IWrite` với Sender/Receiver declaration. Operation `Rte_Call` của NVM/DEM đã cấu hình chỉ được check package như mô tả trên. API khác phát hiện được, gồm `Rte_Call` tổng quát, `Rte_Send`, `Rte_Receive`, là UNCHECKED. C implementation chưa resolve và reference mơ hồ cũng là UNCHECKED.
+Checker đọc `.c` và match `Rte_Read`, `Rte_Write`, `Rte_IRead`, `Rte_IWrite` với Sender/Receiver declaration. Operation `Rte_Call` của NVM/DEM đã cấu hình được kiểm tra package như mô tả trên. Coverage tính các API chưa hỗ trợ như `Rte_Call` tổng quát, `Rte_Send` và `Rte_Receive` vào nhóm bỏ qua, cùng với call hoặc runnable chưa resolve, reference Port/DataElement mơ hồ, reference service chưa resolve và package service chưa cấu hình. Các mục này vẫn được thống kê là đã phát hiện. Vi phạm có đủ bằng chứng vẫn tạo finding.
 
 Matching dùng đầy đủ package/SWC/runnable identity và SYMBOL/component prefix đã khai báo, chỉ fallback tên khi không mơ hồ. Tên implicit `Rte_IRead` / `Rte_IWrite` phải xác định đúng runnable cùng port/data element. Orphan matching xét runnable, reference, direction và access mode. Helper có thể cần mapping tường minh.
 

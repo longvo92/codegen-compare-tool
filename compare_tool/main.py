@@ -148,9 +148,10 @@ def _terminal_overview_lines(results):
 
 def _current_consistency_lines(check):
     """Compact terminal rendering for the CURRENT-tree RTE/ARXML check."""
+    status = check.status
     lines = [
         '  Consistency: {} (policy: {}, exit: {})'.format(
-            check.status, check.policy, check.exit_code),
+            status, check.policy, check.exit_code),
         '  Current tree: {} C file(s), {} ARXML file(s), {} RTE call(s), '
         '{} access point(s)'.format(
             check.c_files_scanned, check.arxml_files_scanned,
@@ -205,6 +206,9 @@ def _current_consistency_lines(check):
                  '{} scoped exception(s).'.format(
                      check.checked_calls, check.rte_calls_detected,
                      len(check.skipped_accesses), len(check.exemptions)))
+    ignored_summary = check.ignored_coverage_summary
+    if ignored_summary:
+        lines.append('  ' + ignored_summary)
     lines.append('  Findings: {} FAIL, {} WARN.'.format(
         sum(f['severity'] == 'fail' for f in check.findings),
         sum(f['severity'] == 'warn' for f in check.findings)))
@@ -222,7 +226,9 @@ def _current_consistency_lines(check):
     if check.ignored_accesses:
         lines.append('  {} RTE access(es) ignored by the configured port regex.'
                      .format(check.ignored_accesses))
-    if not check.findings and not check.skipped_accesses:
+    if status == 'NOT CHECKED':
+        lines.append('  No RTE calls were checked against ARXML.')
+    elif not check.findings and not check.skipped_accesses:
         lines.append('  No current-tree RTE/ARXML consistency findings.')
     lines.append('  FAIL findings set exit code 1; consistency scan errors set '
                  'exit code 2; WARN findings do not change the exit code.')
@@ -540,7 +546,7 @@ def _parser():
                     help='check one CURRENT folder or ZIP without a baseline, '
                          'diff or HTML; defaults to delivery policy')
     ap.add_argument('--consistency-policy', choices=('standard', 'delivery'),
-                    default=None, help='delivery gates unchecked items; standard '
+                    default=None, help='delivery gates remaining unchecked items; standard '
                     'keeps them non-gating. Default: standard for comparisons, '
                     'delivery for --check-current')
     ap.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
