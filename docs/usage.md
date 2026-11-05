@@ -271,7 +271,7 @@ ignore_rte_call_regex:
   - ^Rte_Call_
 ```
 
-The example policy uses this pattern to skip all `Rte_Call_*` calls. Set the list to `[]` to enable their package checks, or use a narrower pattern such as `^Rte_Call_Storage_`.
+The example policy leaves the list empty so supported NvM/DEM package checks run. Use `^Rte_Call_` to skip all client/server ARXML checks, or a narrower pattern such as `^Rte_Call_Storage_`.
 
 ### Mappings and exceptions
 

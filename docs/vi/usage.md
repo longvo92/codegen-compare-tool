@@ -271,7 +271,7 @@ ignore_rte_call_regex:
   - ^Rte_Call_
 ```
 
-Policy mẫu dùng pattern này để bỏ qua mọi lời gọi `Rte_Call_*`. Đặt danh sách thành `[]` để bật kiểm tra package hoặc dùng pattern hẹp hơn như `^Rte_Call_Storage_`.
+Policy mẫu để danh sách rỗng để checker kiểm tra package cho các lời gọi NvM/DEM được hỗ trợ. Dùng `^Rte_Call_` để bỏ qua toàn bộ đối chiếu ARXML cho lời gọi client/server, hoặc dùng pattern hẹp hơn như `^Rte_Call_Storage_`.
 
 ### Mapping và ngoại lệ
 

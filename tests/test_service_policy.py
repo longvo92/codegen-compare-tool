@@ -170,11 +170,15 @@ class TestServicePolicy(unittest.TestCase):
         self.assertEqual([f['reason'] for f in check.findings], ['DEM_PACKAGE'])
         self.assertEqual(check.exemptions[0]['reason'], 'NVM_PACKAGE')
 
-    def test_example_config_loads_with_all_rule_severities(self):
+    def test_example_config_loads_with_package_checks_enabled(self):
         example = Path(__file__).resolve().parent.parent / 'examples' / 'checker-policy.yaml'
         config = load_checker_config(example)
         self.assertEqual(set(config['rules']), set(self.config['rules']))
         self.assertEqual(config['nvm_packages'], self.config['nvm_packages'])
+        self.xml.write_text(service_xml('/Wrong/NvM', '/Wrong/Dem'), encoding='utf-8')
+        check = current_tree_check(self.root, config, policy='delivery')
+        self.assertEqual(check.exit_code, 1)
+        self.assertEqual([f['reason'] for f in check.findings], ['NVM_PACKAGE', 'DEM_PACKAGE'])
 
     def test_rte_call_ignore_regex_only_skips_matching_contract_checks(self):
         self.xml.write_text(service_xml('/Wrong/NvM', '/Wrong/Dem'), encoding='utf-8')
