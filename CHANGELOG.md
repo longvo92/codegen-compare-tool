@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-11-05
+
 ### Added
 
 - Skip selected `Rte_Call_*` APIs in CURRENT consistency checks with a YAML or JSON regex policy.

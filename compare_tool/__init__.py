@@ -2,4 +2,4 @@
 
 APP_NAME = 'CodeGen Inspector'
 
-__version__ = "1.21.2"
+__version__ = "1.22.0"
