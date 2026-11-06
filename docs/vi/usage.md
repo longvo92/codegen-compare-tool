@@ -34,7 +34,7 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 | `--sarif OUT.sarif` | Xuất thêm SARIF 2.1.0 finding cho file Modified, Added, Deleted và error. Mặc định không tạo SARIF. |
 | `--baseline-name NAME` | Đặt label hiển thị BASELINE, ví dụ `"build 4821"`; không đổi input path. Mặc định: label lấy từ input. |
 | `--current-name NAME` | Đặt label hiển thị CURRENT; cùng cách hoạt động với `--baseline-name`. |
-| `--theme dark\|light` | Theme ban đầu của viewer/HTML. Mặc định: `dark`; HTML vẫn chứa cả hai theme. Không ảnh hưởng terminal output. |
+| `--theme dark\|light` | Ghi đè theme khi mở. Viewer dùng theme đã lưu hoặc Light ở lần mở đầu. HTML xuất từ CLI mặc định dùng Dark. |
 | `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
 | `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
 | `--exit-zero` | Trả `0` khi có file difference để CI thu report. Consistency failure đã bật vẫn trả `1`, còn lỗi input, scan hoặc output trả `2`. |
@@ -108,6 +108,8 @@ python -m compare_tool --viewer baseline current
 ```
 
 Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit với checkout hiện tại. Git compare không thay đổi working tree. Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
+
+Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer mở theo theme hiện tại.
 
 | Verdict | Ý nghĩa |
 |---|---|

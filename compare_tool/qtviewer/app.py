@@ -10,19 +10,22 @@ import subprocess
 import sys
 import tempfile
 import webbrowser
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
-from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
-                               QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
+                               QHeaderView, QLabel, QLineEdit,
                                QMainWindow, QMenu, QMessageBox,
                                QProgressBar, QSplitter, QStyle, QToolBar,
                                QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QTreeWidgetItemIterator,
                                QVBoxLayout, QWidget)
 
-from .. import APP_NAME, gitsource, theme, zipsource
+from .. import APP_NAME, filepair, gitsource, theme, zipsource
 from ..diff_engine import RULES
+from ..messages import Message
 from ..main import default_report_name
 from ..report import build_arxml_report, render_report, consistency_advisories
 from ..scanner import summarize
@@ -30,15 +33,18 @@ from .advisories import AdvisoryPanel
 from .codecheck import CodeCheckPage
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
+from .i18n import Texts
+from .settings import SettingsDialog, load_preferences, preference_store, save_preferences
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
 from .section import NO_MAX, Section
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip,
-                   status_color, status_label)
+                   status_color)
 from .worker import ScanWorker
 
 REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
+STATUS_ROLE = Qt.UserRole + 2
 PATH_ROLE = Qt.UserRole + 1  # relative path of any row, file or folder
 
 # Windows can select the file itself inside its folder; anywhere else the most
@@ -79,9 +85,15 @@ def _arxml_include():
 
 class MainWindow(QMainWindow):
     def __init__(self, old=None, new=None, exclude=(), arxml_only=False,
-                 theme_name=theme.DEFAULT, user_rules=(), skip_var_renames=False):
+                 theme_name=None, user_rules=(), skip_var_renames=False, *, settings=None):
         super().__init__()
-        self._theme = theme.set_current(theme_name)
+        self._settings = preference_store() if settings is None else settings
+        self._prefs = load_preferences(self._settings)
+        self._text = Texts(self._prefs.language)
+        self._theme = theme.set_current(theme_name or self._prefs.theme)
+        apply_theme(QApplication.instance())
+        self._compare_name = None
+        self._banner_message = ''
         self._state = ('idle', 'Ready')
         self.old = old
         self.new = new
@@ -108,17 +120,17 @@ class MainWindow(QMainWindow):
         # file they are reading.
         self._autoselect = False
 
-        self.setWindowTitle(APP_NAME + ' — Compare')
         self.setWindowIcon(app_icon())
         self.resize(1200, 800)
         self.setAcceptDrops(True)  # drop the two folders straight onto the window
 
         self.banner = QLabel()
+        self.banner.setTextFormat(Qt.PlainText)
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(['File', 'Status'])
+        self._text.bind_labels(self.tree.setHeaderLabels, ['File', 'Status'])
         self.tree.setUniformRowHeights(True)
         # the name column hugs its content instead of taking a fixed 380 px,
         # so Status sits right next to the file name and never gets pushed out
@@ -137,73 +149,34 @@ class MainWindow(QMainWindow):
         # must stay stable so the reviewer's bearings do not shift when change
         # categories are folded away.
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText('Filter by path…')
+        self._text.bind(self.filter_edit.setPlaceholderText, 'Filter by path…')
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._refresh_tree)
-
-        # reading toggles: unticking a category greys its lines out and drops
-        # them from the minimap and F7/F8. The VERDICT is left alone -- a
-        # comment-only file keeps saying Comment. Re-judging it to Identical is
-        # what this used to do, and it made the tree disagree with the exported
-        # report about the same file; worse, "Identical" is the one word a
-        # reviewer is entitled to read as "nothing differs here at all".
-        self.cb_comment = QCheckBox('Comment')
-        self.cb_comment.setChecked(True)
-        self.cb_comment.setToolTip(
-            'Untick to grey out comment-only differences. The file keeps its '
-            'Comment verdict; its lines just stop competing for attention and '
-            'drop out of F7/F8.')
-        self.cb_comment.toggled.connect(self._apply_rules)
-        self.cb_unimportant = QCheckBox('Unimportant')
-        self.cb_unimportant.setChecked(True)
-        self.cb_unimportant.setToolTip(
-            'Untick to grey out the other unimportant differences (UUIDs, '
-            'timestamps, renames, whitespace). The file keeps its Unimportant '
-            'verdict; its lines drop out of F7/F8.')
-        self.cb_unimportant.toggled.connect(self._apply_rules)
-        # a display filter over the tree, which is why it sits apart from the
-        # two above. A regenerated tree is mostly untouched files, and scrolling
-        # past hundreds of '=' rows to reach five changed ones is its own way
-        # of hiding them.
-        self.cb_hide_identical = QCheckBox('Hide identical')
-        self.cb_hide_identical.setToolTip(
-            'Leave only the files with a difference in the tree. Only genuinely '
-            'identical files go: a Comment or Unimportant file stays, greyed or '
-            'not. Verdicts, counts and the exported report are unchanged.')
-        self.cb_hide_identical.toggled.connect(self._refresh_tree_keep_selection)
-        rules = QHBoxLayout()
-        rules.setContentsMargins(6, 4, 6, 4)
-        rules.addWidget(QLabel('Report:'))
-        rules.addWidget(self.cb_comment)
-        rules.addWidget(self.cb_unimportant)
-        rules.addStretch(1)
-        rules.addWidget(self.cb_hide_identical)
 
         tree_box = QWidget()
         lv = QVBoxLayout(tree_box)
         lv.setContentsMargins(6, 4, 6, 0)
         lv.setSpacing(4)
-        lv.addLayout(rules)
         lv.addWidget(self.filter_edit)
         lv.addWidget(self.tree, 1)
 
         # quick-changes rollup under the tree: the same "what changed in the
         # model / calibration" view --arxml-only gives, without leaving the app
-        self.summary = SummaryPanel()
+        self.summary = SummaryPanel(self._text)
         self.summary.fileActivated.connect(self._jump_to_name)
 
         # cross-artifact / cross-model heads-up, last in the column -- the same
         # list the report and the CLI print, read from the raw scan.
-        self.advisories = AdvisoryPanel()
+        self.advisories = AdvisoryPanel(self._text)
 
         # all three panes are collapsible and all three are in ONE splitter, so
         # every one of them can be dragged to the height the reviewer wants.
         # The advisories used to sit outside it, pinned: the one pane whose
         # length is least predictable (a folder full of stale models) was the
         # one that could not be resized.
-        self.sec_files = Section('FILES', tree_box)
-        self.sec_changes = Section('QUICK CHANGES', self.summary)
-        self.sec_consistency = Section('REGENERATION ADVISORIES', self.advisories)
+        self.sec_files = Section('FILES', tree_box, texts=self._text)
+        self.sec_changes = Section('QUICK CHANGES', self.summary, texts=self._text)
+        self.sec_consistency = Section('REGENERATION ADVISORIES', self.advisories, texts=self._text)
         self._sections = (self.sec_files, self.sec_changes,
                           self.sec_consistency)
 
@@ -237,7 +210,7 @@ class MainWindow(QMainWindow):
         lc.addWidget(left, 1)
         self._left_layout = lc
 
-        self.diff = DiffPane()
+        self.diff = DiffPane(self._text)
 
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left_col)
@@ -258,9 +231,11 @@ class MainWindow(QMainWindow):
         self.modes.setObjectName('workspaces')
         self.modes.tabBar().setObjectName('workspaceModes')
         self.compare_page = central
-        self.modes.addTab(central, 'Compare')
-        self.code_check = CodeCheckPage(lambda: self.new, self)
-        self.modes.addTab(self.code_check, 'Code Check')
+        self.modes.addTab(central, '')
+        self._text.bind(self.modes.setTabText, 'Compare', 0)
+        self.code_check = CodeCheckPage(lambda: self.new, self, self._text)
+        self.modes.addTab(self.code_check, '')
+        self._text.bind(self.modes.setTabText, 'Code Check', 1)
         self.setCentralWidget(self.modes)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
@@ -279,8 +254,10 @@ class MainWindow(QMainWindow):
         self._set_state('idle', 'Ready')
 
         self._build_toolbar()
+        self._update_title()
         self.modes.currentChanged.connect(self._switch_workspace)
         self._style_widgets()
+        self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
 
         if self.old and self.new:
             self._start_scan()
@@ -302,11 +279,15 @@ class MainWindow(QMainWindow):
         self.act_export.setEnabled(comparing and bool(self._raw_results))
         self.statusBar().setVisible(comparing)
         self.code_check.refresh_current()
-        if comparing:
-            self.setWindowTitle(getattr(self, '_compare_title', APP_NAME + ' — Compare'))
-        else:
-            self._compare_title = self.windowTitle()
-            self.setWindowTitle(APP_NAME + ' — Code Check')
+        self._update_title()
+
+    def _update_title(self):
+        title = APP_NAME + ' — ' + self._text('Code Check' if self.modes.currentIndex() else 'Compare')
+        if not self.modes.currentIndex() and self._compare_name is not None:
+            title += ' — ' + self._compare_name
+            if self.skip_var_renames:
+                title += self._text(' — QUICK CHECK: variable renames skipped')
+        self.setWindowTitle(title)
 
     # tool-state chip on the status bar: a coloured dot plus a word, so the
     # reviewer can tell at a glance whether a result is final or still coming
@@ -318,7 +299,7 @@ class MainWindow(QMainWindow):
         self._state = (kind, text)
         self.state_label.setText(
             '<span style="color:{}; font-size:15px;">●</span>&nbsp; {}'
-            .format(dot, text))
+            .format(dot, escape(self._text(text))))
 
     # --- theme ---
 
@@ -332,44 +313,73 @@ class MainWindow(QMainWindow):
         self.counts_label.setStyleSheet('color:{}; padding:0 8px;'
                                         .format(theme.c('st-ign')))
 
-    def _toggle_theme(self):
-        self._set_theme(theme.other())
+    def _show_settings(self):
+        dialog = SettingsDialog(self, self._prefs._replace(theme=self._theme), self._text)
+        try:
+            if dialog.exec() == QDialog.Accepted:
+                prefs = dialog.preferences()
+                saved = save_preferences(self._settings, prefs)
+                self._apply_preferences(prefs)
+                if not saved:
+                    QMessageBox.warning(self, self._text('Settings'),
+                                        self._text('Settings could not be saved for the next launch.'))
+        finally:
+            dialog.deleteLater()
+
+    def _apply_preferences(self, prefs):
+        before = self._prefs
+        self._prefs = prefs
+        if self._text.language != prefs.language:
+            self._text.retranslate(prefs.language)
+            self._update_title()
+            self._set_state(*self._state)
+            self.banner.setText(self._text(self._banner_message))
+            self._update_counts()
+            for section in self._sections:
+                section.retranslate()
+            self.summary.retranslate()
+            self.advisories.retranslate()
+            self.code_check.retranslate()
+            self.diff.retranslate()
+            self._update_tree_labels()
+        self._set_theme(prefs.theme)
+        if before.comment != prefs.comment or before.unimportant != prefs.unimportant:
+            self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
+            self.diff.repaint_file()
+        if before.hide_identical != prefs.hide_identical:
+            self._refresh_tree_keep_selection()
 
     def _set_theme(self, name):
-        """Repaint the whole window in `name`.
-
-        Every surface that stamps a colour into a widget rather than reading it
-        from the stylesheet has to be told: the tree's verdict colours, the
-        quick-changes rows, the diff pane's block formats, the tinted icons.
-        Missing one leaves half the window in the old theme, which is why they
-        are listed here and not discovered by walking children.
-        """
-        changed = theme.set_current(name) != self._theme
+        if theme.set_current(name) == self._theme:
+            return
         self._theme = theme.current()
-        if changed:
-            # taken FIRST and handed back LAST: rebuilding the tree re-selects
-            # the open file, which re-renders it and parks on its first change.
-            # Restoring inside the pane alone would be undone a line later.
-            at = self.diff.reading_position()
-            apply_theme(QApplication.instance())
-            self._style_widgets()
-            self._set_state(*self._state)
-            self._apply_icons()
-            self.summary.apply_theme()
-            self.advisories.apply_theme()
-            self.code_check.apply_theme()
-            self.diff.apply_theme()
-            self._refresh_tree_keep_selection()  # verdict colours are per item
-            self.diff.restore_reading_position(at)
-        # outside the guard: the toolbar button is checkable, so Qt has already
-        # flipped its state by the time this runs. Skipping the repaint must
-        # not leave the button claiming a theme the window is not in.
-        self.act_theme.setText(self._theme_label())
-        self.act_theme.setChecked(self._theme == theme.LIGHT)
+        apply_theme(QApplication.instance())
+        self._style_widgets()
+        self._set_state(*self._state)
+        self._apply_icons()
+        self.summary.apply_theme()
+        self.advisories.apply_theme()
+        self.code_check.apply_theme()
+        self.diff.apply_theme()
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            brush = QBrush(QColor(status_color(item.data(0, STATUS_ROLE))))
+            item.setForeground(0, brush)
+            item.setForeground(1, brush)
+            it += 1
 
-    @staticmethod
-    def _theme_label():
-        return '☀ Light' if theme.current() == theme.DARK else '☾ Dark'
+    def _update_tree_labels(self):
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            rel = item.data(0, REL_ROLE)
+            tip = filepair.describe(self.results.get(rel, {})) if rel else ''
+            if tip:
+                item.setText(1, self._text('{} (moved)', STATUS[item.data(0, STATUS_ROLE)][1]))
+                for col in (0, 1):
+                    item.setToolTip(col, self._text(tip))
+            it += 1
 
     def _apply_icons(self):
         """Re-tint every shipped glyph for the current chrome."""
@@ -388,18 +398,19 @@ class MainWindow(QMainWindow):
         # switch. A QIcon carries baked pixels, so it cannot follow a palette
         # by itself.
         self._icon_actions = []
-        self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon),
-                                'Open folders…', self)
-        self.act_open.setToolTip('Choose the BASELINE and CURRENT folders — or '
-                                 'drop them straight onto the window')
+        self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon), '', self)
+        self._text.bind(self.act_open.setText, 'Open folders…')
+        self._text.bind(self.act_open.setToolTip,
+                        'Choose the BASELINE and CURRENT folders — or drop them straight onto the window')
         self.act_open.triggered.connect(self._pick_folders)
 
         # a way in of its own, not a follow-up to Open folders: this one asks
         # for ONE folder -- the one being reviewed -- and takes the other side
         # from the repository that folder already sits in
-        self.act_git = QAction(icon('git-commit'), 'Git compare…', self)
-        self.act_git.setToolTip('Compare a folder against one of its own '
-                                'commits — no second folder to choose')
+        self.act_git = QAction(icon('git-commit'), '', self)
+        self._text.bind(self.act_git.setText, 'Git compare…')
+        self._text.bind(self.act_git.setToolTip,
+                        'Compare a folder against one of its own commits — no second folder to choose')
         self.act_git.triggered.connect(self._pick_commit)
         self._icon_actions.append((self.act_git, 'git-commit', None))
 
@@ -415,9 +426,12 @@ class MainWindow(QMainWindow):
                ('act_last', 'nav-last-change', 'Last change', 'Ctrl+End',
                 self.diff.last_change, 'in this file'))
         for attr, glyph, text, key, slot, scope in nav:
-            act = QAction(icon(glyph), text, self)
+            act = QAction(icon(glyph), '', self)
+            self._text.bind(act.setText, text)
             act.setShortcut(key)
-            act.setToolTip('{} ({}) — noise is skipped, {}'.format(text, key, scope))
+            self._text.bind_rendered(
+                act.setToolTip, lambda tr, text=text, key=key, scope=scope:
+                tr('{} ({}) — noise is skipped, {}', tr(text), key, tr(scope)))
             act.triggered.connect(slot)
             setattr(self, attr, act)
             self._icon_actions.append((act, glyph, None))
@@ -427,37 +441,36 @@ class MainWindow(QMainWindow):
         for act in (self.act_first, self.act_prev, self.act_next, self.act_last):
             self.diff.nav_actions.addWidget(self._nav_button(act))
 
-        self.act_export = QAction(icon('export', ACCENT), 'Export report…', self)
+        self.act_export = QAction(icon('export', ACCENT), '', self)
+        self._text.bind(self.act_export.setText, 'Export report…')
         self.act_export.setShortcut('Ctrl+E')
         self.act_export.setEnabled(False)
-        self.act_export.setToolTip('Write the full HTML report (Ctrl+E) — always '
-                                   'the complete scan, never the folded view')
+        self._text.bind(self.act_export.setToolTip,
+                        'Write the full HTML report (Ctrl+E) — always the complete scan, never the folded view')
         self.act_export.triggered.connect(self._export_report)
         self._icon_actions.append((self.act_export, 'export', ACCENT))
 
-        # text and a sun/moon glyph, no shipped icon: the label names where the
-        # click GOES, and reusing another button's glyph for it would make two
-        # different commands look like the same one
-        self.act_theme = QAction(self._theme_label(), self)
-        self.act_theme.setCheckable(True)
-        self.act_theme.setChecked(self._theme == theme.LIGHT)
-        self.act_theme.setToolTip('Switch the viewer between the dark and the '
-                                  'light colour scheme')
-        self.act_theme.triggered.connect(self._toggle_theme)
+        self.act_settings = QAction(self)
+        self.act_settings.setObjectName('openSettings')
+        self._text.bind(self.act_settings.setText, 'Settings')
+        self.act_settings.triggered.connect(self._show_settings)
 
-        self.act_guide = QAction(icon('report'), 'User guide', self)
+        self.act_guide = QAction(icon('report'), '', self)
+        self._text.bind(self.act_guide.setText, 'User guide')
         self.act_guide.setShortcut('F1')
-        self.act_guide.setToolTip('How to use the viewer (F1)')
+        self._text.bind(self.act_guide.setToolTip, 'How to use the viewer (F1)')
         self.act_guide.triggered.connect(lambda: show_user_guide(self))
         self._icon_actions.append((self.act_guide, 'report', None))
 
-        self.act_notes = QAction(icon('review-resolved'), 'Release notes', self)
-        self.act_notes.setToolTip("What changed in this and earlier versions")
+        self.act_notes = QAction(icon('review-resolved'), '', self)
+        self._text.bind(self.act_notes.setText, 'Release notes')
+        self._text.bind(self.act_notes.setToolTip, 'What changed in this and earlier versions')
         self.act_notes.triggered.connect(lambda: show_release_notes(self))
         self._icon_actions.append((self.act_notes, 'review-resolved', None))
 
-        self.act_about = QAction(app_icon(), 'About', self)
-        self.act_about.setToolTip('Version, author and license')
+        self.act_about = QAction(app_icon(), '', self)
+        self._text.bind(self.act_about.setText, 'About')
+        self._text.bind(self.act_about.setToolTip, 'Version, author and license')
         self.act_about.triggered.connect(lambda: show_about(self))
 
         # the bottom-bar buttons do not register shortcuts themselves, so the
@@ -485,12 +498,12 @@ class MainWindow(QMainWindow):
         tb.setIconSize(QSize(20, 20))
         tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.modes.setCornerWidget(tb, Qt.TopRightCorner)
-        tb.addAction(self.act_theme)
+        tb.addAction(self.act_settings)
         # the three help pages behind one menu on the right: they are read once
         # and then never again, so three permanent buttons were spending the
         # top bar on the rarest thing in the window
         self.help_button = QToolButton()
-        self.help_button.setText('Help')
+        self._text.bind(self.help_button.setText, 'Help')
         self.help_button.setIcon(icon('report'))
         self.help_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.help_button.setIconSize(QSize(20, 20))
@@ -635,7 +648,7 @@ class MainWindow(QMainWindow):
         try:
             return str(zipsource.extract(path, self._src_temp))
         except zipsource.ZipError as e:
-            QMessageBox.critical(self, 'Zip could not be opened', str(e))
+            QMessageBox.critical(self, self._text('Zip could not be opened'), str(e))
             return None
         finally:
             QApplication.restoreOverrideCursor()
@@ -659,8 +672,7 @@ class MainWindow(QMainWindow):
             self.diff.set_new_label(label, tip)
         return True
 
-    @staticmethod
-    def _git_load(folder):
+    def _git_load(self, folder):
         """``(repo root, subpath, commits)`` for a folder, for the picker.
 
         Raises :class:`gitsource.GitError` with something the reviewer can act
@@ -670,9 +682,8 @@ class MainWindow(QMainWindow):
         root = gitsource.repo_root(folder)
         if root is None:
             raise gitsource.GitError(
-                'Not inside a git checkout: {}\nPick a folder from your '
-                'repository, or use Open folders… to compare two folders by '
-                'hand.'.format(folder))
+                self._text('Not inside a git checkout: {}\nPick a folder from your '
+                           'repository, or use Open folders… to compare two folders by hand.', folder))
         sub = gitsource.rel_in_repo(root, folder)
         return root, sub, gitsource.log(root, sub)
 
@@ -692,7 +703,7 @@ class MainWindow(QMainWindow):
     def _checkout(self, root, sub, commit):
         if self._src_temp is None:
             self._src_temp = tempfile.mkdtemp(prefix='codegen-compare-src-')
-        self._set_state('busy', 'Checking out {}…'.format(commit.short))
+        self._set_state('busy', Message('Checking out {}…', commit.short))
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()  # let the status chip paint before the wait
         try:
@@ -700,7 +711,7 @@ class MainWindow(QMainWindow):
         except gitsource.GitError as e:
             # loud: a failed checkout must never fall through to a stale or
             # empty OLD folder and produce a compare that looks finished
-            QMessageBox.critical(self, 'Checkout failed', str(e))
+            QMessageBox.critical(self, self._text('Checkout failed'), str(e))
             self._set_state('error', 'Checkout failed')
             return
         finally:
@@ -712,7 +723,7 @@ class MainWindow(QMainWindow):
         self._old_label = '{}  {}  {}'.format(commit.short, commit.when, subject)
         self.diff.set_old_label(
             '{}  ·  {}'.format(commit.short, subject),
-            '{}\n{} — {}\n\nchecked out to {}'.format(
+            Message('{}\n{} — {}\n\nchecked out to {}',
                 commit.subject, commit.when, commit.author, path))
         self._start_scan()
 
@@ -731,9 +742,9 @@ class MainWindow(QMainWindow):
         """Verdicts whose lines the reviewer has switched off. They are played
         down in the panes, never re-judged."""
         muted = []
-        if not self.cb_comment.isChecked():
+        if not self._prefs.comment:
             muted.append('comment-only')
-        if not self.cb_unimportant.isChecked():
+        if not self._prefs.unimportant:
             muted.append('ignorable-only')
         return tuple(muted)
 
@@ -743,6 +754,7 @@ class MainWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             return
         self.banner.setVisible(False)
+        self._banner_message = ''
         self.tree.clear()
         self.summary.set_results({})
         self._show_advisories(())
@@ -755,14 +767,8 @@ class MainWindow(QMainWindow):
         # the folder NAME, not the two absolute paths: a title bar is not wide
         # enough for a pair of them, and both roots are already named over the
         # diff panes -- with the full path in their tooltip
-        name = Path(self.new).name or str(self.new)
-        # the quick check rides in the title because it has no undo inside this
-        # window: it changed what the scan judged, so the reviewer has to see
-        # which mode produced the tree they are reading
-        quick = ' — QUICK CHECK: variable renames skipped' if self.skip_var_renames else ''
-        self._compare_title = '{} — Compare — {}{}'.format(APP_NAME, name, quick)
-        if self.modes.currentIndex() == 0:
-            self.setWindowTitle(self._compare_title)
+        self._compare_name = Path(self.new).name or str(self.new)
+        self._update_title()
         self.counts_label.setText('')
         self._set_state('busy', 'Scanning…')
         # the scan itself is rule-free; the rules are applied to its results,
@@ -778,7 +784,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, max(total, 1))
         self.progress.setValue(done)
         # update the state chip itself, not showMessage, so the dot stays lit
-        self._set_state('busy', 'Scanning {}/{}: {}'.format(done, total, rel))
+        self._set_state('busy', Message('Scanning {}/{}: {}', done, total, rel))
 
     def _on_done(self, results):
         self._raw_results = results
@@ -796,8 +802,10 @@ class MainWindow(QMainWindow):
         errs = sorted(rel for rel, r in results.items() if r['status'] == 'error')
         if errs:
             shown = ', '.join(errs[:20]) + (' …' if len(errs) > 20 else '')
-            self.banner.setText('⚠ COMPARE INCOMPLETE — {} path(s) NOT compared '
-                                '(treat as potentially changed): {}'.format(len(errs), shown))
+            self._banner_message = Message(
+                '⚠ COMPARE INCOMPLETE — {} path(s) NOT compared (treat as potentially changed): {}',
+                len(errs), shown)
+            self.banner.setText(self._text(self._banner_message))
             self.banner.setVisible(True)
         self._apply_rules()
 
@@ -820,23 +828,26 @@ class MainWindow(QMainWindow):
             self._autoselect = False
             self._select_first_change()
         counts = summarize(self.results)
-        # the verdict words are spelled the way the tree's Status column and
-        # the report's badges spell them -- one state, one name, whichever
-        # surface the reviewer is reading
-        errors = '{} {}'.format(counts['error'],
-                                'Error' if counts['error'] == 1 else 'Errors')
-        self.counts_label.setText(
-            '{real-change} Modified · {comment-only} Comment · '
-            '{ignorable-only} Unimportant · {added} Added · {deleted} Deleted · '
-            '{identical} Identical · {errors}'.format(errors=errors, **counts))
+        self._update_counts(counts)
         # a compare with an uncompared path is NOT a clean result: the chip
         # says so in red, matching the banner, so the state is never green when
         # something could be hiding a change
         if counts['error']:
-            self._set_state('error', 'Compare incomplete — {} not compared'
-                            .format(counts['error']))
+            self._set_state('error', Message('Compare incomplete — {} not compared', counts['error']))
         else:
             self._set_state('ready', 'Ready')
+
+    def _update_counts(self, counts=None):
+        if not self.results:
+            return
+        counts = summarize(self.results) if counts is None else counts
+        self.counts_label.setText(' · '.join(
+            '{} {}'.format(counts[key], self._text(label))
+            for key, label in (
+                ('real-change', 'Modified'), ('comment-only', 'Comment'),
+                ('ignorable-only', 'Unimportant'), ('added', 'Added'),
+                ('deleted', 'Deleted'), ('identical', 'Identical'),
+                ('error', 'Error' if counts['error'] == 1 else 'Errors'))))
 
     # a pane never re-opens at whatever height is left over: the reviewer
     # dragged it to a size once, and folding it away to read something else is
@@ -939,7 +950,7 @@ class MainWindow(QMainWindow):
         n = len(advisories)
         self.sec_consistency.setVisible(bool(n))
         self.sec_consistency.set_suffix(
-            '{} heads-up{}'.format(n, '' if n == 1 else 's') if n else '')
+            Message('{} heads-up' if n == 1 else '{} heads-ups', n) if n else '')
         if n and not had:
             self.sec_consistency.set_expanded(True)
             sizes = self.left_split.sizes()
@@ -954,8 +965,9 @@ class MainWindow(QMainWindow):
     def _on_fail(self, msg):
         self.progress.setVisible(False)
         self.counts_label.setText('')
-        self.banner.setText('‼ SCAN FAILED — no results (treat everything as '
-                            'potentially changed): {}'.format(msg))
+        self._banner_message = Message(
+            '‼ SCAN FAILED — no results (treat everything as potentially changed): {}', msg)
+        self.banner.setText(self._text(self._banner_message))
         self.banner.setVisible(True)
         self._set_state('error', 'Scan failed')
 
@@ -976,7 +988,7 @@ class MainWindow(QMainWindow):
             return
         default = str(Path(self.new).parent / default_report_name(self.arxml_only))
         out, _sel = QFileDialog.getSaveFileName(
-            self, 'Export HTML report', default, 'HTML report (*.html)')
+            self, self._text('Export HTML report'), default, self._text('HTML report (*.html)'))
         self._front()
         if not out:
             return
@@ -996,18 +1008,17 @@ class MainWindow(QMainWindow):
                 page = rendered.html
             Path(out).write_text(page, encoding='utf-8')
             if not self.arxml_only and rendered.diagnostics:
-                QMessageBox.warning(self, 'Report incomplete', '\n'.join(rendered.diagnostics))
+                QMessageBox.warning(self, self._text('Report incomplete'), '\n'.join(rendered.diagnostics))
                 return
         except Exception as e:
-            QMessageBox.critical(self, 'Export failed',
+            QMessageBox.critical(self, self._text('Export failed'),
                                  '{}: {}'.format(type(e).__name__, e))
             return
         # transient, with a timeout, so the state chip returns after it clears
-        self.statusBar().showMessage('Report written (full scan): {}'.format(out), 8000)
+        self.statusBar().showMessage(self._text('Report written (full scan): {}', out), 8000)
         if QMessageBox.question(
-                self, 'Report exported',
-                'Written to:\n{}\n\nIt contains the full compare, including any '
-                'category hidden here.\n\nOpen it now?'.format(out)
+                self, self._text('Report exported'),
+                self._text('Written to:\n{}\n\nIt contains the full compare, including any category hidden here.\n\nOpen it now?', out)
                 ) == QMessageBox.Yes:
             webbrowser.open(Path(out).resolve().as_uri())
         self._front()
@@ -1022,30 +1033,33 @@ class MainWindow(QMainWindow):
             return
         self._fill_tree(filter_nodes(
             build_nodes(self.results), text=self.filter_edit.text(),
-            hide_identical=self.cb_hide_identical.isChecked()))
+            hide_identical=self._prefs.hide_identical))
 
     def _refresh_tree_keep_selection(self):
         """Rebuild the tree and put the reviewer back on the file they were
         reading. Toggling a display filter is not a reason to lose the diff on
         screen -- unless that very file is what the filter just hid."""
         keep = self._selected_rel()
+        at = self.diff.reading_position()
         self._refresh_tree()
         self._reselect(keep)
+        self.diff.restore_reading_position(at)
 
     def _fill_tree(self, nodes):
         def add(parent, node, prefix):
             marker, _label, _role = STATUS[node.status]
-            item = QTreeWidgetItem(['{}  {}'.format(marker, node.name),
-                                    status_label(node)])
+            label = self._text('{} (moved)', _label) if node.move else _label
+            item = QTreeWidgetItem(['{}  {}'.format(marker, node.name), label])
             brush = QBrush(QColor(status_color(node.status)))
             item.setForeground(0, brush)
             item.setForeground(1, brush)
             tip = move_tooltip(node)
+            item.setData(0, STATUS_ROLE, node.status)
             if tip:
                 # the path it came from does not fit the column, and a file
                 # that moved is exactly the row somebody wants the detail on
-                item.setToolTip(0, tip)
-                item.setToolTip(1, tip)
+                item.setToolTip(0, self._text(tip))
+                item.setToolTip(1, self._text(tip))
             rel = node.rel or (prefix + node.name)
             item.setData(0, PATH_ROLE, rel)  # folders included: the menu opens those too
             if not node.is_dir:
@@ -1086,11 +1100,11 @@ class MainWindow(QMainWindow):
             target = Path(self.old) / rel
         menu = QMenu(self)
         menu.setToolTipsVisible(True)  # the tooltip carries the full path
-        act = menu.addAction(_SHOW_FILE if is_file else 'Open folder')
+        act = menu.addAction(self._text(_SHOW_FILE if is_file else 'Open folder'))
         exists = target.exists()
         act.setEnabled(exists)
         act.setToolTip(str(target) if exists else
-                       '{}\n\nNot on either side any more.'.format(target))
+                       self._text('{}\n\nNot on either side any more.', target))
         act.triggered.connect(
             lambda _checked=False, p=target, s=is_file:
             _open_in_file_manager(p, select=s))
@@ -1099,7 +1113,7 @@ class MainWindow(QMainWindow):
         # path is not something you can paste into a shell, an explorer bar or
         # a ticket, which is what a copied path is for
         full = str(target)
-        copy = menu.addAction('Copy full path')
+        copy = menu.addAction(self._text('Copy full path'))
         copy.setToolTip(full)
         copy.triggered.connect(lambda: QApplication.clipboard().setText(full))
         return menu
@@ -1181,7 +1195,7 @@ class MainWindow(QMainWindow):
         if to_last:
             self.diff.last_change()
         self.statusBar().showMessage(
-            '{}{}'.format('Wrapped to ' if wrapped else '', nxt), 4000)
+            self._text('Wrapped to {}', nxt) if wrapped else nxt, 4000)
 
     def _next_change(self):
         """F8: the next change in this file, or the first change of the next
@@ -1312,7 +1326,10 @@ def apply_theme(app):
     palette, so a light run under it would come out as a half-themed window
     rather than a light one.
     """
-    app.setStyle('Fusion')
+    if app.property('codegenTheme') == theme.current():
+        return
+    if app.style().objectName().lower() != 'fusion':
+        app.setStyle('Fusion')
     p = QPalette()
     bg, base, text = (QColor(theme.c('bg')), QColor(theme.c('code-bg')),
                       QColor(theme.c('fg')))
@@ -1332,6 +1349,7 @@ def apply_theme(app):
     p.setColor(QPalette.PlaceholderText, QColor(theme.c('st-ign')))
     app.setPalette(p)
     app.setStyleSheet(_QSS.format(**theme.palette()))
+    app.setProperty('codegenTheme', theme.current())
 
 
 def _taskbar_identity():
@@ -1346,18 +1364,16 @@ def _taskbar_identity():
 
 
 def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
-               theme_name=theme.DEFAULT, user_rules=(), skip_var_renames=False):
+               theme_name=None, user_rules=(), skip_var_renames=False):
     app = QApplication.instance()
     owns = app is None
     if owns:
         _taskbar_identity()
         app = QApplication(sys.argv[:1])
-    theme.set_current(theme_name)
-    apply_theme(app)
     app.setApplicationName(APP_NAME)
-    app.setWindowIcon(app_icon())
     win = MainWindow(old, new, exclude, arxml_only, theme_name, user_rules,
                      skip_var_renames)
+    app.setWindowIcon(app_icon())
     win.show()
     return app.exec() if owns else 0
 

@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+- Add a Vietnamese viewer with English technical terms and localized User guide and About pages.
+
+### Changed
+
+- Use Light for new viewer preferences. Save language, theme, and Compare display options in one Settings dialog.
+- Show dated, published versions in the viewer's Release notes.
+
 ### Fixed
 
 - Show why Code Check reports `PASS WITH EXCEPTIONS`. List ignored coverage, skipped findings and scoped exceptions separately with source locations in the viewer and CLI.

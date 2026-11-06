@@ -60,9 +60,18 @@ class TestThemeFlag(unittest.TestCase):
         from compare_tool.main import _parser
         return _parser().parse_args(argv)
 
-    def test_the_default_is_dark(self):
-        from compare_tool import theme
-        self.assertEqual(self._parse(['old', 'new']).theme, theme.DARK)
+    def test_cli_html_defaults_to_dark(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old, new = root / 'old', root / 'new'
+            old.mkdir()
+            new.mkdir()
+            for folder in (old, new):
+                (folder / 'sample.c').write_text('int value = 0;\n', encoding='utf-8')
+            out = root / 'report.html'
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main([str(old), str(new), '--report', str(out)]), 0)
+            self.assertIn('<html data-theme="dark">', out.read_text(encoding='utf-8'))
 
     def test_light_is_accepted(self):
         self.assertEqual(self._parse(['old', 'new', '--theme', 'light']).theme,

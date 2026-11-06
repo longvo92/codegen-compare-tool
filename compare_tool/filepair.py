@@ -41,6 +41,8 @@ stdlib only: this ships in the zipapp.
 
 from collections import Counter
 
+from .messages import Message
+
 # git's own default is 50%. Codegen boilerplate scores higher than prose for
 # unrelated files, so the bar is raised and paired with the margin below --
 # the two together are what stop a confident wrong answer.
@@ -168,9 +170,9 @@ def describe(result):
     other = result.get('moved_from') or result.get('moved_to')
     if not other:
         return ''
-    return '{} {} — {}, {}% alike'.format(
-        'moved from' if result.get('moved_from') else 'moved to', other,
-        MOVE_WORDING.get(result.get('move_status'), ''),
+    return Message('{} {} — {}, {}% alike',
+        Message('moved from' if result.get('moved_from') else 'moved to'), other,
+        Message(MOVE_WORDING.get(result.get('move_status'), '')),
         int(round(result.get('move_similarity', 0) * 100)))
 
 

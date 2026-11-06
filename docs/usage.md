@@ -34,7 +34,7 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--sarif OUT.sarif` | Also write SARIF 2.1.0 findings for Modified, Added, Deleted and error files. No SARIF by default. |
 | `--baseline-name NAME` | Set the BASELINE display label, e.g. `"build 4821"`; does not change the input path. Default: label derived from the input. |
 | `--current-name NAME` | Set the CURRENT display label; same behavior as `--baseline-name`. |
-| `--theme dark\|light` | Initial viewer/HTML theme. Default: `dark`; both themes remain available in HTML. Does not affect terminal output. |
+| `--theme dark\|light` | Override the initial theme. The viewer uses its saved theme or Light on first launch. CLI HTML defaults to Dark. |
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
 | `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
 | `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Enabled consistency failures still return `1`, and input, scan or output errors return `2`. |
@@ -108,6 +108,8 @@ python -m compare_tool --viewer baseline current
 ```
 
 Select folders or ZIPs, or use **Git compare** to compare a commit with the current checkout. Git compare leaves the working tree unchanged. Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
+
+Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports from the viewer open in its current theme.
 
 | Verdict | Meaning |
 |---|---|

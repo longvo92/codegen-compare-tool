@@ -5,6 +5,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
@@ -14,7 +15,7 @@ from unittest import mock
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 try:
-    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt
+    from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QDropEvent
     from PySide6.QtCore import QUrl
     from PySide6.QtWidgets import QApplication, QMessageBox
@@ -52,7 +53,8 @@ class TestCodeCheckWorkspace(unittest.TestCase):
 </AUTOSAR-VARIABLE-IREF></ACCESSED-VARIABLE></VARIABLE-ACCESS></DATA-RECEIVE-POINT-BY-ARGUMENTS>
 </RUNNABLE-ENTITY></RUNNABLES></SWC-INTERNAL-BEHAVIOR></INTERNAL-BEHAVIORS>
 </APPLICATION-SW-COMPONENT-TYPE></ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>''', encoding='utf-8')
-        self.win = MainWindow()
+        self.win = MainWindow(settings=QSettings(
+            str(Path(self.temp.name) / 'viewer.ini'), QSettings.IniFormat))
         self.addCleanup(self.win.close)
         self.win.show()
         self.win.modes.setCurrentIndex(1)
@@ -74,6 +76,50 @@ class TestCodeCheckWorkspace(unittest.TestCase):
     def run_check(self):
         self.page.run_button.click()
         self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
+
+    def test_language_switch_during_check_and_after_selection(self):
+        self.code.write_text(
+            self.code.read_text(encoding='utf-8') +
+            '\nvoid Other(void) { Rte_Call_Api_One(); Rte_Call_Api_Two(); }\n',
+            encoding='utf-8')
+        started, release = threading.Event(), threading.Event()
+
+        def gated_check(*args, **kwargs):
+            started.set()
+            if not release.wait(10):
+                raise RuntimeError('test did not release checker')
+            return current_tree_check(*args, **kwargs)
+
+        with mock.patch('compare_tool.qtviewer.worker.current_tree_check',
+                        side_effect=gated_check) as check:
+            self.page.run_button.click()
+            try:
+                self.assertTrue(started.wait(5))
+                worker = self.page.worker
+                self.win._apply_preferences(self.win._prefs._replace(language='vi', theme='dark'))
+                self.assertEqual(self.page.status.text(), 'ĐANG CHẠY')
+                self.assertEqual(self.page.run_button.text(), 'Chạy Code Check')
+            finally:
+                release.set()
+            self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
+            check.assert_called_once()
+
+        self.assertEqual(self.page.status.text(), 'PASS WITH EXCEPTIONS')
+        self.page.severity.setCurrentIndex(self.page.severity.findData('IGNORED'))
+        self.page.search.setText('Rte_Call_Api')
+        item = self.page.findings.topLevelItem(1)
+        self.assertIsNotNone(item)
+        self.page.findings.setCurrentItem(item)
+        self.assertIn('RTE API này nằm ngoài phạm vi', self.page.details.toPlainText())
+        position = self.page.source_preview.textCursor().position()
+
+        self.win._apply_preferences(self.win._prefs._replace(language='en', theme='light'))
+        self.assertIs(self.page.worker, worker)
+        self.assertIs(self.page.findings.currentItem(), item)
+        self.assertEqual(self.page.search.text(), 'Rte_Call_Api')
+        self.assertEqual(self.page.severity.currentData(), 'IGNORED')
+        self.assertEqual(self.page.source_preview.textCursor().position(), position)
+        self.assertIn('This RTE API is outside', self.page.details.toPlainText())
 
     def test_parenthesized_forbidden_calls_match_cli(self):
         config = self.root / 'policy.json'

@@ -65,6 +65,13 @@ a = Analysis(
     noarchive=False,
 )
 
+if os.name == 'nt':
+    # Qt uses Windows' unversioned ICU libraries. A different ICU with the
+    # same filenames on the build PATH can otherwise shadow the OS exports.
+    windows_icu = {'icu.dll', 'icuuc.dll', 'icuin.dll'}
+    a.binaries = [entry for entry in a.binaries
+                  if os.path.basename(entry[0]).lower() not in windows_icu]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -340,7 +341,7 @@ class TestZipAsSource(unittest.TestCase):
     def _window(self):
         from compare_tool.qtviewer.app import MainWindow
         self.app = _app()
-        win = MainWindow(None, None)
+        win = MainWindow(settings=Mock(value=lambda _, default: default))
         win.resize(1200, 700)
         win.setAttribute(Qt.WA_DontShowOnScreen, True)
         win.show()
@@ -397,7 +398,7 @@ class TestQuickChangesJump(unittest.TestCase):
     def _window(self, old, new):
         from compare_tool.qtviewer.app import MainWindow
         self.app = _app()
-        win = MainWindow(str(old), str(new))
+        win = MainWindow(str(old), str(new), settings=Mock(value=lambda _, default: default))
         win.resize(1400, 800)
         win.setAttribute(Qt.WA_DontShowOnScreen, True)
         win.show()
@@ -661,7 +662,8 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
     def setUp(self):
         from compare_tool.qtviewer.app import MainWindow
         self.app = _app()
-        self.win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'))
+        self.win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'),
+                         settings=Mock(value=lambda _, default: default))
         self.win.resize(1400, 800)
         self.win.setAttribute(Qt.WA_DontShowOnScreen, True)
         self.win.show()
@@ -683,7 +685,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
     def test_flipping_a_compare_rule_does_not_move_the_reviewer(self):
         self.win._reselect('TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
         self._settle_ui()
-        self.win.cb_comment.setChecked(False)
+        self.win._apply_preferences(self.win._prefs._replace(comment=False))
         self._settle_ui()
         self.assertEqual(self.win._selected_rel(), 'TorqueLimiter_autosar_rtw/TorqueLimiter_data.c')
 
@@ -701,7 +703,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
     def test_unticking_a_rule_takes_its_files_out_of_the_walk(self):
         rel = 'NoiseDemo_autosar_rtw/ert_main.c'
         self.assertTrue(self.win._is_nav(rel))
-        self.win.cb_comment.setChecked(False)
+        self.win._apply_preferences(self.win._prefs._replace(comment=False))
         self._settle_ui()
         self.assertFalse(self.win._is_nav(rel))
 
@@ -712,7 +714,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         # exported report, which is always built from the raw scan
         rel = 'NoiseDemo_autosar_rtw/ert_main.c'
         for checked in (False, True):
-            self.win.cb_comment.setChecked(checked)
+            self.win._apply_preferences(self.win._prefs._replace(comment=checked))
             self._settle_ui()
             self.assertEqual(self.win.results[rel]['status'], 'comment-only')
 
@@ -720,8 +722,8 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         # 'Hide identical' hides files that are identical -- not files whose
         # differences the reviewer chose to play down
         rel = 'NoiseDemo_autosar_rtw/ert_main.c'
-        self.win.cb_comment.setChecked(False)
-        self.win.cb_hide_identical.setChecked(True)
+        self.win._apply_preferences(self.win._prefs._replace(comment=False))
+        self.win._apply_preferences(self.win._prefs._replace(hide_identical=True))
         self._settle_ui()
         self.assertIn(rel, self.win._tree_rels())
         # a genuinely identical file is gone in the same breath
@@ -786,18 +788,18 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         identical = [r for r in before
                      if self.win.results[r]['status'] == 'identical']
         self.assertTrue(identical, 'fixture has no identical file to hide')
-        self.win.cb_hide_identical.setChecked(True)
+        self.win._apply_preferences(self.win._prefs._replace(hide_identical=True))
         self._settle_ui()
         after = self.win._tree_rels()
         self.assertEqual(after, [r for r in before if r not in identical])
-        self.win.cb_hide_identical.setChecked(False)
+        self.win._apply_preferences(self.win._prefs._replace(hide_identical=False))
         self._settle_ui()
         self.assertEqual(self.win._tree_rels(), before)
 
     def test_hide_identical_keeps_the_file_on_screen(self):
         self.win._reselect('NoiseDemo_autosar_rtw/NoiseDemo.c')
         self._settle_ui()
-        self.win.cb_hide_identical.setChecked(True)
+        self.win._apply_preferences(self.win._prefs._replace(hide_identical=True))
         self._settle_ui()
         self.assertEqual(self.win._selected_rel(), 'NoiseDemo_autosar_rtw/NoiseDemo.c')
 
@@ -806,7 +808,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         # not notice it at all
         before = {rel: r['status'] for rel, r in self.win.results.items()}
         raw = dict(self.win._raw_results)
-        self.win.cb_hide_identical.setChecked(True)
+        self.win._apply_preferences(self.win._prefs._replace(hide_identical=True))
         self._settle_ui()
         self.assertEqual({rel: r['status'] for rel, r in self.win.results.items()},
                          before)
@@ -913,7 +915,8 @@ class TestThemeSwitch(unittest.TestCase):
         self.theme = theme
         self.app = _app()
         self.addCleanup(theme.set_current, theme.DEFAULT)
-        self.win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'))
+        self.win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'),
+                              theme_name=theme.DARK, settings=Mock(value=lambda _, default: default))
         self.win.resize(1200, 800)
         self.win.setAttribute(Qt.WA_DontShowOnScreen, True)
         self.win.show()
@@ -932,7 +935,8 @@ class TestThemeSwitch(unittest.TestCase):
     def test_the_viewer_opens_in_the_theme_it_was_asked_for(self):
         from compare_tool.qtviewer.app import MainWindow
         win = MainWindow(str(DEMO / 'old'), str(DEMO / 'new'),
-                         theme_name=self.theme.LIGHT)
+                         theme_name=self.theme.LIGHT,
+                         settings=Mock(value=lambda _, default: default))
         self.addCleanup(win.close)
         self.assertEqual(self.theme.current(), self.theme.LIGHT)
 
@@ -980,11 +984,39 @@ class TestThemeSwitch(unittest.TestCase):
         self.assertEqual(self.win.diff._drive.textCursor().blockNumber(), row)
         self.assertEqual(self.win.diff._cur_idx, idx)
 
-    def test_the_toggle_goes_back_and_forth(self):
-        self.win._toggle_theme()
+    def test_the_theme_switch_goes_back_and_forth(self):
+        self.win._set_theme(self.theme.LIGHT)
         self.assertEqual(self.theme.current(), self.theme.LIGHT)
-        self.win._toggle_theme()
+        self.win._set_theme(self.theme.DARK)
         self.assertEqual(self.theme.current(), self.theme.DARK)
+
+    def test_language_and_theme_keep_diff_search_and_worker(self):
+        rel = 'TorqueLimiter_autosar_rtw/TorqueLimiter_data.c'
+        self.win._reselect(rel)
+        diff = self.win.diff
+        diff.open_find()
+        diff._find_edit.setText('TorqueLimiter')
+        diff.find_next()
+        self.assertGreaterEqual(diff._hit_idx, 0)
+        hit = diff._hit_idx
+        at = diff.reading_position()
+        worker = self.win.worker
+        raw = self.win._raw_results
+        self.win.sec_changes.set_expanded(False)
+        self.win.modes.setCurrentIndex(1)
+        self.win._apply_preferences(self.win._prefs._replace(language='vi', theme=self.theme.LIGHT))
+        self.assertIs(self.win.modes.currentWidget(), self.win.code_check)
+        self.win.modes.setCurrentIndex(0)
+        self._settle_ui()
+
+        self.assertIs(self.win.worker, worker)
+        self.assertIs(self.win._raw_results, raw)
+        self.assertFalse(self.win.sec_changes.is_expanded())
+        self.assertEqual(self.win._selected_rel(), rel)
+        self.assertEqual(diff.reading_position()[:2], at[:2])
+        self.assertEqual(diff._hit_idx, hit)
+        self.assertEqual(diff._find_edit.text(), 'TorqueLimiter')
+        self.assertEqual(self.win.act_next.text(), 'Thay đổi tiếp theo')
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')

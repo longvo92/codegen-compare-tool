@@ -16,6 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QLabel, QScrollArea, QVBoxLayout
 
 from .. import theme
+from .i18n import Texts
 
 
 class AdvisoryPanel(QFrame):
@@ -23,9 +24,10 @@ class AdvisoryPanel(QFrame):
     there is nothing to say, so a clean compare spends no height on it -- the
     section around it goes with it (see MainWindow._show_advisories)."""
 
-    def __init__(self):
+    def __init__(self, texts=None):
         super().__init__()
         self.setObjectName('advisorypanel')
+        self._text = Texts() if texts is None else texts
         self._advisories = []
 
         self._body = QLabel()
@@ -70,13 +72,13 @@ class AdvisoryPanel(QFrame):
     def apply_theme(self):
         """Colours are stamped into the body's markup, so a theme switch has to
         re-render it from the advisories the panel was last given."""
-        self._render()
+        self.retranslate()
 
-    def _render(self):
+    def retranslate(self):
         rows = ['<div style="margin:2px 0;">'
                 '<b style="color:{c}">&#9888; {m}</b> &mdash; '
                 '<span style="color:{d}">{msg}</span></div>'.format(
                     c=theme.c('mv-fg'), d=theme.c('fg-dim'),
-                    m=escape(model), msg=escape(msg))
+                    m=escape(model), msg=escape(self._text(msg)))
                 for model, msg in self._advisories]
         self._body.setText(''.join(rows))
