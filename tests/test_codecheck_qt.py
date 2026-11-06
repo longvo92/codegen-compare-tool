@@ -157,7 +157,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertIn('Config: Built-in defaults', self.page.coverage.toPlainText())
         self.assertIn(str(self.root.resolve()), self.page.result_source.text())
 
-    def test_unsupported_calls_are_aggregated_in_coverage(self):
+    def test_unsupported_calls_show_ignored_rows_and_source(self):
         xml = self.root / 'Ctrl.arxml'
         with_access = xml.read_text(encoding='utf-8')
         start = with_access.index('<DATA-RECEIVE-POINT-BY-ARGUMENTS>')
@@ -168,12 +168,23 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
             with self.subTest(status=status):
                 xml.write_text(with_access if read else without_access, encoding='utf-8')
                 self.code.write_text(
-                    'void Ctrl_Step(void) { Rte_Call_Service_Run(); '
-                    'Rte_Send_Event_Value(); ' + read + ' }', encoding='utf-8')
+                    'void Ctrl_Step(void) {\n  Rte_Call_Service_Run();\n'
+                    '  Rte_Send_Event_Value();\n  ' + read + '\n}', encoding='utf-8')
+                self.page.severity.setCurrentText('EXCEPTION')
+                self.page.search.setText('stale filter')
                 self.run_check()
                 self.assertEqual(self.page.status.text(), status)
                 self.assertEqual(self.page.check.exit_code, 0)
-                self.assertEqual(self.page.findings.topLevelItemCount(), 0)
+                self.assertIn('0 scoped exceptions', self.page.summary.text())
+                self.assertIn('2 IGNORED', self.page.summary.text())
+                self.assertEqual(self.page.severity.currentText(), 'All results')
+                self.assertEqual(self.page.findings.topLevelItemCount(), 2)
+                self.page.severity.setCurrentText('IGNORED')
+                self.page.search.setText('Rte_Send_Event_Value')
+                self.assertEqual(self.page.findings.topLevelItemCount(), 1)
+                self.assertIn('outside the supported ARXML checks', self.page.details.toPlainText())
+                self.assertEqual(self.page.source_location.text(), 'Ctrl.c:3')
+                self.assertEqual(self.page.source_preview._cur_rows, {2})
                 coverage = 'IGNORED coverage: 2 item(s) (UNSUPPORTED_RTE_API: 2).'
                 ratio = '1 / 3 RTE call(s) checked' if read else '0 / 2 RTE call(s) checked'
                 self.assertIn(coverage, self.page.coverage.toPlainText())
@@ -186,7 +197,18 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
                 self.assertIn('Consistency: ' + status, output.getvalue())
                 self.assertIn(coverage, output.getvalue())
                 self.assertIn(ratio, output.getvalue())
+                self.assertIn('[IGNORED] UNSUPPORTED_RTE_API Ctrl.c:3 Rte_Send_Event_Value', output.getvalue())
                 self.assertNotIn('[UNCHECKED]', output.getvalue())
+
+    def test_policy_only_pass_opens_coverage_and_shows_the_setting(self):
+        self.page.ignore.setText('^Unused_')
+        self.run_check()
+        self.assertEqual(self.page.status.text(), 'PASS WITH EXCEPTIONS')
+        self.assertIn('0 scoped exceptions', self.page.summary.text())
+        self.assertIn('0 IGNORED', self.page.summary.text())
+        self.assertIn('Applied settings', self.page.summary.text())
+        self.assertIs(self.page.tabs.currentWidget(), self.page.coverage)
+        self.assertIn('Ignored access regex: (?:^Unused_)', self.page.coverage.toPlainText())
 
     def test_example_yaml_and_optional_rte_call_regex_in_cli_and_code_check(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Read_Speed_Value(); '
@@ -261,6 +283,12 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
             self.assertEqual(code, self.page.check.exit_code)
             self.assertEqual(sum(f['reason'] == 'NVM_PACKAGE' for f in self.page.check.findings),
                              int(severity in ('fail', 'warn')))
+            self.page.severity.setCurrentText('SKIPPED')
+            self.assertEqual(self.page.findings.topLevelItemCount(), int(severity == 'skip'))
+            if severity == 'skip':
+                self.assertIn('Rule configured as skip.', self.page.details.toPlainText())
+                self.assertEqual(self.page.source_location.text(), 'Ctrl.c:3')
+                self.assertIn('[SKIPPED] NVM_PACKAGE Ctrl.c:3', output.getvalue())
 
     def test_exceptions_remain_visible_with_justification(self):
         self.code.write_text('void Ctrl_Step(void) { Rte_Call_Service_Run(); }', encoding='utf-8')

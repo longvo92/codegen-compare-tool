@@ -131,9 +131,9 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 1. Select a folder or ZIP, drop one onto Code Check, or choose **Use Compare CURRENT**.
 2. Optionally choose a YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
-3. Select **Run Code Check**. Filter results by severity or text; select a finding to inspect its evidence and source context.
+3. Select **Run Code Check**. Filter by result type or text. Select a row to inspect its reason and source context.
 
-**Findings** includes failed rules, warnings, unchecked items and exceptions with their evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching; changing inputs requires a new run. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
+**Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
 
 ## What counts as noise
 
@@ -197,7 +197,9 @@ python -m compare_tool baseline current --no-report --check-consistency
 | Finding with severity `fail` | 1 |
 | No failed rule or input error | 0 |
 
-Coverage groups documented limits as `IGNORED` in the terminal and Code Check. `NOT CHECKED` means coverage was skipped, zero RTE calls were checked against ARXML, and there are no findings. A passing check with partial coverage shows `PASS WITH EXCEPTIONS`.
+`PASS WITH EXCEPTIONS` can result from partial coverage, an applied policy setting, or a scoped exception. The terminal and Code Check **Findings** list `IGNORED` items (coverage limits or regex matches), `SKIPPED` findings (rules set to `skip`), and `EXCEPTION` items (matched scoped exceptions with their justification). Each row includes the source location when available. Open **Coverage & policy** for totals and applied settings.
+
+`NOT CHECKED` means coverage was skipped, zero RTE calls were checked against ARXML, and there are no findings.
 
 Remaining `UNCHECKED` items report `INCOMPLETE` without changing the exit code. Comparison differences also affect exit status. `--exit-zero` suppresses only those differences. Remove `--consistency-policy` and its value from older CLI commands.
 
@@ -229,7 +231,7 @@ rules:
   orphan_access: fail
 ```
 
-Severities: `fail` gates, `warn` reports only, `skip` omits and counts configured findings, `off` disables the rule. WARN never gates under either policy.
+Use `fail` to gate, `warn` to report without gating, `skip` to list matches separately as `SKIPPED`, and `off` to disable the rule.
 
 Set each rule independently under `rules`, including the three service/function rules. CLI and the viewer's Code Check use the same settings. Start with [the complete policy example](../examples/checker-policy.yaml), replace its example packages and forbidden functions, then select that file in Code Check or pass `--consistency-config`.
 

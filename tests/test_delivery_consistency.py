@@ -287,6 +287,40 @@ extern void Rte_Write_Output_Value(float32 value);
         self.assertEqual(result.status, 'PASS WITH EXCEPTIONS')
         self.assertEqual(result.rte_calls_detected, 2)
         self.assertEqual(result.ignored_coverage[0]['call'].api, 'Rte_Unknown_Storage')
+        code, output = self.cli('--check-current', str(self.root))
+        self.assertEqual(code, 0)
+        self.assertIn('1 ignored item(s); 0 scoped exception(s).', output)
+        self.assertIn('[IGNORED] UNSUPPORTED_RTE_API stub/Rte_Ctrl.c:2 Rte_Unknown_Storage', output)
+
+    def test_cli_distinguishes_ignored_skipped_and_scoped_exceptions(self):
+        self.fixture('''void Ctrl_Step(void) {
+  Rte_Read_Speed_Value();
+  Rte_Read_Platform_Value();
+  Rte_Call_Service_Run();
+  banned();
+}
+void Ctrl_Init(void) {}''', component('Ctrl', runnable() + runnable(name='Init', port='Platform')))
+        self.write('Other.c', 'void Helper(void) { Rte_Call_Legacy_Run(); }')
+        config = self.base / 'policy.json'
+        config.write_text(json.dumps({
+            'ignore_rte_call_regex': ['^Rte_Call_Service_'],
+            'ignore_access_port_regex': ['^Platform_'],
+            'forbidden_functions': ['banned'],
+            'rules': {'forbidden_function': 'skip'},
+            'exceptions': [{'rule': 'unsupported_rte_api', 'file': 'Other.c',
+                            'reason': 'Legacy service reviewed separately'}],
+        }))
+        code, output = self.cli('--check-current', str(self.root), '--consistency-config', str(config))
+        self.assertEqual(code, 0)
+        self.assertIn('Consistency: PASS WITH EXCEPTIONS (exit: 0)', output)
+        self.assertIn('3 ignored item(s); 1 scoped exception(s).', output)
+        self.assertIn('[IGNORED] IGNORED_ACCESS_PORT_REGEX Ctrl.c:3 Rte_Read_Platform_Value', output)
+        self.assertIn('[IGNORED] IGNORED_RTE_CALL_REGEX Ctrl.c:4 Rte_Call_Service_Run', output)
+        self.assertIn('Pattern: ^Rte_Call_Service_', output)
+        self.assertIn('[IGNORED] IGNORED_ARXML_ACCESS_REGEX Ctrl.arxml /Pkg/Ctrl/IB/Init Platform Value', output)
+        self.assertIn('[SKIPPED] FORBIDDEN_FUNCTION Ctrl.c:5 banned in Ctrl_Step', output)
+        self.assertIn('[EXCEPTION] UNSUPPORTED_RTE_API Other.c:1 Rte_Call_Legacy_Run', output)
+        self.assertIn('Legacy service reviewed separately', output)
 
     def test_implicit_api_must_name_the_resolved_runnable(self):
         config = consistency.load_checker_config(None)
@@ -393,7 +427,7 @@ rules:
     def test_new_coverage_reason_defaults_to_non_gating_unchecked(self):
         self.fixture()
         skipped = {'reason': 'NEW_COVERAGE_GAP', 'arxml_file': 'Ctrl.arxml'}
-        with mock.patch.object(consistency, '_orphan_accesses', return_value=([], [skipped])):
+        with mock.patch.object(consistency, '_orphan_accesses', return_value=([], [skipped], [])):
             check = self.check()
             self.assertEqual(check.exit_code, 0)
             self.assertEqual(check.status, 'INCOMPLETE')

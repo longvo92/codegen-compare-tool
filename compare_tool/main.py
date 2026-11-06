@@ -201,22 +201,28 @@ def _current_consistency_lines(check):
         location = '{}:{}'.format(call.file, call.line) if call else item.get('arxml_file', '-')
         detail = call.api if call else item.get('runnable', '-')
         lines.append('  !! [UNCHECKED] {} {} -- {}'.format(item['reason'], location, detail))
-    lines.append('  Coverage: {} / {} RTE call(s) checked; {} unchecked item(s); '
+    ignored_items = check.ignored_items
+    lines.append('  Coverage: {} / {} RTE call(s) checked; {} unchecked item(s); {} ignored item(s); '
                  '{} scoped exception(s).'.format(
                      check.checked_calls, check.rte_calls_detected,
-                     len(check.skipped_accesses), len(check.exemptions)))
+                     len(check.skipped_accesses), len(ignored_items), len(check.exemptions)))
     ignored_summary = check.ignored_coverage_summary
     if ignored_summary:
         lines.append('  ' + ignored_summary)
     lines.append('  Findings: {} FAIL, {} WARN.'.format(
         sum(f['severity'] == 'fail' for f in check.findings),
         sum(f['severity'] == 'warn' for f in check.findings)))
-    lines.append('  ' + consistency.CHECKER_SCOPE)
-    for item in check.exemptions:
-        call = item.get('call')
-        target = '{}:{} {}'.format(call.file, call.line, call.api) if call else item.get('runnable', '-')
-        lines.append('  [EXCEPTION] {} {} -- {}'.format(
-            item['reason'], target, item['justification']))
+    for label, items in (('EXCEPTION', check.exemptions), ('IGNORED', ignored_items),
+                         ('SKIPPED', check.skipped_findings)):
+        for item in items:
+            if label == 'EXCEPTION':
+                explanation = item['justification']
+            elif label == 'IGNORED':
+                explanation = consistency.ignored_explanation(item)
+            else:
+                explanation = 'Rule configured as skip.'
+            lines.append('  [{}] {} {} -- {}'.format(
+                label, item['reason'], _consistency_target(item), explanation))
     for note in check.notes:
         lines.append('  Policy: {}'.format(note))
     if check.skipped_rules:
@@ -227,12 +233,23 @@ def _current_consistency_lines(check):
                      .format(check.ignored_accesses))
     if status == 'NOT CHECKED':
         lines.append('  No RTE calls were checked against ARXML.')
-    elif not check.findings and not check.skipped_accesses:
+    elif status == 'PASS' and not check.findings:
         lines.append('  No current-tree RTE/ARXML consistency findings.')
+    lines.append('  ' + consistency.CHECKER_SCOPE)
     lines.append('  FAIL findings set exit code 1; consistency scan errors set '
                  'exit code 2; WARN findings do not change the exit code.')
     lines.append('  Missing input always exits 2. UNCHECKED items are reported without gating.')
     return lines
+
+
+def _consistency_target(item):
+    call = item.get('call')
+    if call:
+        target = '{}:{} {}'.format(call.file, call.line, call.api)
+        return target + ' in ' + call.function if call.function else target
+    location = item.get('arxml_file') or item.get('file') or ', '.join(sorted(item.get('files', {})))
+    target = (location, item.get('runnable'), item.get('port'), item.get('data_element'))
+    return ' '.join(value for value in target if value) or '-'
 
 
 def summary_lines(results, counts, terminal=False, current_check=None):
