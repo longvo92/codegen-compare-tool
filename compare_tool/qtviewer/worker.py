@@ -54,12 +54,11 @@ class CodeCheckWorker(QThread):
     done = Signal(object, str)
     failed = Signal(str)
 
-    def __init__(self, source, config_path='', policy='delivery', exclude=(),
+    def __init__(self, source, config_path='', exclude=(),
                  ignore_regex='', parent=None):
         super().__init__(parent)
         self.source = source
         self.config_path = config_path
-        self.policy = policy
         self.exclude = tuple(exclude)
         self.ignore_regex = ignore_regex
         self._temp = None
@@ -74,7 +73,7 @@ class CodeCheckWorker(QThread):
                 self._temp = tempfile.TemporaryDirectory(prefix='codegen-check-')
                 root = zipsource.extract(root, self._temp.name)
             check = current_tree_check(root, config, self.exclude,
-                                       self.ignore_regex or None, self.policy)
+                                       self.ignore_regex or None)
             self.done.emit(check, str(root))
         except Exception as e:
             self.failed.emit('{}: {}'.format(type(e).__name__, e))

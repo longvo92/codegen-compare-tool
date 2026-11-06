@@ -66,7 +66,7 @@ CURRENT consistency finding hiện trong Code Check hoặc terminal; JSON/SARIF 
 - **Modified**, **Added**, **Deleted** cần review. **Comment**, **Unimportant** chỉ có comment hoặc noise đã chứng minh. **Not compared** báo lỗi.
 - Overview nhóm thay đổi theo model/SWC, gồm port, runnable, event, RTE access và A2L object.
 - Old/new regeneration warning là advisory; output giữ nguyên không chứng minh lịch sử regenerate.
-- `--check-current` dùng policy delivery: rule fail trả `1`; thiếu input, scan error hoặc mục chưa kiểm tra được trả `2`. Xem [Hướng dẫn sử dụng](usage.md#consistency-check) để biết scope và ngoại lệ.
+- `--check-current` trả `1` khi có rule fail và `2` khi thiếu input hoặc có lỗi scan. Các mục chưa kiểm tra được hiển thị trong coverage. Xem [Hướng dẫn sử dụng](usage.md#consistency-check) để biết scope và ngoại lệ.
 - Compare trả `0` khi sạch, `1` khi có real change hoặc consistency failure đã bật, `2` khi lỗi/scan không đầy đủ. `--exit-zero` chỉ bỏ qua failure do file difference.
 
 ## Tài liệu

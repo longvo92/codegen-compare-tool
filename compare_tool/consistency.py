@@ -131,7 +131,6 @@ class CurrentTreeCheck:
     functions_detected: int
     rte_calls_detected: int
     access_points_detected: int
-    policy: str = 'standard'
     checked_calls: int = 0
     exemptions: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
@@ -151,8 +150,6 @@ class CurrentTreeCheck:
     def exit_code(self):
         if any(f['reason'] in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE')
                for f in self.findings):
-            return 2
-        if self.policy == 'delivery' and self.skipped_accesses:
             return 2
         return 1 if any(f['severity'] == 'fail' for f in self.findings) else 0
 
@@ -797,9 +794,7 @@ def _classify(findings, config):
 
 def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
                        exclude: Sequence[str] = (),
-                       ignore_access_port_regex: Optional[str] = None,
-                       policy: str = 'standard'
-                       ) -> CurrentTreeCheck:
+                       ignore_access_port_regex: Optional[str] = None) -> CurrentTreeCheck:
     """Validate CURRENT generated C calls against CURRENT ARXML declarations.
 
     Findings never rewrite a file verdict. ``fail`` findings make the CLI exit
@@ -816,8 +811,6 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     ignore_pattern, rte_call_patterns = _checker_ignore_patterns(
         config, ignore_access_port_regex)
     config['_resolved_functions'] = {}
-    if policy not in ('standard', 'delivery'):
-        raise ValueError('unknown consistency policy: {}'.format(policy))
     listing_errors: List[Tuple[str, str]] = []
     rels = sorted(rel for rel in list_files(root, listing_errors)
                   if not _matches(rel, exclude))
@@ -917,7 +910,7 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     return CurrentTreeCheck(
         findings, unchecked, skipped_rules, ignored, len(c_rels),
         len(arxml_rels), len(functions), len(calls), len(access_points),
-        policy, checked, exemptions, notes, ignored_coverage=ignored_coverage,
+        checked_calls=checked, exemptions=exemptions, notes=notes, ignored_coverage=ignored_coverage,
         ignored_rte_calls=ignored_rte_calls)
 
 

@@ -66,7 +66,7 @@ CURRENT consistency findings appear in Code Check or the terminal; JSON/SARIF ex
 - **Modified**, **Added** and **Deleted** need review. **Comment** and **Unimportant** contain only comments or proven noise. **Not compared** indicates an error.
 - Overview groups changes by model/SWC, including ports, runnables, events, RTE access and A2L objects.
 - Old/new regeneration warnings are advisory; unchanged output does not prove regeneration history.
-- `--check-current` uses delivery policy: failed rules exit `1`; missing input, scan errors or unchecked items exit `2`. See the [User Guide](docs/usage.md#consistency-check) for scope and exceptions.
+- `--check-current` exits `1` for failed rules and `2` for missing input or scan errors. Unchecked items appear in coverage. See the [User Guide](docs/usage.md#consistency-check) for scope and exceptions.
 - Comparisons exit `0` when clean, `1` for real changes or enabled consistency failures, and `2` for errors/incomplete scans. `--exit-zero` suppresses only file-difference failures.
 
 ## Documentation
