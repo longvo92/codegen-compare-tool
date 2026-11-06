@@ -71,7 +71,7 @@ CURRENT policy cũng check package interface NVM/DEM đã cấu hình qua server
 | Sạch | 0 |
 | Real change hoặc consistency failure đã bật | 1 |
 | Lỗi input/scan/parse/output hoặc thiếu input bắt buộc | 2 |
-| Coverage chưa kiểm tra được | Không gate với standard; 2 với delivery |
+| Coverage chưa kiểm tra được | Báo `INCOMPLETE` và giữ nguyên exit code |
 
 `--exit-zero` chỉ bỏ qua failure do file difference. Check giữ full runnable/SWC identity, SYMBOL/prefix và access reference; orphan match theo runnable. YAML hỗ trợ setting cũ; JSON thêm mapping/ngoại lệ có scope. Xem [Hướng dẫn sử dụng](usage.md#consistency-check) về policy và giới hạn coverage.
 

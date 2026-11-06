@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-11-06
+
+### Removed
+
+- Remove the Code Check coverage selector and `--consistency-policy`. CLI and GUI use the former standard behavior. Remove the flag and its value from existing commands.
+
 ## [1.22.0] — 2026-11-05
 
 ### Added

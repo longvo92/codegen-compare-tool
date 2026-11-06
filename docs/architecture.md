@@ -73,7 +73,7 @@ CURRENT policy also checks configured NVM/DEM interface packages through runnabl
 | Clean | 0 |
 | Real changes or enabled consistency failures | 1 |
 | Input/scan/parse/output error or missing required input | 2 |
-| Unchecked coverage | Non-gating under standard; 2 under delivery |
+| Unchecked coverage | Reports `INCOMPLETE` without changing the exit code |
 
 `--exit-zero` suppresses file-difference failures only. Checks preserve full runnable/SWC identity, SYMBOL/prefix and access references; orphan matching is per runnable. YAML supports the existing settings; JSON adds scoped mappings/exceptions. See [User Guide](usage.md#consistency-check) for policy and coverage boundaries.
 

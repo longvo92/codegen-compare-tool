@@ -1,4 +1,4 @@
-"""Delivery regressions: coverage, AUTOSAR identity and legacy CLI contracts."""
+"""CURRENT consistency regressions for coverage, AUTOSAR identity and CLI contracts."""
 
 import contextlib
 import io
@@ -39,7 +39,7 @@ def arxml(body):
 </AR-PACKAGE></AR-PACKAGES></AUTOSAR>'''.format(body)
 
 
-class TestDeliveryConsistency(unittest.TestCase):
+class TestCurrentConsistency(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -56,8 +56,8 @@ class TestDeliveryConsistency(unittest.TestCase):
         self.write('Ctrl.c', code)
         self.write('Ctrl.arxml', arxml(body or component('Ctrl', runnable())))
 
-    def check(self, config=None, policy='delivery', **kwargs):
-        return consistency.current_tree_check(self.root, config, policy=policy, **kwargs)
+    def check(self, config=None, **kwargs):
+        return consistency.current_tree_check(self.root, config, **kwargs)
 
     def cli(self, *args):
         output = io.StringIO()
@@ -65,10 +65,8 @@ class TestDeliveryConsistency(unittest.TestCase):
             code = main(list(args))
         return code, output.getvalue()
 
-    def test_missing_inputs_never_pass_in_either_policy(self):
-        for policy in ('standard', 'delivery'):
-            with self.subTest(policy=policy, case='empty'):
-                self.assertEqual(self.check(policy=policy).exit_code, 2)
+    def test_missing_inputs_never_pass(self):
+        self.assertEqual(self.check().exit_code, 2)
         self.write('Ctrl.c', 'void Step(void) { Rte_Read_Speed_Value(); }')
         self.assertEqual(self.check().exit_code, 2)
         self.write('types.arxml', arxml(''))
@@ -154,28 +152,24 @@ class TestDeliveryConsistency(unittest.TestCase):
     def test_unresolved_helper_is_ignored_and_orphan_warning_is_preserved(self):
         self.fixture('void helper(void) { Rte_Read_Speed_Value(); }\n'
                      'void Ctrl_Step(void) { helper(); }')
-        for policy in ('standard', 'delivery'):
-            with self.subTest(policy=policy):
-                check = self.check(policy=policy)
-                self.assertEqual(check.exit_code, 0)
-                self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
-                self.assertEqual([f['reason'] for f in check.ignored_coverage],
-                                 ['RUNNABLE_NOT_RESOLVED'])
-                self.assertEqual([f['reason'] for f in check.findings], ['ORPHAN_ACCESS'])
+        check = self.check()
+        self.assertEqual(check.exit_code, 0)
+        self.assertEqual(check.status, 'PASS WITH EXCEPTIONS')
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['RUNNABLE_NOT_RESOLVED'])
+        self.assertEqual([f['reason'] for f in check.findings], ['ORPHAN_ACCESS'])
 
     def test_unresolved_helper_cannot_weaken_existing_missing_pair_failure(self):
         self.fixture('void helper(void) { Rte_Read_Unknown_Value(); }\n'
                      'void Ctrl_Step(void) { helper(); }')
-        check = self.check(policy='standard')
+        check = self.check()
         self.assertEqual(check.exit_code, 1)
+        self.assertEqual(check.status, 'FAIL')
+        self.assertEqual([f['reason'] for f in check.ignored_coverage],
+                         ['RUNNABLE_NOT_RESOLVED'])
         self.assertIn('NO_MATCHING_PORT_DATAELEMENT', [f['reason'] for f in check.findings])
         self.assertEqual(self.cli(str(self.root), str(self.root), '--no-report',
                                  '--check-consistency', '--exit-zero')[0], 1)
-        delivery = self.check()
-        self.assertEqual(delivery.exit_code, 1)
-        self.assertEqual(delivery.status, 'FAIL')
-        self.assertEqual([f['reason'] for f in delivery.ignored_coverage],
-                         ['RUNNABLE_NOT_RESOLVED'])
 
     def test_helper_mapping_is_scoped_and_has_a_reason(self):
         self.fixture('void helper(void) { Rte_Read_Speed_Value(); }\n'
@@ -363,7 +357,7 @@ rules:
                                 '--check-consistency', '--consistency-config', str(config),
                                 '--ignore-access-port-regex', '^Platform_', '--exit-zero')
         self.assertEqual(code, 0)
-        self.assertIn('policy: standard', output)
+        self.assertIn('Consistency: PASS WITH EXCEPTIONS (exit: 0)', output)
 
     def test_current_only_does_not_compare_or_write_reports(self):
         self.fixture()
@@ -372,19 +366,18 @@ rules:
         with mock.patch('compare_tool.main.run_compare', side_effect=AssertionError('must not compare')):
             code, output = self.cli('--check-current', str(self.root), '--no-report')
         self.assertEqual(code, 0)
-        self.assertIn('policy: delivery', output)
+        self.assertIn('Consistency: PASS (exit: 0)', output)
         self.assertNotIn('BASELINE:', output)
         self.assertEqual(report.read_text(), 'existing')
         self.assertFalse(viewer_requested(['--check-current', str(self.root)]))
 
-    def test_current_zip_and_explicit_standard_policy(self):
+    def test_current_zip_reports_ignored_coverage(self):
         self.fixture('void helper(void) { Rte_Read_Speed_Value(); }')
         path = self.base / 'delivery.zip'
         with zipfile.ZipFile(path, 'w') as archive:
             for file in self.root.iterdir():
                 archive.write(file, 'drop/' + file.name)
-        self.assertEqual(self.cli('--check-current', str(path))[0], 0)
-        code, output = self.cli('--check-current', str(path), '--consistency-policy', 'standard')
+        code, output = self.cli('--check-current', str(path))
         self.assertEqual(code, 0)
         self.assertIn('Consistency: NOT CHECKED', output)
         self.assertIn('IGNORED coverage: 2 item(s)', output)
@@ -395,27 +388,32 @@ rules:
         self.write('Broken.arxml', '<AUTOSAR>')
         self.assertEqual(self.cli('--check-current', str(self.root), '--exit-zero')[0], 2)
         self.assertEqual(self.cli(str(self.root), str(self.root), '--no-report',
-                                 '--check-consistency', '--consistency-policy', 'delivery',
-                                 '--exit-zero')[0], 2)
+                                 '--check-consistency', '--exit-zero')[0], 2)
 
-    def test_new_coverage_reason_defaults_to_unchecked(self):
+    def test_new_coverage_reason_defaults_to_non_gating_unchecked(self):
         self.fixture()
         skipped = {'reason': 'NEW_COVERAGE_GAP', 'arxml_file': 'Ctrl.arxml'}
         with mock.patch.object(consistency, '_orphan_accesses', return_value=([], [skipped])):
-            for policy, exit_code in (('standard', 0), ('delivery', 2)):
-                with self.subTest(policy=policy):
-                    check = self.check(policy=policy)
-                    self.assertEqual(check.exit_code, exit_code)
-                    self.assertEqual(check.status, 'INCOMPLETE')
-                    self.assertEqual(check.skipped_accesses, [skipped])
-                    self.assertEqual(check.ignored_coverage, [])
+            check = self.check()
+            self.assertEqual(check.exit_code, 0)
+            self.assertEqual(check.status, 'INCOMPLETE')
+            self.assertEqual(check.skipped_accesses, [skipped])
+            self.assertEqual(check.ignored_coverage, [])
+            for args in (('--check-current', str(self.root)),
+                         (str(self.root), str(self.root), '--no-report', '--check-consistency')):
+                with self.subTest(args=args):
+                    code, output = self.cli(*args)
+                    self.assertEqual(code, 0)
+                    self.assertIn('Consistency: INCOMPLETE (exit: 0)', output)
+                    self.assertIn('[UNCHECKED] NEW_COVERAGE_GAP', output)
 
     def test_current_rejects_unsupported_outputs_without_touching_them(self):
         self.fixture()
         output = self.base / 'result.json'
         output.write_text('existing')
         for flags in (['--json', str(output)], ['--sarif', str(output)], ['--report', str(output)],
-                      ['--qt'], ['--arxml-only'], [str(self.root), str(self.root)]):
+                      ['--qt'], ['--arxml-only'], ['--consistency-policy', 'delivery'],
+                      [str(self.root), str(self.root)]):
             with self.subTest(flags=flags), self.assertRaises(SystemExit) as caught:
                 self.cli('--check-current', str(self.root), *flags)
             self.assertEqual(caught.exception.code, 2)

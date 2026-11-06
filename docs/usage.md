@@ -37,7 +37,7 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--theme dark\|light` | Initial viewer/HTML theme. Default: `dark`; both themes remain available in HTML. Does not affect terminal output. |
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
 | `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
-| `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Off by default; never suppresses enabled consistency failures (`1`), input/scan/output errors or delivery coverage gaps (`2`). |
+| `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Enabled consistency failures still return `1`, and input, scan or output errors return `2`. |
 
 #### CURRENT consistency
 
@@ -46,8 +46,7 @@ These flags control CLI checks. The viewer offers the same checker in **Code Che
 | Flag | Use and defaults |
 |---|---|
 | `--check-consistency` | Check generated RTE calls against ARXML in CURRENT during a two-input comparison. Off by default; findings appear in the terminal. |
-| `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. Uses `delivery` policy by default. |
-| `--consistency-policy standard\|delivery` | Select how remaining unchecked items affect exit status. Defaults to `standard` for comparisons and `delivery` for `--check-current`. Delivery gates them with exit `2`. Standard reports them without gating. |
+| `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. |
 | `--consistency-config FILE` | Load YAML or JSON policy for forbidden prefixes, ignored ports and service calls, and rule severities. JSON also supports mappings and exceptions. Omitted settings keep built-in defaults. |
 | `--ignore-access-port-regex REGEX` | Add one temporary ignored-port regex, OR-ed with configured patterns. Matches the payload after `Rte_<verb>_`; does not disable forbidden-API checks. No extra regex by default. |
 
@@ -64,7 +63,7 @@ These flags control CLI checks. The viewer offers the same checker in **Code Che
 
 - `--report` and `--no-report` are mutually exclusive. JSON/SARIF are additional outputs; add `--no-report` to avoid default HTML. Their contents exclude CURRENT findings.
 - `--no-report` requires both inputs and cannot run with `--qt` / `--viewer`. Use report/export flags in CLI comparisons; the viewer exports HTML through its own Export action.
-- `--consistency-policy`, `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. These CLI flags cannot run with the viewer or `--arxml-only`; configure viewer checks in **Code Check** instead.
+- `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. Configure viewer checks in **Code Check**. The CLI check requires generated C files and is incompatible with `--arxml-only`.
 - `--check-current` takes its input from PATH, not positional arguments. It accepts `--exclude`, `--current-name` and consistency options; `--no-report` / `--check-consistency` are redundant. Comparison/report options and JSON/SARIF are rejected. `--exit-zero` does not suppress its failures.
 
 ### Examples
@@ -93,10 +92,10 @@ Include custom rules and an existing review file in a capped HTML report:
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
 ```
 
-Gate CURRENT consistency and coverage while allowing ordinary file differences:
+Gate CURRENT consistency failures while allowing ordinary file differences:
 
 ```bash
-python -m compare_tool baseline current --no-report --check-consistency --consistency-policy delivery --exit-zero
+python -m compare_tool baseline current --no-report --check-consistency --exit-zero
 ```
 
 ## Side-by-side viewer
@@ -131,7 +130,7 @@ Select folders or ZIPs, or use **Git compare** to compare a commit with the curr
 Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 1. Select a folder or ZIP, drop one onto Code Check, or choose **Use Compare CURRENT**.
-2. Choose `delivery` (default) or `standard` coverage policy and an optional YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
+2. Optionally choose a YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
 3. Select **Run Code Check**. Filter results by severity or text; select a finding to inspect its evidence and source context.
 
 **Findings** includes failed rules, warnings, unchecked items and exceptions with their evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching; changing inputs requires a new run. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
@@ -192,17 +191,15 @@ Or enable the same checker during a CLI comparison:
 python -m compare_tool baseline current --no-report --check-consistency
 ```
 
-| Condition | `standard` (comparison default) | `delivery` (`--check-current` default) |
-|---|---|---|
-| Complete check, no failed rule | 0 | 0 |
-| Rule set to `fail` | 1 | 1 |
-| Read/list/parse error or missing required input | 2 | 2 |
-| Documented coverage limits, no failed rule | 0 | 0 |
-| Other unchecked items | 0 (INCOMPLETE) | 2 |
+| Condition | Code Check exit |
+|---|---|
+| Read/list/parse error or missing required input | 2 |
+| Finding with severity `fail` | 1 |
+| No failed rule or input error | 0 |
 
 Coverage groups documented limits as `IGNORED` in the terminal and Code Check. `NOT CHECKED` means coverage was skipped, zero RTE calls were checked against ARXML, and there are no findings. A passing check with partial coverage shows `PASS WITH EXCEPTIONS`.
 
-Delivery pipelines can now receive exit `0` where a documented limit previously caused exit `2`. Use the coverage summary to see what was checked. Comparison differences also affect exit status. `--exit-zero` suppresses only those differences.
+Remaining `UNCHECKED` items report `INCOMPLETE` without changing the exit code. Comparison differences also affect exit status. `--exit-zero` suppresses only those differences. Remove `--consistency-policy` and its value from older CLI commands.
 
 CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
 

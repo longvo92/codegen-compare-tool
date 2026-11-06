@@ -31,7 +31,7 @@ class CodeCheckPage(QWidget):
         self.root = None
         self._rows = []
         self._status_role = 'state-idle'
-        self._run_policy = ''
+        self._run_config = ''
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 16)
@@ -63,11 +63,6 @@ class CodeCheckPage(QWidget):
         self.use_current = QPushButton('Use Compare CURRENT')
         self.use_current.clicked.connect(self._use_current)
         fields.addWidget(self.use_current)
-        fields.addWidget(QLabel('Coverage policy'))
-        self.policy = QComboBox()
-        self.policy.addItem('Delivery — gate unchecked items', 'delivery')
-        self.policy.addItem('Standard — report coverage gaps', 'standard')
-        fields.addWidget(self.policy)
         fields.addWidget(QLabel('Policy config (optional YAML / JSON)'))
         self.config = QLineEdit()
         self.config.setPlaceholderText('Built-in defaults')
@@ -179,7 +174,6 @@ class CodeCheckPage(QWidget):
         for edit in (self.source, self.config, self.ignore):
             edit.textChanged.connect(self._inputs_changed)
         self.excludes.textChanged.connect(self._inputs_changed)
-        self.policy.currentIndexChanged.connect(self._inputs_changed)
         self.refresh_current()
         self._inputs_changed()
         self.apply_theme()
@@ -231,10 +225,9 @@ class CodeCheckPage(QWidget):
         self.cleanup()
         source = str(Path(self.source.text().strip()).resolve())
         config_path = self.config.text().strip()
-        policy = self.policy.currentData()
         exclude = tuple(line.strip() for line in self.excludes.toPlainText().splitlines() if line.strip())
-        self._run_policy = 'Policy: {}\nConfig: {}'.format(
-            policy, str(Path(config_path).resolve()) if config_path else 'Built-in defaults')
+        self._run_config = 'Config: {}'.format(
+            str(Path(config_path).resolve()) if config_path else 'Built-in defaults')
         self.result_source.setText('Results for: ' + source)
         self.result_source.show()
         self.check = None
@@ -253,7 +246,7 @@ class CodeCheckPage(QWidget):
         self.scope.setEnabled(False)
         self.run_button.setEnabled(False)
         self.progress.show()
-        self.worker = CodeCheckWorker(source, config_path, policy, exclude, self.ignore.text().strip(), self)
+        self.worker = CodeCheckWorker(source, config_path, exclude, self.ignore.text().strip(), self)
         self.worker.done.connect(self._done)
         self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self._finished)
@@ -290,7 +283,7 @@ class CodeCheckPage(QWidget):
             '{} C file(s), {} ARXML file(s), {} access point(s)'.format(
                 check.c_files_scanned, check.arxml_files_scanned, check.access_points_detected),
             '{} / {} RTE call(s) checked'.format(check.checked_calls, check.rte_calls_detected),
-            '', self._run_policy,
+            '', self._run_config,
             '', CHECKER_SCOPE,
         ]
         ignored_summary = check.ignored_coverage_summary
@@ -307,7 +300,7 @@ class CodeCheckPage(QWidget):
     def _failed(self, message):
         self._set_status('INCOMPLETE', 'state-error')
         self.summary.setText('Code Check could not complete: ' + message)
-        self.coverage.setPlainText(self._run_policy)
+        self.coverage.setPlainText(self._run_config)
         self.visible_count.setText('No results — check did not complete')
 
     @staticmethod

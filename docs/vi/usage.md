@@ -37,7 +37,7 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 | `--theme dark\|light` | Theme ban đầu của viewer/HTML. Mặc định: `dark`; HTML vẫn chứa cả hai theme. Không ảnh hưởng terminal output. |
 | `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
 | `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
-| `--exit-zero` | Trả `0` khi có file difference để CI thu report mà không fail vì thay đổi. Mặc định tắt; không bỏ qua consistency failure đã bật (`1`), lỗi input/scan/output hoặc thiếu coverage theo delivery (`2`). |
+| `--exit-zero` | Trả `0` khi có file difference để CI thu report. Consistency failure đã bật vẫn trả `1`, còn lỗi input, scan hoặc output trả `2`. |
 
 #### CURRENT consistency
 
@@ -46,8 +46,7 @@ Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong
 | Flag | Công dụng và mặc định |
 |---|---|
 | `--check-consistency` | Check generated RTE call với ARXML trong CURRENT khi compare hai input. Mặc định tắt; finding hiện trên terminal. |
-| `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. Mặc định dùng policy `delivery`. |
-| `--consistency-policy standard\|delivery` | Chọn cách xử lý các mục còn ở trạng thái `UNCHECKED`. Mặc định dùng `standard` cho Compare và `delivery` cho `--check-current`. Delivery trả exit `2`. Standard hiển thị các mục này và cho phép tiếp tục. |
+| `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. |
 | `--consistency-config FILE` | Đọc policy YAML hoặc JSON để cấu hình prefix cấm, port và lời gọi service cần bỏ qua, cùng severity của rule. JSON hỗ trợ thêm mapping và ngoại lệ. Setting không khai báo giữ mặc định. |
 | `--ignore-access-port-regex REGEX` | Thêm một regex ignored-port tạm thời, kết hợp OR với pattern trong config. Match payload sau `Rte_<verb>_`; không tắt forbidden-API check. Mặc định không thêm regex. |
 
@@ -64,7 +63,7 @@ Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong
 
 - `--report` và `--no-report` không dùng cùng nhau. JSON/SARIF là output bổ sung; thêm `--no-report` để tránh tạo HTML mặc định. Nội dung chưa chứa CURRENT finding.
 - `--no-report` cần đủ hai input, không dùng cùng `--qt` / `--viewer`. Dùng report/export flag trong CLI comparison; viewer xuất HTML qua thao tác Export riêng.
-- `--consistency-policy`, `--consistency-config` và `--ignore-access-port-regex` cần `--check-consistency` hoặc `--check-current`. Các flag CLI này không dùng cùng viewer hoặc `--arxml-only`; cấu hình check trong viewer tại **Code Check**.
+- `--consistency-config` và `--ignore-access-port-regex` cần `--check-consistency` hoặc `--check-current`. Cấu hình check trong viewer tại **Code Check**. Check qua CLI cần mã C đã sinh và không kết hợp với `--arxml-only`.
 - `--check-current` lấy input từ PATH, không nhận positional argument. Chấp nhận `--exclude`, `--current-name` và consistency options; `--no-report` / `--check-consistency` không bắt buộc. Option compare/report và JSON/SARIF bị từ chối. `--exit-zero` không bỏ qua failure của mode này.
 
 ### Ví dụ
@@ -93,10 +92,10 @@ python -m compare_tool baseline current --arxml-only --report autosar.html
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
 ```
 
-Gate consistency và coverage của CURRENT, cho phép file difference thông thường:
+Cho phép file difference và dùng consistency failure của CURRENT để quyết định exit code:
 
 ```bash
-python -m compare_tool baseline current --no-report --check-consistency --consistency-policy delivery --exit-zero
+python -m compare_tool baseline current --no-report --check-consistency --exit-zero
 ```
 
 ## Viewer side-by-side
@@ -131,7 +130,7 @@ Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit v�
 Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
 
 1. Chọn folder hoặc ZIP, thả một nguồn vào Code Check, hoặc chọn **Use Compare CURRENT**.
-2. Chọn coverage policy `delivery` (mặc định) hoặc `standard` và config YAML/JSON tùy chọn. Scope override nhận exclude glob, mỗi dòng một mẫu, và regex bỏ qua port bổ sung.
+2. Chọn config YAML/JSON nếu cần. Scope override nhận exclude glob, mỗi dòng một mẫu, và regex bỏ qua port bổ sung.
 3. Chọn **Run Code Check**. Lọc kết quả theo severity hoặc text; chọn finding để xem evidence và source context.
 
 **Findings** chứa rule lỗi, cảnh báo, mục chưa kiểm tra được và ngoại lệ kèm evidence. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại; đổi input cần chạy lại. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
@@ -192,17 +191,15 @@ Hoặc bật cùng checker trong CLI comparison:
 python -m compare_tool baseline current --no-report --check-consistency
 ```
 
-| Điều kiện | `standard` (mặc định comparison) | `delivery` (mặc định `--check-current`) |
-|---|---|---|
-| Check đầy đủ, không rule fail | 0 | 0 |
-| Rule đặt `fail` | 1 | 1 |
-| Lỗi đọc/list/parse hoặc thiếu input bắt buộc | 2 | 2 |
-| Giới hạn coverage đã công bố, không có rule fail | 0 | 0 |
-| Các mục khác còn `UNCHECKED` | 0 (INCOMPLETE) | 2 |
+| Điều kiện | Exit của Code Check |
+|---|---|
+| Lỗi đọc/list/parse hoặc thiếu input bắt buộc | 2 |
+| Finding có severity `fail` | 1 |
+| Không có rule fail hoặc lỗi input | 0 |
 
 CLI và Code Check gộp các giới hạn đã công bố vào nhóm `IGNORED` trong Coverage. `NOT CHECKED` nghĩa là có mục coverage bị bỏ qua, chưa có lời gọi RTE nào được đối chiếu với ARXML và không có finding. Kiểm tra đạt với coverage một phần hiển thị `PASS WITH EXCEPTIONS`.
 
-Pipeline dùng delivery có thể nhận exit `0` cho các giới hạn trước đây trả exit `2`. Xem Coverage để biết phần đã kiểm tra. Khác biệt file vẫn ảnh hưởng exit code của Compare. `--exit-zero` chỉ bỏ qua phần khác biệt đó.
+Các mục còn `UNCHECKED` hiện trạng thái `INCOMPLETE` và giữ nguyên exit code. Khác biệt file vẫn ảnh hưởng exit code của Compare. `--exit-zero` chỉ bỏ qua phần khác biệt đó. Với lệnh CLI cũ, bỏ cờ `--consistency-policy` cùng giá trị đi kèm.
 
 CURRENT finding hiện trên terminal hoặc Code Check, không nằm trong comparison report/export. Lưu CLI terminal output nếu cần delivery record.
 

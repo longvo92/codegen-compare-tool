@@ -57,7 +57,7 @@ class TestServicePolicy(unittest.TestCase):
         self.config['dem_packages'] = ['/Services/Dem']
 
     def check(self, **kwargs):
-        return current_tree_check(self.root, self.config, policy='delivery', **kwargs)
+        return current_tree_check(self.root, self.config, **kwargs)
 
     def test_arbitrary_port_names_use_arxml_evidence_without_bsw_sources(self):
         check = self.check()
@@ -176,7 +176,7 @@ class TestServicePolicy(unittest.TestCase):
         self.assertEqual(set(config['rules']), set(self.config['rules']))
         self.assertEqual(config['nvm_packages'], self.config['nvm_packages'])
         self.xml.write_text(service_xml('/Wrong/NvM', '/Wrong/Dem'), encoding='utf-8')
-        check = current_tree_check(self.root, config, policy='delivery')
+        check = current_tree_check(self.root, config)
         self.assertEqual(check.exit_code, 1)
         self.assertEqual([f['reason'] for f in check.findings], ['NVM_PACKAGE', 'DEM_PACKAGE'])
 
@@ -360,7 +360,7 @@ struct Value *GetValue(void) { banned(); }
     def test_programmatic_legacy_config_keeps_new_defaults(self):
         legacy = {key: self.config[key] for key in
                   ('rules', 'forbidden_rte_prefixes', 'ignore_access_port_regex')}
-        check = current_tree_check(self.root, legacy, policy='delivery')
+        check = current_tree_check(self.root, legacy)
         self.assertEqual(check.exit_code, 0)
         self.assertEqual(check.status, 'NOT CHECKED')
         self.assertEqual([f['reason'] for f in check.ignored_coverage],

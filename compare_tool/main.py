@@ -150,8 +150,7 @@ def _current_consistency_lines(check):
     """Compact terminal rendering for the CURRENT-tree RTE/ARXML check."""
     status = check.status
     lines = [
-        '  Consistency: {} (policy: {}, exit: {})'.format(
-            status, check.policy, check.exit_code),
+        '  Consistency: {} (exit: {})'.format(status, check.exit_code),
         '  Current tree: {} C file(s), {} ARXML file(s), {} RTE call(s), '
         '{} access point(s)'.format(
             check.c_files_scanned, check.arxml_files_scanned,
@@ -232,8 +231,7 @@ def _current_consistency_lines(check):
         lines.append('  No current-tree RTE/ARXML consistency findings.')
     lines.append('  FAIL findings set exit code 1; consistency scan errors set '
                  'exit code 2; WARN findings do not change the exit code.')
-    lines.append('  Missing input always exits 2. UNCHECKED items exit 2 under '
-                 'delivery policy; standard policy leaves them non-gating.')
+    lines.append('  Missing input always exits 2. UNCHECKED items are reported without gating.')
     return lines
 
 
@@ -544,11 +542,7 @@ def _parser():
                          'included in the viewer or HTML report')
     ap.add_argument('--check-current', metavar='PATH', default=None,
                     help='check one CURRENT folder or ZIP without a baseline, '
-                         'diff or HTML; defaults to delivery policy')
-    ap.add_argument('--consistency-policy', choices=('standard', 'delivery'),
-                    default=None, help='delivery gates remaining unchecked items; standard '
-                    'keeps them non-gating. Default: standard for comparisons, '
-                    'delivery for --check-current')
+                         'diff or HTML')
     ap.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
                     help='settings for --check-consistency: NVM/DEM packages, '
                          'forbidden functions/RTE prefixes, port and Rte_Call ignore regexes, and per-rule '
@@ -603,8 +597,7 @@ def viewer_requested(argv):
         return False  # the help text belongs on a console the user can read
     try:
         args = _parser().parse_args(argv)
-        if (args.check_current or args.consistency_policy or
-                args.check_consistency or args.consistency_config or
+        if (args.check_current or args.check_consistency or args.consistency_config or
                 args.ignore_access_port_regex):
             return False  # CLI-only option: keep usage errors visible too
         return _wants_viewer(args)
@@ -702,8 +695,7 @@ def _run_current(ap, args, zip_temp):
             stream.reconfigure(errors='replace')
     check = consistency.current_tree_check(
         root, config, exclude=args.exclude,
-        ignore_access_port_regex=args.ignore_access_port_regex,
-        policy=args.consistency_policy or 'delivery')
+        ignore_access_port_regex=args.ignore_access_port_regex)
     print('CURRENT: {}'.format(args.current_name or label or args.check_current))
     for line in _current_consistency_lines(check):
         print(line)
@@ -720,14 +712,13 @@ def _run(ap, args, zip_temp):
             ap.error('--no-report requires both old_dir and new_dir')
     user_rules = _load_user_rules(ap, args)
     wants_viewer = _wants_viewer(args)
-    if wants_viewer and (args.check_consistency or args.consistency_policy or args.consistency_config or
+    if wants_viewer and (args.check_consistency or args.consistency_config or
                          args.ignore_access_port_regex):
         ap.error('--check-consistency and its options are CLI-only; give both '
                  'folders without --qt/--viewer')
-    if not args.check_consistency and (args.consistency_policy or args.consistency_config or
-                                       args.ignore_access_port_regex):
-        ap.error('--consistency-config, --consistency-policy and '
-                 '--ignore-access-port-regex require --check-consistency or --check-current')
+    if not args.check_consistency and (args.consistency_config or args.ignore_access_port_regex):
+        ap.error('--consistency-config and --ignore-access-port-regex require '
+                 '--check-consistency or --check-current')
     if args.check_consistency and args.arxml_only:
         ap.error('--check-consistency cannot be combined with --arxml-only '
                  'because generated C is outside that comparison scope')
@@ -799,8 +790,7 @@ def _run(ap, args, zip_temp):
         try:
             current_check = consistency.current_tree_check(
                 new_root, checker_config, exclude=args.exclude,
-                ignore_access_port_regex=args.ignore_access_port_regex,
-                policy=args.consistency_policy or 'standard')
+                ignore_access_port_regex=args.ignore_access_port_regex)
         except ValueError as e:
             ap.error(str(e))
 
