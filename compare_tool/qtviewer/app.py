@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
         self.compare_page = central
         self.modes.addTab(central, '')
         self._text.bind(self.modes.setTabText, 'Compare', 0)
-        self.code_check = CodeCheckPage(lambda: self.new, self, self._text)
+        self.code_check = CodeCheckPage(lambda: self.new, self, self._text, settings=self._settings)
         self.modes.addTab(self.code_check, '')
         self._text.bind(self.modes.setTabText, 'Code Check', 1)
         self.setCentralWidget(self.modes)

@@ -18,6 +18,15 @@ class Preferences(NamedTuple):
     hide_identical: bool = False
 
 
+class CodeCheckDefaults(NamedTuple):
+    config_path: str = ''
+    excludes: str = ''
+    ignore_regex: str = ''
+
+
+_CODE_CHECK_DEFAULTS_KEY = 'code_check/defaults'
+
+
 def preference_store():
     return QSettings('CodeGenInspector', APP_NAME)
 
@@ -43,6 +52,20 @@ def load_preferences(store):
 def save_preferences(store, prefs):
     for key, value in prefs._asdict().items():
         store.setValue(key, value)
+    store.sync()
+    return store.status() == QSettings.Status.NoError
+
+
+def load_code_check_defaults(store):
+    values = store.value(_CODE_CHECK_DEFAULTS_KEY, {})
+    if not isinstance(values, dict):
+        return CodeCheckDefaults()
+    return CodeCheckDefaults(**{key: values[key] for key in CodeCheckDefaults._fields
+                                if isinstance(values.get(key), str)})
+
+
+def save_code_check_defaults(store, defaults):
+    store.setValue(_CODE_CHECK_DEFAULTS_KEY, dict(defaults._asdict()))
     store.sync()
     return store.status() == QSettings.Status.NoError
 

@@ -51,6 +51,8 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
    mode, or choose **Use Compare CURRENT**.
 2. Optionally choose a YAML/JSON policy config. Under **Scope overrides**,
    enter excluded file globs (one per line) or an additional ignored-port regex.
+   Select **Save as default** to reuse the policy path and scope next time.
+   Clear these fields and save again to restore built-in defaults.
 3. Select **Run Code Check**. Filter **Findings** by result type or search text,
    then select a row to read its reason and source context.
 4. Open **Coverage & policy** to review checked calls, scope and applied
@@ -122,6 +124,8 @@ Trong **Cài đặt**, bạn cũng có thể chọn ngôn ngữ và theme. Bấm
    hoặc bấm **Dùng CURRENT từ mục So sánh**.
 2. Có thể chọn policy config YAML/JSON. Trong **Điều chỉnh phạm vi**, nhập
    glob loại trừ (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua Port.
+   Chọn **Lưu làm mặc định** để dùng lại đường dẫn policy và phạm vi ở lần
+   mở sau. Xóa các trường này rồi lưu lại để dùng cấu hình mặc định của ứng dụng.
 3. Chọn **Chạy Code Check**. Lọc **Finding** theo loại kết quả hoặc tìm kiếm,
    rồi chọn một dòng để xem lý do và ngữ cảnh source.
 4. Mở **Coverage & policy** để xem các RTE call đã kiểm tra, phạm vi và

@@ -133,6 +133,7 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 1. Select a folder or ZIP, drop one onto Code Check, or choose **Use Compare CURRENT**.
 2. Optionally choose a YAML/JSON config. Scope overrides accept excluded globs, one per line, and an additional ignored-port regex.
+   **Save as default** remembers the config file path and both scope overrides for the next launch. To restore built-in defaults, clear those three fields and save again. Select CURRENT each time you open the app.
 3. Select **Run Code Check**. Filter by result type or text. Select a row to inspect its reason and source context.
 
 **Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.

@@ -1,5 +1,6 @@
 """Independent CURRENT-source check workspace; checker policy stays in consistency.py."""
 
+from os.path import abspath
 from pathlib import Path
 from pprint import pformat
 
@@ -19,6 +20,8 @@ from ..syntax import language_for
 from .diffpane import DiffEditor
 from .i18n import Texts
 from .highlight import CodeHighlighter
+from .settings import (CodeCheckDefaults, load_code_check_defaults,
+                       preference_store, save_code_check_defaults)
 from .worker import CodeCheckWorker
 
 
@@ -31,9 +34,12 @@ _RESULT_ROLES = {
 class CodeCheckPage(QWidget):
     """Own inputs/results independently of Compare, including incomplete coverage."""
 
-    def __init__(self, current_source, parent=None, texts=None):
+    def __init__(self, current_source, parent=None, texts=None, *, settings=None):
         super().__init__(parent)
         self._text = Texts() if texts is None else texts
+        self._settings = preference_store() if settings is None else settings
+        defaults = load_code_check_defaults(self._settings)
+        self._defaults_status = ''
         self._status_text = 'NOT RUN'
         self._summary_text = 'Choose a source and run Code Check to see findings and coverage.'
         self._count_text = 'No results yet'
@@ -81,6 +87,7 @@ class CodeCheckPage(QWidget):
         self.config = QLineEdit()
         self._text.bind(self.config.setPlaceholderText, 'Built-in defaults')
         self.config.setClearButtonEnabled(True)
+        self.config.setText(defaults.config_path)
         fields.addWidget(self.config)
         config_browse = self._text.widget(QPushButton, 'Choose config…')
         config_browse.clicked.connect(self._pick_config)
@@ -92,11 +99,22 @@ class CodeCheckPage(QWidget):
         self.excludes = QPlainTextEdit()
         self._text.bind(self.excludes.setPlaceholderText, 'Excluded globs, one per line')
         self.excludes.setMaximumHeight(72)
+        self.excludes.setPlainText(defaults.excludes)
         self.ignore = QLineEdit()
         self._text.bind(self.ignore.setPlaceholderText, 'Additional ignored-port regex')
+        self.ignore.setText(defaults.ignore_regex)
         scope_form.addRow(self._text.widget(QLabel, 'Exclude'), self.excludes)
         scope_form.addRow(self._text.widget(QLabel, 'Ignore ports'), self.ignore)
         form.addWidget(self.scope)
+        self.save_defaults = self._text.widget(QPushButton, 'Save as default')
+        self._text.bind(self.save_defaults.setToolTip,
+                        'Remember the policy config path and scope overrides for the next launch.')
+        self.save_defaults.clicked.connect(self._save_defaults)
+        form.addWidget(self.save_defaults)
+        self.defaults_status = QLabel()
+        self.defaults_status.setWordWrap(True)
+        self.defaults_status.hide()
+        form.addWidget(self.defaults_status)
         self.run_button = self._text.widget(QPushButton, 'Run Code Check')
         self.run_button.setObjectName('runCodeCheck')
         self.run_button.clicked.connect(self.start_check)
@@ -190,9 +208,9 @@ class CodeCheckPage(QWidget):
         workspace.setSizes([320, 880])
         layout.addWidget(workspace, 1)
 
-        for edit in (self.source, self.config, self.ignore):
-            edit.textChanged.connect(self._inputs_changed)
-        self.excludes.textChanged.connect(self._inputs_changed)
+        self.source.textChanged.connect(self._inputs_changed)
+        for edit in (self.config, self.ignore, self.excludes):
+            edit.textChanged.connect(self._policy_changed)
         self.refresh_current()
         self._inputs_changed()
         self.apply_theme()
@@ -234,6 +252,26 @@ class CodeCheckPage(QWidget):
             self._set_status('STALE — run again', 'state-busy')
         self.run_button.setEnabled(bool(self.source.text().strip()) and not self.is_running())
 
+    def _policy_changed(self):
+        self._set_defaults_status('')
+        self._inputs_changed()
+
+    def _set_defaults_status(self, text):
+        self._defaults_status = text
+        self.defaults_status.setText(self._text(text))
+        self.defaults_status.setVisible(bool(text))
+
+    def _save_defaults(self):
+        path = self.config.text().strip()
+        defaults = CodeCheckDefaults(
+            abspath(path) if path else '',
+            self.excludes.toPlainText().strip(),
+            self.ignore.text().strip(),
+        )
+        saved = save_code_check_defaults(self._settings, defaults)
+        self._set_defaults_status('Code Check defaults saved.' if saved
+                                  else 'Code Check defaults could not be saved.')
+
     def is_running(self):
         return bool(self.worker and self.worker.isRunning())
 
@@ -264,6 +302,7 @@ class CodeCheckPage(QWidget):
         self._set_status('RUNNING', 'state-busy')
         self.inputs.setEnabled(False)
         self.scope.setEnabled(False)
+        self.save_defaults.setEnabled(False)
         self.run_button.setEnabled(False)
         self.progress.show()
         self.worker = CodeCheckWorker(source, config_path, exclude, self.ignore.text().strip(), self)
@@ -275,6 +314,7 @@ class CodeCheckPage(QWidget):
     def _finished(self):
         self.inputs.setEnabled(True)
         self.scope.setEnabled(True)
+        self.save_defaults.setEnabled(True)
         self.run_button.setEnabled(bool(self.source.text().strip()))
         self.progress.hide()
         self.refresh_current()
@@ -352,6 +392,7 @@ class CodeCheckPage(QWidget):
     def retranslate(self):
         tr = self._text
         self.status.setText(tr(self._status_text))
+        self._set_defaults_status(self._defaults_status)
         self._set_summary(self._summary_text)
         self._set_count(self._count_text)
         if self._result_path:

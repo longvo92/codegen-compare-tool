@@ -77,6 +77,56 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.page.run_button.click()
         self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
 
+    def test_saved_policy_and_scope_are_reused_on_reopen(self):
+        from compare_tool.qtviewer.app import MainWindow
+        policy = self.root / 'policy.json'
+        policy.write_text(json.dumps({'forbidden_functions': ['banned']}), encoding='utf-8')
+        self.code.write_text(
+            'void Ctrl_Step(void) { Rte_Read_Speed_Value(); banned(); }\n', encoding='utf-8')
+        (self.root / 'Ignored.c').write_text('void Other(void) { banned(); }\n', encoding='utf-8')
+        self.page.config.setText(policy.name)
+        self.page.excludes.setPlainText('Ignored.c\n*.tmp')
+        self.page.ignore.setText('^Unused_')
+        cwd = Path.cwd()
+        try:
+            os.chdir(self.root)
+            self.page.save_defaults.click()
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(self.page.defaults_status.text(), 'Code Check defaults saved.')
+
+        self.page.config.clear()
+        self.page.excludes.clear()
+        self.page.ignore.clear()
+        store_path = self.win._settings.fileName()
+        self.win.close()
+        reopened = MainWindow(settings=QSettings(store_path, QSettings.IniFormat))
+        self.addCleanup(reopened.close)
+        self.win, self.page = reopened, reopened.code_check
+        self.win.show()
+        self.win.modes.setCurrentIndex(1)
+        self.assertEqual(self.page.config.text(), str(policy))
+        self.assertEqual(self.page.excludes.toPlainText(), 'Ignored.c\n*.tmp')
+        self.assertEqual(self.page.ignore.text(), '^Unused_')
+        self.assertEqual(self.page.source.text(), '')
+        self.assertIsNone(self.page.worker)
+
+        self.page.source.setText(str(self.root))
+        self.run_check()
+        self.assertEqual([row['reason'] for row in self.page.check.findings], ['FORBIDDEN_FUNCTION'])
+        self.assertEqual(self.page.check.c_files_scanned, 1)
+        self.assertIn('Ignored access regex: (?:^Unused_)', self.page.coverage.toPlainText())
+
+        self.page.config.clear()
+        self.page.excludes.clear()
+        self.page.ignore.clear()
+        self.page.save_defaults.click()
+        reset = MainWindow(settings=QSettings(store_path, QSettings.IniFormat))
+        self.addCleanup(reset.close)
+        self.assertEqual(reset.code_check.config.text(), '')
+        self.assertEqual(reset.code_check.excludes.toPlainText(), '')
+        self.assertEqual(reset.code_check.ignore.text(), '')
+
     def test_language_switch_during_check_and_after_selection(self):
         self.code.write_text(
             self.code.read_text(encoding='utf-8') +

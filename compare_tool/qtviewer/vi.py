@@ -168,6 +168,11 @@ VI = {
     'Policy config (optional YAML / JSON)': 'Policy config (YAML / JSON, tùy chọn)',
     'Built-in defaults': 'Cấu hình mặc định',
     'Choose config…': 'Chọn config…',
+    'Save as default': 'Lưu làm mặc định',
+    'Remember the policy config path and scope overrides for the next launch.':
+        'Ghi nhớ đường dẫn policy config và các điều chỉnh phạm vi cho lần mở sau.',
+    'Code Check defaults saved.': 'Đã lưu cấu hình mặc định cho Code Check.',
+    'Code Check defaults could not be saved.': 'Không thể lưu cấu hình mặc định cho Code Check.',
     'Code Check policy': 'Policy cho Code Check',
     'Policy files (*.yaml *.yml *.json);;All files (*)':
         'File policy (*.yaml *.yml *.json);;Tất cả file (*)',
