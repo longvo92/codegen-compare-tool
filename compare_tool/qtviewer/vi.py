@@ -164,15 +164,14 @@ VI = {
     'CURRENT ZIP': 'File ZIP của CURRENT',
     'CURRENT folder or ZIP': 'Thư mục hoặc file ZIP của CURRENT',
     'Select or drop a folder / ZIP': 'Chọn hoặc thả thư mục / ZIP',
-    'Use Compare CURRENT': 'Dùng CURRENT từ mục So sánh',
     'Policy config (optional YAML / JSON)': 'Policy config (YAML / JSON, tùy chọn)',
     'Built-in defaults': 'Cấu hình mặc định',
     'Choose config…': 'Chọn config…',
-    'Save as default': 'Lưu làm mặc định',
-    'Remember the policy config path and scope overrides for the next launch.':
-        'Ghi nhớ đường dẫn policy config và các điều chỉnh phạm vi cho lần mở sau.',
-    'Code Check defaults saved.': 'Đã lưu cấu hình mặc định cho Code Check.',
-    'Code Check defaults could not be saved.': 'Không thể lưu cấu hình mặc định cho Code Check.',
+    'Save scope as default': 'Lưu phạm vi làm mặc định',
+    'Remember these scope overrides for the next launch.':
+        'Ghi nhớ các điều chỉnh phạm vi cho lần mở sau.',
+    'Code Check scope saved.': 'Đã lưu phạm vi mặc định cho Code Check.',
+    'Code Check scope could not be saved.': 'Không thể lưu phạm vi mặc định cho Code Check.',
     'Code Check policy': 'Policy cho Code Check',
     'Policy files (*.yaml *.yml *.json);;All files (*)':
         'File policy (*.yaml *.yml *.json);;Tất cả file (*)',

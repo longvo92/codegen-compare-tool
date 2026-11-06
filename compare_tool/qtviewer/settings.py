@@ -1,10 +1,12 @@
 """Preferences for the viewer, and the single dialog that edits them."""
 
+from os.path import abspath
 from typing import NamedTuple
 
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFormLayout, QGroupBox, QLabel, QVBoxLayout)
+                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
+                               QLabel, QLineEdit, QPushButton, QVBoxLayout)
 
 from .. import APP_NAME, theme
 from .icons import app_icon
@@ -71,9 +73,9 @@ def save_code_check_defaults(store, defaults):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent, prefs, texts):
+    def __init__(self, parent, prefs, texts, *, policy_path=''):
         super().__init__(parent)
-        tr = texts
+        self._text = tr = texts
         self.setObjectName('viewerSettings')
         self.setWindowTitle(tr('Settings'))
         self.setWindowIcon(app_icon())
@@ -110,6 +112,22 @@ class SettingsDialog(QDialog):
             options.addWidget(check)
         layout.addWidget(display)
 
+        policy = QGroupBox(tr('Code Check policy'))
+        policy_layout = QVBoxLayout(policy)
+        label = QLabel(tr('Policy config (optional YAML / JSON)'))
+        self.policy = QLineEdit(policy_path)
+        self.policy.setPlaceholderText(tr('Built-in defaults'))
+        self.policy.setClearButtonEnabled(True)
+        label.setBuddy(self.policy)
+        browse = QPushButton(tr('Choose config…'))
+        browse.clicked.connect(self._pick_policy)
+        row = QHBoxLayout()
+        row.addWidget(self.policy, 1)
+        row.addWidget(browse)
+        policy_layout.addWidget(label)
+        policy_layout.addLayout(row)
+        layout.addWidget(policy)
+
         self.buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Save).setText(tr('Save'))
         self.buttons.button(QDialogButtonBox.Cancel).setText(tr('Cancel'))
@@ -121,3 +139,15 @@ class SettingsDialog(QDialog):
         return Preferences(self.language.currentData(), self.theme.currentData(),
                            self.comment.isChecked(), self.unimportant.isChecked(),
                            self.hide_identical.isChecked())
+
+    def policy_path(self):
+        path = self.policy.text().strip()
+        return abspath(path) if path else ''
+
+    def _pick_policy(self):
+        tr = self._text
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr('Code Check policy'), self.policy.text().strip(),
+            tr('Policy files (*.yaml *.yml *.json);;All files (*)'))
+        if path:
+            self.policy.setText(path)

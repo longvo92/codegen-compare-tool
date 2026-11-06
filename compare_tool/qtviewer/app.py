@@ -34,7 +34,8 @@ from .codecheck import CodeCheckPage
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .i18n import Texts
-from .settings import SettingsDialog, load_preferences, preference_store, save_preferences
+from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
+                       preference_store, save_code_check_defaults, save_preferences)
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
 from .section import NO_MAX, Section
@@ -314,13 +315,19 @@ class MainWindow(QMainWindow):
                                         .format(theme.c('st-ign')))
 
     def _show_settings(self):
-        dialog = SettingsDialog(self, self._prefs._replace(theme=self._theme), self._text)
+        dialog = SettingsDialog(self, self._prefs._replace(theme=self._theme), self._text,
+                                policy_path=self.code_check.policy_path)
         try:
             if dialog.exec() == QDialog.Accepted:
                 prefs = dialog.preferences()
+                policy_path = dialog.policy_path()
                 saved = save_preferences(self._settings, prefs)
+                defaults = load_code_check_defaults(self._settings)
+                policy_saved = save_code_check_defaults(
+                    self._settings, defaults._replace(config_path=policy_path))
+                self.code_check.set_policy_path(policy_path)
                 self._apply_preferences(prefs)
-                if not saved:
+                if not (saved and policy_saved):
                     QMessageBox.warning(self, self._text('Settings'),
                                         self._text('Settings could not be saved for the next launch.'))
         finally:
@@ -749,6 +756,7 @@ class MainWindow(QMainWindow):
         return tuple(muted)
 
     def _start_scan(self):
+        self.code_check.refresh_current()
         if not (self.old and self.new):
             return
         if self.worker and self.worker.isRunning():

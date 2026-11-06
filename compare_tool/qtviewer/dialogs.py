@@ -47,12 +47,13 @@ checking related artifacts; they do not decide whether Code Check passes.
 
 Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 
-1. Choose **Code Check**. Select a CURRENT folder or ZIP, drop one onto this
-   mode, or choose **Use Compare CURRENT**.
-2. Optionally choose a YAML/JSON policy config. Under **Scope overrides**,
-   enter excluded file globs (one per line) or an additional ignored-port regex.
-   Select **Save as default** to reuse the policy path and scope next time.
-   Clear these fields and save again to restore built-in defaults.
+1. Open **Code Check**. The CURRENT folder from Compare is prefilled when
+   available. You can select or drop another folder or ZIP. Clear the source
+   and return to Code Check to use Compare's CURRENT again.
+2. Choose a YAML/JSON policy in **Settings** and save it to reuse it next time.
+   Clear the policy path in Settings to use the built-in policy. Under
+   **Scope overrides**, enter excluded file globs (one per line) or an
+   additional ignored-port regex. Select **Save scope as default** to keep them.
 3. Select **Run Code Check**. Filter **Findings** by result type or search text,
    then select a row to read its reason and source context.
 4. Open **Coverage & policy** to review checked calls, scope and applied
@@ -120,12 +121,13 @@ Trong **Cài đặt**, bạn cũng có thể chọn ngôn ngữ và theme. Bấm
 
 Đối chiếu một bản CURRENT với khai báo AUTOSAR tương ứng.
 
-1. Mở **Code Check**. Chọn hoặc thả thư mục hay file ZIP của CURRENT,
-   hoặc bấm **Dùng CURRENT từ mục So sánh**.
-2. Có thể chọn policy config YAML/JSON. Trong **Điều chỉnh phạm vi**, nhập
-   glob loại trừ (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua Port.
-   Chọn **Lưu làm mặc định** để dùng lại đường dẫn policy và phạm vi ở lần
-   mở sau. Xóa các trường này rồi lưu lại để dùng cấu hình mặc định của ứng dụng.
+1. Mở **Code Check**. Nếu Compare đã có thư mục CURRENT, ứng dụng tự điền
+   nguồn đó. Bạn có thể chọn hoặc thả thư mục hay ZIP khác. Để dùng lại CURRENT
+   từ Compare, xóa ô nguồn rồi mở lại tab Code Check.
+2. Chọn policy config YAML/JSON trong **Cài đặt** và lưu để dùng lại lần sau.
+   Xóa đường dẫn policy trong Cài đặt để dùng policy mặc định. Trong **Điều chỉnh
+   phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua
+   Port. Chọn **Lưu phạm vi làm mặc định** để giữ các giá trị đó.
 3. Chọn **Chạy Code Check**. Lọc **Finding** theo loại kết quả hoặc tìm kiếm,
    rồi chọn một dòng để xem lý do và ngữ cảnh source.
 4. Mở **Coverage & policy** để xem các RTE call đã kiểm tra, phạm vi và

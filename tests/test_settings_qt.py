@@ -57,7 +57,7 @@ class TestSettings(unittest.TestCase):
         self.addCleanup(win.close)
         return win
 
-    def edit_dialog(self, win, button):
+    def edit_dialog(self, win, button, policy=None):
         def edit():
             dlg = QApplication.activeModalWidget()
             dlg.language.setCurrentIndex(dlg.language.findData('vi'))
@@ -65,6 +65,8 @@ class TestSettings(unittest.TestCase):
             dlg.comment.setChecked(False)
             dlg.unimportant.setChecked(False)
             dlg.hide_identical.setChecked(True)
+            if policy is not None:
+                dlg.policy.setText(policy)
             dlg.buttons.button(button).click()
 
         QTimer.singleShot(0, edit)
@@ -108,6 +110,16 @@ class TestSettings(unittest.TestCase):
         dialog = SettingsDialog(win, win._prefs, win._text)
         self.assertEqual(dialog.windowTitle(), 'Cài đặt')
         self.assertEqual(dialog.buttons.button(QDialogButtonBox.Save).text(), 'Lưu')
+
+    def test_policy_path_is_saved_only_when_settings_are_accepted(self):
+        win = self.window()
+        policy = str(Path(self.tmp.name) / 'policy.yaml')
+        self.edit_dialog(win, QDialogButtonBox.Cancel, policy)
+        self.assertEqual(win.code_check.policy_path, '')
+        self.assertEqual(self.store.allKeys(), [])
+        self.edit_dialog(win, QDialogButtonBox.Save, policy)
+        self.assertEqual(win.code_check.policy_path, policy)
+        self.assertEqual(self.window().code_check.policy_path, policy)
 
     def test_cli_passes_only_explicit_theme_to_viewer(self):
         from compare_tool.main import main

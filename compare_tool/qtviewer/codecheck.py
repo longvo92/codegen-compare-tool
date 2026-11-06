@@ -1,10 +1,9 @@
 """Independent CURRENT-source check workspace; checker policy stays in consistency.py."""
 
-from os.path import abspath
 from pathlib import Path
 from pprint import pformat
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtGui import QBrush, QColor, QFontDatabase, QTextCursor
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -20,8 +19,8 @@ from ..syntax import language_for
 from .diffpane import DiffEditor
 from .i18n import Texts
 from .highlight import CodeHighlighter
-from .settings import (CodeCheckDefaults, load_code_check_defaults,
-                       preference_store, save_code_check_defaults)
+from .settings import (load_code_check_defaults, preference_store,
+                       save_code_check_defaults)
 from .worker import CodeCheckWorker
 
 
@@ -39,6 +38,9 @@ class CodeCheckPage(QWidget):
         self._text = Texts() if texts is None else texts
         self._settings = preference_store() if settings is None else settings
         defaults = load_code_check_defaults(self._settings)
+        self.policy_path = defaults.config_path
+        self._follows_compare = True
+        self._run_policy_path = ''
         self._defaults_status = ''
         self._status_text = 'NOT RUN'
         self._summary_text = 'Choose a source and run Code Check to see findings and coverage.'
@@ -80,18 +82,6 @@ class CodeCheckPage(QWidget):
         browse.addWidget(folder)
         browse.addWidget(archive)
         fields.addLayout(browse)
-        self.use_current = self._text.widget(QPushButton, 'Use Compare CURRENT')
-        self.use_current.clicked.connect(self._use_current)
-        fields.addWidget(self.use_current)
-        fields.addWidget(self._text.widget(QLabel, 'Policy config (optional YAML / JSON)'))
-        self.config = QLineEdit()
-        self._text.bind(self.config.setPlaceholderText, 'Built-in defaults')
-        self.config.setClearButtonEnabled(True)
-        self.config.setText(defaults.config_path)
-        fields.addWidget(self.config)
-        config_browse = self._text.widget(QPushButton, 'Choose config…')
-        config_browse.clicked.connect(self._pick_config)
-        fields.addWidget(config_browse)
         form.addWidget(self.inputs)
 
         self.scope = self._text.widget(QGroupBox, 'Scope overrides (optional)')
@@ -106,9 +96,9 @@ class CodeCheckPage(QWidget):
         scope_form.addRow(self._text.widget(QLabel, 'Exclude'), self.excludes)
         scope_form.addRow(self._text.widget(QLabel, 'Ignore ports'), self.ignore)
         form.addWidget(self.scope)
-        self.save_defaults = self._text.widget(QPushButton, 'Save as default')
+        self.save_defaults = self._text.widget(QPushButton, 'Save scope as default')
         self._text.bind(self.save_defaults.setToolTip,
-                        'Remember the policy config path and scope overrides for the next launch.')
+                        'Remember these scope overrides for the next launch.')
         self.save_defaults.clicked.connect(self._save_defaults)
         form.addWidget(self.save_defaults)
         self.defaults_status = QLabel()
@@ -208,9 +198,9 @@ class CodeCheckPage(QWidget):
         workspace.setSizes([320, 880])
         layout.addWidget(workspace, 1)
 
-        self.source.textChanged.connect(self._inputs_changed)
-        for edit in (self.config, self.ignore, self.excludes):
-            edit.textChanged.connect(self._policy_changed)
+        self.source.textChanged.connect(self._source_changed)
+        for edit in (self.ignore, self.excludes):
+            edit.textChanged.connect(self._scope_changed)
         self.refresh_current()
         self._inputs_changed()
         self.apply_theme()
@@ -224,12 +214,19 @@ class CodeCheckPage(QWidget):
         return box
 
     def refresh_current(self):
-        self.use_current.setEnabled(bool(self._current_source()))
+        if not self._follows_compare or self.is_running():
+            return
+        source = str(self._current_source() or '')
+        if source != self.source.text():
+            with QSignalBlocker(self.source):
+                self.source.setText(source)
+            self._inputs_changed()
 
-    def _use_current(self):
-        source = self._current_source()
-        if source:
-            self.source.setText(str(source))
+    def _source_changed(self, text):
+        # An explicit source wins for the session. Clearing it restores the
+        # Compare default the next time the workspace is shown.
+        self._follows_compare = not text.strip()
+        self._inputs_changed()
 
     def _pick_folder(self):
         path = QFileDialog.getExistingDirectory(self, self._text('CURRENT folder'), self.source.text())
@@ -241,18 +238,17 @@ class CodeCheckPage(QWidget):
         if path:
             self.source.setText(path)
 
-    def _pick_config(self):
-        path, _ = QFileDialog.getOpenFileName(self, self._text('Code Check policy'), '',
-                                             self._text('Policy files (*.yaml *.yml *.json);;All files (*)'))
-        if path:
-            self.config.setText(path)
+    def set_policy_path(self, path):
+        if path != self.policy_path:
+            self.policy_path = path
+            self._inputs_changed()
 
     def _inputs_changed(self):
         if self.check is not None:
             self._set_status('STALE — run again', 'state-busy')
         self.run_button.setEnabled(bool(self.source.text().strip()) and not self.is_running())
 
-    def _policy_changed(self):
+    def _scope_changed(self):
         self._set_defaults_status('')
         self._inputs_changed()
 
@@ -262,15 +258,13 @@ class CodeCheckPage(QWidget):
         self.defaults_status.setVisible(bool(text))
 
     def _save_defaults(self):
-        path = self.config.text().strip()
-        defaults = CodeCheckDefaults(
-            abspath(path) if path else '',
-            self.excludes.toPlainText().strip(),
-            self.ignore.text().strip(),
+        defaults = load_code_check_defaults(self._settings)._replace(
+            excludes=self.excludes.toPlainText().strip(),
+            ignore_regex=self.ignore.text().strip(),
         )
         saved = save_code_check_defaults(self._settings, defaults)
-        self._set_defaults_status('Code Check defaults saved.' if saved
-                                  else 'Code Check defaults could not be saved.')
+        self._set_defaults_status('Code Check scope saved.' if saved
+                                  else 'Code Check scope could not be saved.')
 
     def is_running(self):
         return bool(self.worker and self.worker.isRunning())
@@ -280,7 +274,7 @@ class CodeCheckPage(QWidget):
             return
         self.cleanup()
         source = str(Path(self.source.text().strip()).resolve())
-        config_path = self.config.text().strip()
+        config_path = self._run_policy_path = self.policy_path
         exclude = tuple(line.strip() for line in self.excludes.toPlainText().splitlines() if line.strip())
         self._run_config = str(Path(config_path).resolve()) if config_path else ''
         self._result_path = source
@@ -318,6 +312,8 @@ class CodeCheckPage(QWidget):
         self.run_button.setEnabled(bool(self.source.text().strip()))
         self.progress.hide()
         self.refresh_current()
+        if self.check is not None and self.policy_path != self._run_policy_path:
+            self._inputs_changed()
 
     def _done(self, check, root):
         self.check, self.root = check, Path(root)

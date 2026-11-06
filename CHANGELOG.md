@@ -12,7 +12,8 @@ All notable changes to this project are documented here. Versions follow
 ### Changed
 
 - Use Light for new viewer preferences. Save language, theme, and Compare display options in one Settings dialog.
-- Let Code Check save the policy config path and scope overrides for the next launch.
+- Save the Code Check policy in Settings and reuse saved scope overrides on launch.
+- Prefill the Code Check source from Compare's CURRENT folder unless a separate source was selected.
 - Show dated, published versions in the viewer's Release notes.
 
 ### Fixed
