@@ -94,6 +94,8 @@ Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py`
 
 Viewer preferences live in `qtviewer/settings.py` and use an app-specific `QSettings` store. `qtviewer/i18n.py` binds GUI text to a Vietnamese catalog. Structured messages keep their English string value for CLI and reports and expose templates and values for translation in the viewer. Language and display changes render existing results without running either worker again.
 
+Help embeds its bilingual guide and About content. `resources.doc_text` reads the changelog from the checkout, frozen executable assets, or package data inside the zipapp, keeping Release notes available offline.
+
 `main.viewer_requested` selects the front end. `run_compare` removes stale target HTML before scanning; write failures preserve terminal results and exit 2. Full report rendering returns HTML plus diagnostics internally; the string-returning builder remains available. Source rendering failures retain partial HTML with a global incomplete banner and force CLI exit 2, including JSON exit metadata; GUI export reports the incomplete output. Raw scan verdicts/counts remain unchanged. `--no-report` skips HTML and leaves existing reports untouched. `summary_lines` and `diagnostic_lines` consume the raw scan without changing results.
 
 ## Verification

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QTextBrowser,
                                QVBoxLayout)
 
 from .. import APP_NAME, __version__, theme
-from ..resources import doc_file
+from ..resources import doc_text
 from .icons import app_icon, logo_pixmap
 from .i18n import Texts
 
@@ -214,15 +214,14 @@ def show_user_guide(parent):
 def show_release_notes(parent):
     tr = _texts(parent)
     title = tr('Release notes') + ' — ' + APP_NAME
-    path = doc_file('CHANGELOG.md')
-    if path is None:
-        _TextDialog(parent, title, tr(_NO_NOTES), markdown=False).exec()
-        return
     try:
-        text = path.read_text(encoding='utf-8')
+        text = doc_text('CHANGELOG.md')
     except (OSError, UnicodeError) as e:
-        text = tr('Could not read {}\n\n{}: {}', path, type(e).__name__, e)
+        text = tr('Could not read {}\n\n{}: {}', 'CHANGELOG.md', type(e).__name__, e)
         _TextDialog(parent, title, text, markdown=False).exec()
+        return
+    if text is None:
+        _TextDialog(parent, title, tr(_NO_NOTES), markdown=False).exec()
         return
     _TextDialog(parent, title, published_release_notes(text) or tr('No release notes available.')).exec()
 

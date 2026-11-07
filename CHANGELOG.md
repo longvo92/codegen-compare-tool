@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-11-07
+
 ### Added
 
 - Add a Vietnamese viewer with English technical terms and localized User guide and About pages.
@@ -19,6 +21,7 @@ All notable changes to this project are documented here. Versions follow
 ### Fixed
 
 - Show why Code Check reports `PASS WITH EXCEPTIONS`. List ignored coverage, skipped findings and scoped exceptions separately with source locations in the viewer and CLI.
+- Keep Release notes available offline in the zipapp viewer and avoid conflicting ICU libraries in Windows executable builds.
 
 ## [2.0.0] — 2026-11-06
 
