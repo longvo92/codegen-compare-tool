@@ -62,4 +62,7 @@ def doc_text(name):
         data = get_data(__package__, name)
     except FileNotFoundError:
         return None
-    return data.decode('utf-8') if data is not None else None
+    if data is None:
+        return None
+    # Match Path.read_text's universal newlines, including Windows archives.
+    return data.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')

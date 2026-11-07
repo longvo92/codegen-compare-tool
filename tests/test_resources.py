@@ -43,12 +43,13 @@ class TestResourceLookup(unittest.TestCase):
             with zipfile.ZipFile(archive, 'w') as bundle:
                 for name in ('__init__.py', 'resources.py'):
                     bundle.write(root / 'compare_tool' / name, 'compare_tool/' + name)
-                bundle.writestr('compare_tool/CHANGELOG.md', '## [2.1.0] — 2026-11-07\n\nOffline')
+                bundle.writestr('compare_tool/CHANGELOG.md', '## [2.1.0] — 2026-11-07\r\n\r\nOffline')
             process = subprocess.run(
                 [sys.executable, '-c',
                  "import sys; sys.path.insert(0, sys.argv[1]); "
                  "from compare_tool.resources import doc_text; "
-                 "assert 'Offline' in doc_text('CHANGELOG.md')", str(archive)],
+                 "text = doc_text('CHANGELOG.md'); "
+                 "assert 'Offline' in text and chr(13) not in text", str(archive)],
                 cwd=folder, capture_output=True, text=True)
             self.assertEqual(process.returncode, 0, process.stderr)
 
