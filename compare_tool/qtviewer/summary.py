@@ -9,6 +9,7 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem
 
 from .. import theme
+from .i18n import Texts
 from .summary_model import summary_sections
 
 REL_ROLE = Qt.UserRole
@@ -24,9 +25,10 @@ class SummaryPanel(QTreeWidget):
     # the hunk the row is about instead of on the file's first change.
     fileActivated = Signal(str, str)
 
-    def __init__(self):
+    def __init__(self, texts=None):
         super().__init__()
-        self.setHeaderLabels(['Change', 'Detail'])
+        self._text = Texts() if texts is None else texts
+        self._text.bind_labels(self.setHeaderLabels, ['Change', 'Detail'])
         self.setUniformRowHeights(True)
         self.setRootIsDecorated(True)
         # AUTOSAR paths are long and the panel is narrow: let the name column
@@ -36,22 +38,33 @@ class SummaryPanel(QTreeWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         self.itemClicked.connect(self._on_click)
-        self._results = {}
+        self._sections = []
 
     def apply_theme(self):
-        """Item colours are set per row, so a theme switch has to rebuild them
-        -- from the results the panel was last given, never from the widget."""
-        self.set_results(self._results)
+        for i in range(self.topLevelItemCount()):
+            head = self.topLevelItem(i)
+            if head.childCount():
+                head.setForeground(0, QBrush(QColor(theme.c('accent'))))
+            for j in range(head.childCount()):
+                item = head.child(j)
+                item.setForeground(0, QBrush(QColor(theme.c(
+                    _SIGN_COLOR.get(item.text(0).split(' ', 1)[0], 'fg')))))
+                item.setForeground(1, QBrush(QColor(theme.c('fg-dim'))))
+
+    def retranslate(self):
+        if not self._sections and self.topLevelItemCount():
+            self.topLevelItem(0).setText(0, self._text(_EMPTY))
+        for i, (title, rows) in enumerate(self._sections):
+            self.topLevelItem(i).setText(0, '{} ({})'.format(self._text(title), len(rows)))
 
     def set_results(self, results):
-        self._results = results
         self.clear()
-        sections = summary_sections(results) if results else []
+        self._sections = sections = summary_sections(results) if results else []
         if not sections:
-            self.addTopLevelItem(QTreeWidgetItem([_EMPTY, '']))
+            self.addTopLevelItem(QTreeWidgetItem([self._text(_EMPTY), '']))
             return
         for title, rows in sections:
-            head = QTreeWidgetItem(['{} ({})'.format(title, len(rows)), ''])
+            head = QTreeWidgetItem(['{} ({})'.format(self._text(title), len(rows)), ''])
             font = head.font(0)
             font.setBold(True)
             head.setFont(0, font)

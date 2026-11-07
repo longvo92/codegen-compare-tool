@@ -511,12 +511,10 @@ def _parser():
                          '--baseline-name "build 4821"')
     ap.add_argument('--current-name', metavar='NAME', default=None,
                     help='same for the CURRENT side')
-    ap.add_argument('--theme', choices=theme.THEMES, default=theme.DEFAULT,
-                    help='colour scheme the viewer opens with, and the one the '
-                         'HTML report opens with (default: dark). The report '
-                         'always carries both, so its own button switches with '
-                         'nothing to download; the viewer has the same button '
-                         'in its toolbar')
+    ap.add_argument('--theme', choices=theme.THEMES, default=None,
+                    help='initial viewer or HTML theme. Viewer uses its saved theme '
+                         'or light if unset; CLI HTML defaults to dark. Change the '
+                         'viewer theme in Settings, or switch it in the HTML report.')
     ap.add_argument('--exclude', metavar='PATTERN', action='append', default=[],
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
@@ -820,7 +818,7 @@ def _run(ap, args, zip_temp):
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
                                       exclude=args.exclude,
                                       progress=None if args.no_report else progress,
-                                      reviews=reviews, theme_name=args.theme,
+                                      reviews=reviews, theme_name=args.theme or theme.DEFAULT,
                                       old_label=args.baseline_name or old_zip,
                                       new_label=args.current_name or new_zip,
                                       max_diff_lines=args.max_diff_lines,

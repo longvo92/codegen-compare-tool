@@ -15,6 +15,8 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QPushButton, QSizePolicy, QVBoxLayout,
                                QWidget)
 
+from .i18n import Texts
+
 # ▾ / ▸ rather than a styled ::indicator: the arrow has to read the same on a
 # box with no icon theme installed, which is where this tool usually runs.
 _ARROW = {True: '▾', False: '▸'}
@@ -28,8 +30,9 @@ class Section(QWidget):
 
     toggled = Signal(bool)
 
-    def __init__(self, title, content, expanded=True):
+    def __init__(self, title, content, expanded=True, *, texts=None):
         super().__init__()
+        self._text = Texts() if texts is None else texts
         self._content = content
         self._title = title
 
@@ -42,7 +45,7 @@ class Section(QWidget):
         self.header.setChecked(expanded)
         self.header.setFlat(True)
         self.header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.header.setToolTip('Click to fold this panel away')
+        self._text.bind(self.header.setToolTip, 'Click to fold this panel away')
         self.header.clicked.connect(self._on_click)
 
         lay = QVBoxLayout(self)
@@ -64,7 +67,7 @@ class Section(QWidget):
         section programmatically already know they did."""
         self.header.setChecked(expanded)
         self._content.setVisible(expanded)
-        self._relabel()
+        self.retranslate()
         if expanded:
             self.setMaximumHeight(NO_MAX)
         else:
@@ -79,7 +82,7 @@ class Section(QWidget):
         """A count or a warning beside the title, e.g. '2 heads-ups'. Shown on
         the bar so a folded section can still say it has something in it."""
         self._suffix = suffix or ''
-        self._relabel()
+        self.retranslate()
 
     # --- internals ---
 
@@ -87,8 +90,8 @@ class Section(QWidget):
         self.set_expanded(self.header.isChecked())
         self.toggled.emit(self.header.isChecked())
 
-    def _relabel(self):
-        text = '{}  {}'.format(_ARROW[self.header.isChecked()], self._title)
+    def retranslate(self):
+        text = '{}  {}'.format(_ARROW[self.header.isChecked()], self._text(self._title))
         if self._suffix:
-            text += '   {}'.format(self._suffix)
+            text += '   {}'.format(self._text(self._suffix))
         self.header.setText(text)

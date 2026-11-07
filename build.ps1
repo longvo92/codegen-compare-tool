@@ -40,6 +40,7 @@ sys.exit(main())
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
     New-Item -ItemType Directory -Force $stage | Out-Null
     Copy-Item compare_tool $stage -Recurse
+    Copy-Item CHANGELOG.md "$stage\compare_tool\CHANGELOG.md"
     Get-ChildItem $stage -Recurse -Directory -Filter __pycache__ |
         Remove-Item -Recurse -Force
     Set-Content "$stage\__main__.py" $entry -Encoding ascii

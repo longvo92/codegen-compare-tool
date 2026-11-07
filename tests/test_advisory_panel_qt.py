@@ -9,6 +9,7 @@ import os
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -87,7 +88,8 @@ class TestWindowWiresAdvisories(unittest.TestCase):
         from compare_tool.qtviewer.app import MainWindow
         app = _app()
         demo = FIX / 'demo'
-        win = MainWindow(str(demo / 'old'), str(demo / 'new'))
+        win = MainWindow(str(demo / 'old'), str(demo / 'new'),
+                         settings=Mock(value=lambda _, default: default))
         try:
             _settle(app, win)
             self.assertFalse(win.advisories.isHidden())

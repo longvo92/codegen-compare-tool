@@ -62,6 +62,9 @@ jobs:
           if not any(n.startswith('compare_tool/qtviewer/') for n in names):
               sys.exit('qtviewer is missing: the .pyz would refuse --qt even '
                        'on a machine that has PySide6')
+          sys.path.insert(0, 'dist/compare_tool.pyz')
+          from compare_tool.resources import doc_text
+          assert '## [' in doc_text('CHANGELOG.md'), 'offline release notes are missing'
           print('{} entries'.format(len(names)))
           PY
 

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog,
 
 from .. import theme, zipsource
 from .icons import app_icon
+from .i18n import Texts
 
 _COMMIT_ROLE = Qt.UserRole
 
@@ -50,20 +51,21 @@ class _PathRow(QHBoxLayout):
     """Label, the path itself, a Browse button, and (optionally) a Zip button
     -- so a side can be a folder or a ``.zip`` artifact."""
 
-    def __init__(self, label, path, on_browse, on_zip=None):
+    def __init__(self, label, path, on_browse, on_zip=None, *, texts=None):
         super().__init__()
-        tag = QLabel(label)
+        self._text = Texts() if texts is None else texts
+        tag = QLabel(self._text(label))
         tag.setMinimumWidth(64)  # fits 'BASELINE', the longest row label
         tag.setStyleSheet(_muted_qss('fg-dim'))
         self.edit = QLineEdit(str(path) if path else '')
-        self.edit.setPlaceholderText('Choose a folder or a .zip…')
-        btn = QPushButton('Browse…')
+        self.edit.setPlaceholderText(self._text('Choose a folder or a .zip…'))
+        btn = QPushButton(self._text('Browse…'))
         btn.clicked.connect(on_browse)
         self.addWidget(tag)
         self.addWidget(self.edit, 1)
         self.addWidget(btn)
         if on_zip is not None:
-            zbtn = QPushButton('Zip…')
+            zbtn = QPushButton(self._text('Zip…'))
             zbtn.clicked.connect(on_zip)
             self.addWidget(zbtn)
 
@@ -84,22 +86,22 @@ class FolderPicker(QDialog):
 
     def __init__(self, parent, old=None, new=None):
         super().__init__(parent)
+        self._text = getattr(parent, "_text", Texts())
         self.chosen = None
-        self.setWindowTitle('Compare two folders')
+        self.setWindowTitle(self._text('Compare two folders'))
         self.setWindowIcon(app_icon())
         self.resize(680, 200)
 
         self.old_row = _PathRow('BASELINE', old,
                                 lambda: self._browse(self.old_row, 'BASELINE'),
-                                lambda: self._browse_zip(self.old_row, 'BASELINE'))
+                                lambda: self._browse_zip(self.old_row, 'BASELINE'), texts=self._text)
         self.new_row = _PathRow('CURRENT', new,
                                 lambda: self._browse(self.new_row, 'CURRENT'),
-                                lambda: self._browse_zip(self.new_row, 'CURRENT'))
+                                lambda: self._browse_zip(self.new_row, 'CURRENT'), texts=self._text)
         for row in (self.old_row, self.new_row):
             row.edit.textChanged.connect(self._sync_ok)
 
-        hint = QLabel('BASELINE is the previous generation, CURRENT is the one '
-                      'being reviewed. Either can be a folder or a .zip.')
+        hint = QLabel(self._text('BASELINE is the previous generation, CURRENT is the one being reviewed. Either can be a folder or a .zip.'))
         hint.setStyleSheet(_muted_qss('fg-muted', ' font-size:11px;'))
 
         self.error = QLabel('')
@@ -108,7 +110,8 @@ class FolderPicker(QDialog):
         self.error.setStyleSheet(_err_qss())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.buttons.button(QDialogButtonBox.Ok).setText('Compare')
+        self.buttons.button(QDialogButtonBox.Ok).setText(self._text('Compare'))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(self._text('Cancel'))
         self.buttons.accepted.connect(self._accept)
         self.buttons.rejected.connect(self.reject)
 
@@ -141,14 +144,14 @@ class FolderPicker(QDialog):
 
     def _browse(self, row, label):
         picked = QFileDialog.getExistingDirectory(
-            self, 'Select the {} folder'.format(label), self._start_dir(row))
+            self, self._text('Select the {} folder', label), self._start_dir(row))
         if picked:
             row.set_text(picked)
 
     def _browse_zip(self, row, label):
         picked, _ = QFileDialog.getOpenFileName(
-            self, 'Select the {} zip'.format(label), self._start_dir(row),
-            'Zip artifact (*.zip)')
+            self, self._text('Select the {} zip', label), self._start_dir(row),
+            self._text('Zip artifact (*.zip)'))
         if picked:
             row.set_text(picked)
 
@@ -165,7 +168,7 @@ class FolderPicker(QDialog):
             # error later
             if not (Path(path).is_dir() or zipsource.is_zip(path)):
                 self.error.setText(
-                    '{} is not a folder or a .zip: {}'.format(label, path))
+                    self._text('{} is not a folder or a .zip: {}', label, path))
                 self.error.setVisible(True)
                 return
         self.chosen = (old, new)
@@ -186,6 +189,7 @@ class CommitPicker(QDialog):
 
     def __init__(self, parent, folder, load, resolve):
         super().__init__(parent)
+        self._text = getattr(parent, "_text", Texts())
         self._load = load          # folder -> (root, sub, [Commit])
         self._resolve = resolve    # (root, rev) -> Commit
         self.folder = str(folder) if folder else ''
@@ -193,11 +197,11 @@ class CommitPicker(QDialog):
         self.sub = ''
         self.chosen = None
 
-        self.setWindowTitle('Compare with a commit')
+        self.setWindowTitle(self._text('Compare with a commit'))
         self.setWindowIcon(app_icon())
         self.resize(880, 560)
 
-        self.folder_row = _PathRow('Folder', self.folder, self._change_folder)
+        self.folder_row = _PathRow('Folder', self.folder, self._change_folder, texts=self._text)
         self.folder_row.edit.setReadOnly(True)  # Browse is the only way in
         self.where = QLabel('')
         # lines up under the path text, not the tag: the tag column is now
@@ -206,12 +210,12 @@ class CommitPicker(QDialog):
             _muted_qss('fg-dim', ' font-size:11px; padding-left:68px;'))
 
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText('Filter commits…')
+        self.filter_edit.setPlaceholderText(self._text('Filter commits…'))
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.textChanged.connect(self._refilter)
 
         self.list = QTreeWidget()
-        self.list.setHeaderLabels(['Commit', 'Date', 'Author', 'Subject'])
+        self.list.setHeaderLabels([self._text(label) for label in ['Commit', 'Date', 'Author', 'Subject']])
         self.list.setRootIsDecorated(False)
         self.list.setUniformRowHeights(True)
         self.list.setAlternatingRowColors(True)
@@ -219,9 +223,9 @@ class CommitPicker(QDialog):
         self.list.itemDoubleClicked.connect(lambda *_: self._accept_selected())
 
         self.rev_edit = QLineEdit()
-        self.rev_edit.setPlaceholderText('…or a sha, branch, tag, HEAD~3')
+        self.rev_edit.setPlaceholderText(self._text('…or a sha, branch, tag, HEAD~3'))
         self.rev_edit.returnPressed.connect(self._use_revision)
-        rev_btn = QPushButton('Use revision')
+        rev_btn = QPushButton(self._text('Use revision'))
         rev_btn.clicked.connect(self._use_revision)
         rev = QHBoxLayout()
         rev.addWidget(self.rev_edit, 1)
@@ -233,7 +237,8 @@ class CommitPicker(QDialog):
         self.error.setStyleSheet(_err_qss())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.buttons.button(QDialogButtonBox.Ok).setText('Compare')
+        self.buttons.button(QDialogButtonBox.Ok).setText(self._text('Compare'))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(self._text('Cancel'))
         self.buttons.accepted.connect(self._accept_selected)
         self.buttons.rejected.connect(self.reject)
 
@@ -259,7 +264,7 @@ class CommitPicker(QDialog):
 
     def _change_folder(self):
         picked = QFileDialog.getExistingDirectory(
-            self, 'Select the folder to review (inside a git checkout)',
+            self, self._text('Select the folder to review (inside a git checkout)'),
             self.folder or '')
         if not picked:
             return
@@ -281,7 +286,7 @@ class CommitPicker(QDialog):
         self.error.setVisible(False)
         self.root, self.sub = root, sub
         self.where.setText('{}  ·  {}'.format(
-            Path(str(root)).name, sub or 'whole repository'))
+            Path(str(root)).name, sub or self._text('whole repository')))
         for c in commits:
             item = QTreeWidgetItem([c.short, c.when, c.author, c.subject])
             item.setData(0, _COMMIT_ROLE, c)
@@ -291,9 +296,7 @@ class CommitPicker(QDialog):
         if commits:
             self.list.setCurrentItem(self.list.topLevelItem(0))
         else:
-            self._show_error('No commit in this repository touches {}. The '
-                             'folder may be untracked or ignored.'
-                             .format(sub or 'the repository'))
+            self._show_error(self._text('No commit in this repository touches {}. The folder may be untracked or ignored.', sub or self._text('the repository')))
         self._refilter(self.filter_edit.text())
         self._sync_ok()
 

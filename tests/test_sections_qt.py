@@ -9,6 +9,7 @@ import os
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
@@ -91,7 +92,8 @@ class TestLeftColumnSections(unittest.TestCase):
         cls.app = _app()
         apply_theme(cls.app)          # the QSS the real entry point applies
         demo = FIX / 'demo'
-        cls.win = MainWindow(str(demo / 'old'), str(demo / 'new'))
+        cls.win = MainWindow(str(demo / 'old'), str(demo / 'new'),
+                         settings=Mock(value=lambda _, default: default))
         cls.win.resize(1400, 900)
         cls.win.show()
         _settle(cls.app, cls.win)
@@ -190,15 +192,6 @@ class TestLeftColumnSections(unittest.TestCase):
         self._settle_ui()
         self.assertGreater(self.win.left_split.maximumHeight(), 1000)
         self.assertTrue(self.win.tree.isVisible())
-
-    def test_the_rule_checkboxes_live_inside_the_files_pane(self):
-        # they used to float above all three panes, which left them stranded
-        # mid-panel once every pane was folded
-        self.assertTrue(self.win.cb_comment.isVisible())
-        self.win.sec_files.header.click()
-        self._settle_ui()
-        self.assertFalse(self.win.cb_comment.isVisible())
-        self.assertFalse(self.win.cb_hide_identical.isVisible())
 
     def test_consistency_pane_carries_the_count_on_its_bar(self):
         # this fixture has two, and the bar has to say so even folded

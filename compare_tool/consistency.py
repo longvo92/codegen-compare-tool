@@ -52,6 +52,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .c_syntax import scan_calls
 from .diff_engine import ruleset_for
+from .messages import Message
 from .scanner import list_files, looks_binary, read_text
 
 # a family carries a change when at least one of its files got one of these
@@ -150,7 +151,7 @@ class CurrentTreeCheck:
         counts = Counter(item['reason'] for item in self.ignored_coverage)
         details = ', '.join('{}: {}'.format(reason, count)
                             for reason, count in sorted(counts.items()))
-        return 'IGNORED coverage: {} item(s) ({}).'.format(len(self.ignored_coverage), details)
+        return Message('IGNORED coverage: {} item(s) ({}).', len(self.ignored_coverage), details)
 
     @property
     def exit_code(self):
@@ -244,11 +245,11 @@ DEFAULT_CHECKER_CONFIG = {
 def ignored_explanation(item: Dict[str, Any]) -> str:
     reason = item['reason']
     if reason in _REGEX_EXCLUSIONS:
-        return '{} Pattern: {}'.format(_REGEX_EXCLUSIONS[reason], item['pattern'])
+        return Message('{} Pattern: {}', Message(_REGEX_EXCLUSIONS[reason]), item['pattern'])
     detail = _COVERAGE_LIMITS[reason]
     if reason == 'SERVICE_PACKAGE_NOT_CONFIGURED':
-        return '{} Set {}_packages to check {}.'.format(
-            detail, item['service'].lower(), item['interface'])
+        return Message('{} Set {}_packages to check {}.',
+                       Message(detail), item['service'].lower(), item['interface'])
     return detail
 
 
@@ -848,10 +849,10 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     listing_findings = [_scan_error(rel, RuntimeError(message))
                         for rel, message in listing_errors]
     raw = list(code_errors) + list(arxml_errors) + listing_findings
-    notes = []
+    notes: List[str] = []
     no_rte_reason = config.get('no_rte_expected', '').strip()
     if no_rte_reason and not calls and not access_points:
-        notes.append('No RTE access expected: {}'.format(no_rte_reason))
+        notes.append(Message('No RTE access expected: {}', no_rte_reason))
     missing = []
     if not c_rels:
         missing.append('no C files in the selected scope')
@@ -864,16 +865,17 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
             missing.append('no RTE calls or access points; declare no_rte_expected if intentional')
     if missing:
         raw.append({'reason': 'CONSISTENCY_INPUT_INCOMPLETE', 'severity': 'fail',
-                    'file': '.', 'error': '; '.join(missing)})
+                    'file': '.', 'error': Message('; '.join(['{}'] * len(missing)),
+                                                  *(Message(text) for text in missing))})
     for entry in config.get('function_mappings', []):
         if entry['runnable'] not in runnables:
             raw.append({'reason': 'CONSISTENCY_INPUT_INCOMPLETE', 'severity': 'fail',
-                        'file': entry['file'], 'error': 'mapping target does not exist: {}'.format(
+                        'file': entry['file'], 'error': Message('mapping target does not exist: {}',
                             entry['runnable'])})
         if any(f.name == entry['function'] and _matches(f.file, [entry['file']])
                for f in functions):
-            notes.append('Function mapping {} / {} -> {}: {}'.format(
-                entry['file'], entry['function'], entry['runnable'], entry['reason']))
+            notes.append(Message('Function mapping {} / {} -> {}: {}',
+                                 entry['file'], entry['function'], entry['runnable'], entry['reason']))
     prefixes = tuple(config['forbidden_rte_prefixes'])
     for call in forbidden:
         identity = _find_runnable(call.function, call.file, runnables, config)
@@ -903,9 +905,9 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
             else:
                 ignored_calls.append({'reason': 'IGNORED_RTE_CALL_REGEX', 'call': call,
                                       'pattern': match.pattern})
-        notes.append('Ignored Rte_Call regex: {} ({} call(s))'.format(
-            ', '.join(pattern.pattern for pattern in rte_call_patterns),
-            len(ignored_calls)))
+        notes.append(Message('Ignored Rte_Call regex: {} ({} call(s))',
+                             ', '.join(pattern.pattern for pattern in rte_call_patterns),
+                             len(ignored_calls)))
     service_issues, service_skips, handled, service_checked = _check_service_packages(
         contract_calls, runnables, service_points, ports, config)
     raw.extend(service_issues)
@@ -930,11 +932,11 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
             unchecked.append(item)
     for name, severity in sorted(config['rules'].items()):
         if severity in ('skip', 'off'):
-            notes.append('Rule {} configured {}'.format(name, severity))
+            notes.append(Message('Rule {} configured {}', name, severity))
     if exclude:
-        notes.append('Excluded file patterns: {}'.format(', '.join(exclude)))
+        notes.append(Message('Excluded file patterns: {}', ', '.join(exclude)))
     if ignore_pattern:
-        notes.append('Ignored access regex: {}'.format(ignore_pattern.pattern))
+        notes.append(Message('Ignored access regex: {}', ignore_pattern.pattern))
     findings, skipped_findings = _classify(raw, config)
     return CurrentTreeCheck(
         findings, unchecked, len(skipped_findings), len(ignored), len(c_rels),
@@ -1031,8 +1033,8 @@ def model_advisories(groups, results, shared_group=None):
         surfaces = [label for fam, label in _SURFACES
                     if present[fam] and changed[fam]]
         if surfaces:
-            out.append((model, '{} changed but the generated C did not'
-                               .format(' and '.join(surfaces))))
+            label = Message('{} and {}', *surfaces) if len(surfaces) == 2 else surfaces[0]
+            out.append((model, Message('{} changed but the generated C did not', label)))
     out.extend(_rte_regen_advisories(groups, results, shared_group))
     # a model can never earn both (the +RTE rule needs its C to have changed,
     # the surface rule needs it not to have), so sorting by name alone is stable

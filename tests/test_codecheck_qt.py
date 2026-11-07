@@ -5,6 +5,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 import zipfile
@@ -14,10 +15,10 @@ from unittest import mock
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 try:
-    from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt
+    from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt
     from PySide6.QtGui import QDropEvent
     from PySide6.QtCore import QUrl
-    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
@@ -52,7 +53,8 @@ class TestCodeCheckWorkspace(unittest.TestCase):
 </AUTOSAR-VARIABLE-IREF></ACCESSED-VARIABLE></VARIABLE-ACCESS></DATA-RECEIVE-POINT-BY-ARGUMENTS>
 </RUNNABLE-ENTITY></RUNNABLES></SWC-INTERNAL-BEHAVIOR></INTERNAL-BEHAVIORS>
 </APPLICATION-SW-COMPONENT-TYPE></ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>''', encoding='utf-8')
-        self.win = MainWindow()
+        self.win = MainWindow(settings=QSettings(
+            str(Path(self.temp.name) / 'viewer.ini'), QSettings.IniFormat))
         self.addCleanup(self.win.close)
         self.win.show()
         self.win.modes.setCurrentIndex(1)
@@ -75,10 +77,109 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.page.run_button.click()
         self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
 
+    def save_policy(self, path):
+        from compare_tool.qtviewer.settings import SettingsDialog
+
+        def edit(dialog):
+            dialog.policy.setText(path)
+            return QDialog.Accepted
+
+        with mock.patch.object(SettingsDialog, 'exec', edit):
+            self.win.act_settings.trigger()
+
+    def test_saved_policy_and_scope_are_reused_on_reopen(self):
+        from compare_tool.qtviewer.app import MainWindow
+        policy = self.root / 'policy.json'
+        policy.write_text(json.dumps({'forbidden_functions': ['banned']}), encoding='utf-8')
+        self.code.write_text(
+            'void Ctrl_Step(void) { Rte_Read_Speed_Value(); banned(); }\n', encoding='utf-8')
+        (self.root / 'Ignored.c').write_text('void Other(void) { banned(); }\n', encoding='utf-8')
+        self.page.excludes.setPlainText('Ignored.c\n*.tmp')
+        self.page.ignore.setText('^Unused_')
+        self.page.save_defaults.click()
+        self.assertEqual(self.page.defaults_status.text(), 'Code Check scope saved.')
+
+        self.save_policy(str(policy))
+        self.assertEqual(self.page.policy_path, str(policy))
+        self.page.excludes.clear()
+        self.page.ignore.clear()
+        store_path = self.win._settings.fileName()
+        self.win.close()
+        reopened = MainWindow(settings=QSettings(store_path, QSettings.IniFormat))
+        self.addCleanup(reopened.close)
+        self.win, self.page = reopened, reopened.code_check
+        self.win.show()
+        self.win.modes.setCurrentIndex(1)
+        self.assertEqual(self.page.policy_path, str(policy))
+        self.assertEqual(self.page.excludes.toPlainText(), 'Ignored.c\n*.tmp')
+        self.assertEqual(self.page.ignore.text(), '^Unused_')
+        self.assertEqual(self.page.source.text(), '')
+        self.assertIsNone(self.page.worker)
+
+        self.page.source.setText(str(self.root))
+        self.run_check()
+        self.assertEqual([row['reason'] for row in self.page.check.findings], ['FORBIDDEN_FUNCTION'])
+        self.assertEqual(self.page.check.c_files_scanned, 1)
+        self.assertIn('Ignored access regex: (?:^Unused_)', self.page.coverage.toPlainText())
+
+        self.save_policy('')
+        self.page.excludes.clear()
+        self.page.ignore.clear()
+        self.page.save_defaults.click()
+        reset = MainWindow(settings=QSettings(store_path, QSettings.IniFormat))
+        self.addCleanup(reset.close)
+        self.assertEqual(reset.code_check.policy_path, '')
+        self.assertEqual(reset.code_check.excludes.toPlainText(), '')
+        self.assertEqual(reset.code_check.ignore.text(), '')
+
+    def test_language_switch_during_check_and_after_selection(self):
+        self.code.write_text(
+            self.code.read_text(encoding='utf-8') +
+            '\nvoid Other(void) { Rte_Call_Api_One(); Rte_Call_Api_Two(); }\n',
+            encoding='utf-8')
+        started, release = threading.Event(), threading.Event()
+
+        def gated_check(*args, **kwargs):
+            started.set()
+            if not release.wait(10):
+                raise RuntimeError('test did not release checker')
+            return current_tree_check(*args, **kwargs)
+
+        with mock.patch('compare_tool.qtviewer.worker.current_tree_check',
+                        side_effect=gated_check) as check:
+            self.page.run_button.click()
+            try:
+                self.assertTrue(started.wait(5))
+                worker = self.page.worker
+                self.win._apply_preferences(self.win._prefs._replace(language='vi', theme='dark'))
+                self.assertEqual(self.page.status.text(), 'ĐANG CHẠY')
+                self.assertEqual(self.page.run_button.text(), 'Chạy Code Check')
+            finally:
+                release.set()
+            self.settle(lambda: not self.page.is_running() and not self.page.progress.isVisible())
+            check.assert_called_once()
+
+        self.assertEqual(self.page.status.text(), 'PASS WITH EXCEPTIONS')
+        self.page.severity.setCurrentIndex(self.page.severity.findData('IGNORED'))
+        self.page.search.setText('Rte_Call_Api')
+        item = self.page.findings.topLevelItem(1)
+        self.assertIsNotNone(item)
+        self.page.findings.setCurrentItem(item)
+        self.assertIn('RTE API này nằm ngoài phạm vi', self.page.details.toPlainText())
+        position = self.page.source_preview.textCursor().position()
+
+        self.win._apply_preferences(self.win._prefs._replace(language='en', theme='light'))
+        self.assertIs(self.page.worker, worker)
+        self.assertIs(self.page.findings.currentItem(), item)
+        self.assertEqual(self.page.search.text(), 'Rte_Call_Api')
+        self.assertEqual(self.page.severity.currentData(), 'IGNORED')
+        self.assertEqual(self.page.source_preview.textCursor().position(), position)
+        self.assertIn('This RTE API is outside', self.page.details.toPlainText())
+
     def test_parenthesized_forbidden_calls_match_cli(self):
         config = self.root / 'policy.json'
         config.write_text(json.dumps({'forbidden_functions': ['banned']}))
-        self.page.config.setText(str(config))
+        self.page.set_policy_path(str(config))
         self.code.write_text('extern int Rte_Read_Fake_Value(void);\n'
                              'void Ctrl_Step(void) { Rte_Read_Speed_Value(); (banned)(); }')
         self.run_check()
@@ -223,7 +324,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
             (custom, 'Ignored Rte_Call regex: ^Rte_Call_ (1 call(s))'),
         ):
             with self.subTest(config=config.name):
-                self.page.config.setText(str(config))
+                self.page.set_policy_path(str(config))
                 self.run_check()
                 self.assertEqual(self.page.status.text(), 'PASS WITH EXCEPTIONS')
                 self.assertEqual(
@@ -259,7 +360,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         settings = {'nvm_packages': ['/Services/NvM'], 'forbidden_functions': ['banned'],
                     'rules': {'forbidden_function': 'warn'}}
         config.write_text(json.dumps(settings), encoding='utf-8')
-        self.page.config.setText(str(config))
+        self.page.set_policy_path(str(config))
         self.run_check()
         self.assertEqual(self.page.status.text(), 'FAIL')
         self.assertEqual(self.page.check.checked_calls, 2)
@@ -295,7 +396,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         config = Path(self.temp.name) / 'policy.json'
         config.write_text(json.dumps({'exceptions': [{'rule': 'unsupported_rte_api',
             'file': 'Ctrl.c', 'reason': 'Reviewed separately with service declarations'}]}), encoding='utf-8')
-        self.page.config.setText(str(config))
+        self.page.set_policy_path(str(config))
         self.run_check()
         self.page.severity.setCurrentText('EXCEPTION')
         self.assertEqual(self.page.findings.topLevelItemCount(), 1)
@@ -327,10 +428,10 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.page.source.setText(str(self.root))
         bad = Path(self.temp.name) / 'bad.json'
         bad.write_text('{broken', encoding='utf-8')
-        self.page.config.setText(str(bad))
+        self.page.set_policy_path(str(bad))
         self.run_check()
         self.assertIn('JSONDecodeError', self.page.summary.text())
-        self.page.config.clear()
+        self.page.set_policy_path('')
         self.page.ignore.setText('[')
         self.run_check()
         self.assertEqual(self.page.status.text(), 'INCOMPLETE')
@@ -356,7 +457,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertTrue(self.page.severity.isEnabled())
         self.assertTrue(self.page.search.isEnabled())
         # Editing setup must not relabel the completed run's provenance.
-        self.page.config.setText(str(self.root / 'new-policy.yaml'))
+        self.page.set_policy_path(str(self.root / 'new-policy.yaml'))
         self.page.source.setText(str(self.root / 'other'))
         self.assertIn('STALE', self.page.status.text())
         self.assertEqual(self.page.coverage.toPlainText(), coverage)
@@ -394,8 +495,38 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.win.modes.setCurrentIndex(1)
         self.assertIs(self.page.check, check)
         self.assertIn('Code Check', self.win.windowTitle())
-        self.page._use_current()
-        self.assertEqual(self.page.source.text(), str(demo / 'new'))
+        self.assertEqual(self.page.source.text(), str(self.root))
+
+    def test_compare_current_is_the_default_until_the_user_picks_a_source(self):
+        self.page.source.clear()
+
+        def select_code_check(current):
+            self.win.modes.setCurrentIndex(0)
+            self.win.new = current
+            self.win.modes.setCurrentIndex(1)
+
+        select_code_check(str(self.root))
+        self.assertEqual(self.page.source.text(), str(self.root))
+        self.assertTrue(self.page.run_button.isEnabled())
+        self.assertIsNone(self.page.worker)
+
+        other = self.root.parent / 'next-current'
+        other.mkdir()
+        select_code_check(str(other))
+        self.assertEqual(self.page.source.text(), str(other))
+
+        manual = self.root.parent / 'manual'
+        manual.mkdir()
+        self.page.source.setText(str(manual))
+        select_code_check(str(self.root))
+        self.assertEqual(self.page.source.text(), str(manual))
+
+        self.page.source.clear()
+        select_code_check(str(self.root))
+        self.assertEqual(self.page.source.text(), str(self.root))
+        select_code_check(None)
+        self.assertEqual(self.page.source.text(), '')
+        self.assertFalse(self.page.run_button.isEnabled())
 
     def test_drop_in_code_check_does_not_replace_comparison_sources(self):
         data = QMimeData()

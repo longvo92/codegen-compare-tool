@@ -8,6 +8,7 @@ its text label, it must never take the viewer down.
 """
 
 import sys
+from pkgutil import get_data
 from pathlib import Path
 
 _PKG = Path(__file__).resolve().parent
@@ -50,3 +51,18 @@ def logo_file(name):
 def doc_file(name):
     """Repo document shipped alongside the app ('CHANGELOG.md', 'LICENSE')."""
     return find(name)
+
+
+def doc_text(name):
+    """Read a document from disk or the package inside a CLI zipapp."""
+    path = doc_file(name)
+    if path is not None:
+        return path.read_text(encoding='utf-8')
+    try:
+        data = get_data(__package__, name)
+    except FileNotFoundError:
+        return None
+    if data is None:
+        return None
+    # Match Path.read_text's universal newlines, including Windows archives.
+    return data.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
