@@ -5,6 +5,10 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+- Show why Code Check reports `PASS WITH EXCEPTIONS`. List ignored coverage, skipped findings and scoped exceptions separately with source locations in the viewer and CLI.
+
 ## [2.0.0] — 2026-11-06
 
 ### Removed

@@ -12,12 +12,18 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from .. import theme
-from ..consistency import CHECKER_SCOPE
+from ..consistency import CHECKER_SCOPE, ignored_explanation
 from ..scanner import read_text
 from ..syntax import language_for
 from .diffpane import DiffEditor
 from .highlight import CodeHighlighter
 from .worker import CodeCheckWorker
+
+
+_RESULT_ROLES = {
+    'FAIL': 'state-error', 'WARN': 'accent', 'UNCHECKED': 'state-busy',
+    'EXCEPTION': 'fg-dim', 'IGNORED': 'fg-dim', 'SKIPPED': 'fg-dim',
+}
 
 
 class CodeCheckPage(QWidget):
@@ -116,7 +122,7 @@ class CodeCheckPage(QWidget):
         finding_layout.setContentsMargins(0, 8, 0, 0)
         filters = QHBoxLayout()
         self.severity = QComboBox()
-        self.severity.addItems(['All results', 'FAIL', 'WARN', 'UNCHECKED', 'EXCEPTION'])
+        self.severity.addItems(['All results', *_RESULT_ROLES])
         self.severity.currentTextChanged.connect(self._filter_rows)
         self.severity.setEnabled(False)
         self.search = QLineEdit()
@@ -131,17 +137,17 @@ class CodeCheckPage(QWidget):
         finding_layout.addLayout(filters)
         split = QSplitter(Qt.Vertical)
         self.findings = QTreeWidget()
-        self.findings.setHeaderLabels(['Severity', 'Rule', 'File', 'Line', 'Function / Runnable', 'API / Access'])
+        self.findings.setHeaderLabels(['Result', 'Rule / Reason', 'File', 'Line', 'Function / Runnable', 'API / Access'])
         self.findings.setRootIsDecorated(False)
         self.findings.setAlternatingRowColors(True)
         self.findings.setUniformRowHeights(True)
         self.findings.header().setSectionResizeMode(QHeaderView.Interactive)
-        for col, width in enumerate((100, 235, 210, 55, 180, 200)):
+        for col, width in enumerate((90, 235, 160, 55, 150, 200)):
             self.findings.setColumnWidth(col, width)
         self.findings.itemSelectionChanged.connect(self._select_finding)
         split.addWidget(self.findings)
         inspect = QSplitter(Qt.Horizontal)
-        self.details = self._text_box('Select a finding to inspect its evidence.')
+        self.details = self._text_box('Select a result to inspect its reason and source.')
         source_box = QWidget()
         source_layout = QVBoxLayout(source_box)
         source_layout.setContentsMargins(0, 0, 0, 0)
@@ -163,7 +169,7 @@ class CodeCheckPage(QWidget):
         finding_layout.addWidget(split, 1)
         self.tabs.addTab(findings, 'Findings')
         self.coverage = self._text_box('Coverage and effective policy appear after a check.')
-        self.tabs.addTab(self.coverage, 'Coverage & policy')
+        self.tabs.addTab(self.coverage, 'Coverage && policy')
         body.addWidget(self.tabs, 1)
         workspace.addWidget(results)
         workspace.setStretchFactor(0, 0)
@@ -233,6 +239,8 @@ class CodeCheckPage(QWidget):
         self.check = None
         self.root = None
         self._rows = []
+        self.severity.setCurrentIndex(0)
+        self.search.clear()
         self.findings.clear()
         self.details.clear()
         self._clear_source()
@@ -264,27 +272,34 @@ class CodeCheckPage(QWidget):
         status = check.status
         role = {'FAIL': 'state-error', 'INCOMPLETE': 'state-error', 'NOT CHECKED': 'fg-dim'}
         self._set_status(status, role.get(status, 'state-ready'))
-        self.summary.setText('{} FAIL    ·    {} WARN    ·    {} UNCHECKED    ·    '
-                             '{} EXCEPTION'.format(
-                                 sum(f['severity'] == 'fail' for f in check.findings),
-                                 sum(f['severity'] == 'warn' for f in check.findings),
-                                 len(check.skipped_accesses), len(check.exemptions)))
-        self._show_coverage(check)
+        ignored_items = check.ignored_items
         self._rows = [(f['severity'].upper(), f) for f in check.findings]
         self._rows += [('UNCHECKED', f) for f in check.skipped_accesses]
         self._rows += [('EXCEPTION', f) for f in check.exemptions]
+        self._rows += [('IGNORED', f) for f in ignored_items]
+        self._rows += [('SKIPPED', f) for f in check.skipped_findings]
+        summary = ('{} FAIL  ·  {} WARN  ·  {} UNCHECKED\n'
+                   '{} scoped exceptions  ·  {} IGNORED  ·  {} SKIPPED'.format(
+                       sum(f['severity'] == 'fail' for f in check.findings),
+                       sum(f['severity'] == 'warn' for f in check.findings),
+                       len(check.skipped_accesses), len(check.exemptions),
+                       len(ignored_items), check.skipped_rules))
+        if check.notes:
+            summary += '\nApplied settings in Coverage & policy.'
+        self.summary.setText(summary)
+        self._show_coverage(check)
+        self.tabs.setCurrentIndex(1 if status == 'PASS WITH EXCEPTIONS' and not self._rows else 0)
         self.severity.setEnabled(True)
         self.search.setEnabled(True)
         self._filter_rows()
 
     def _show_coverage(self, check):
-        """Coverage metadata only; individual findings and exceptions live in Findings."""
+        """Show coverage totals and effective settings alongside the result rows."""
         lines = [
             '{} C file(s), {} ARXML file(s), {} access point(s)'.format(
                 check.c_files_scanned, check.arxml_files_scanned, check.access_points_detected),
             '{} / {} RTE call(s) checked'.format(check.checked_calls, check.rte_calls_detected),
             '', self._run_config,
-            '', CHECKER_SCOPE,
         ]
         ignored_summary = check.ignored_coverage_summary
         if ignored_summary:
@@ -295,6 +310,7 @@ class CodeCheckPage(QWidget):
             lines.append('{} finding(s) skipped by rule configuration.'.format(check.skipped_rules))
         if check.ignored_accesses:
             lines.append('{} RTE access(es) ignored by the configured port regex.'.format(check.ignored_accesses))
+        lines.extend(['', CHECKER_SCOPE])
         self.coverage.setPlainText('\n'.join(lines))
 
     def _failed(self, message):
@@ -328,13 +344,11 @@ class CodeCheckPage(QWidget):
             item.setData(0, Qt.UserRole, finding)
             for col, value in enumerate(columns):
                 item.setToolTip(col, value)
-            role = {'FAIL': 'state-error', 'WARN': 'accent',
-                    'UNCHECKED': 'state-busy', 'EXCEPTION': 'fg-dim'}[severity]
-            item.setForeground(0, QBrush(QColor(theme.c(role))))
+            item.setForeground(0, QBrush(QColor(theme.c(_RESULT_ROLES[severity]))))
             self.findings.addTopLevelItem(item)
         count = self.findings.topLevelItemCount()
         self.visible_count.setText('{} of {} results shown'.format(count, len(self._rows)) if self._rows
-                                   else ('No findings or unchecked items.' if self.check else 'No results yet'))
+                                   else ('No findings or coverage items.' if self.check else 'No results yet'))
         if count:
             self.findings.setCurrentItem(self.findings.topLevelItem(0))
 
@@ -344,8 +358,12 @@ class CodeCheckPage(QWidget):
             return
         finding = item.data(0, Qt.UserRole)
         lines = [item.text(0) + ' — ' + finding['reason']]
+        if item.text(0) == 'IGNORED':
+            lines.append(ignored_explanation(finding))
+        elif item.text(0) == 'SKIPPED':
+            lines.append('Rule configured as skip.')
         for key, value in finding.items():
-            if key not in ('call', 'reason', 'severity'):
+            if key not in ('call', 'reason', 'severity', 'pattern'):
                 lines.append('{}: {}'.format(key.replace('_', ' ').capitalize(),
                                              value if isinstance(value, str) else pformat(value)))
         call = finding.get('call')
@@ -403,8 +421,7 @@ class CodeCheckPage(QWidget):
                               theme.c('panel-3'), theme.c('fg-muted')))
         for i in range(self.findings.topLevelItemCount()):
             item = self.findings.topLevelItem(i)
-            role = {'FAIL': 'state-error', 'WARN': 'accent',
-                    'UNCHECKED': 'state-busy', 'EXCEPTION': 'fg-dim'}[item.text(0)]
+            role = _RESULT_ROLES[item.text(0)]
             item.setForeground(0, QBrush(QColor(theme.c(role))))
 
     def cleanup(self):

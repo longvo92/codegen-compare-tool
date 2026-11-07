@@ -131,9 +131,9 @@ Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với
 
 1. Chọn folder hoặc ZIP, thả một nguồn vào Code Check, hoặc chọn **Use Compare CURRENT**.
 2. Chọn config YAML/JSON nếu cần. Scope override nhận exclude glob, mỗi dòng một mẫu, và regex bỏ qua port bổ sung.
-3. Chọn **Run Code Check**. Lọc kết quả theo severity hoặc text; chọn finding để xem evidence và source context.
+3. Chọn **Run Code Check**. Lọc theo loại kết quả hoặc nội dung. Chọn một dòng để xem lý do và vị trí nguồn.
 
-**Findings** chứa rule lỗi, cảnh báo, mục chưa kiểm tra được và ngoại lệ kèm evidence. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại; đổi input cần chạy lại. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
+**Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
 
 ## Cái gì được tính là noise
 
@@ -197,7 +197,9 @@ python -m compare_tool baseline current --no-report --check-consistency
 | Finding có severity `fail` | 1 |
 | Không có rule fail hoặc lỗi input | 0 |
 
-CLI và Code Check gộp các giới hạn đã công bố vào nhóm `IGNORED` trong Coverage. `NOT CHECKED` nghĩa là có mục coverage bị bỏ qua, chưa có lời gọi RTE nào được đối chiếu với ARXML và không có finding. Kiểm tra đạt với coverage một phần hiển thị `PASS WITH EXCEPTIONS`.
+`PASS WITH EXCEPTIONS` có thể do coverage một phần, thiết lập policy được áp dụng hoặc ngoại lệ theo phạm vi. CLI và tab **Findings** trong Code Check liệt kê riêng `IGNORED` (giới hạn coverage hoặc khớp regex), `SKIPPED` (rule đặt thành `skip`) và `EXCEPTION` (ngoại lệ theo phạm vi khớp cùng lý do khai báo). Mỗi dòng có vị trí nguồn nếu xác định được. Mở **Coverage & policy** để xem tổng số và các thiết lập đã áp dụng.
+
+`NOT CHECKED` nghĩa là có mục coverage bị bỏ qua, chưa có lời gọi RTE nào được đối chiếu với ARXML và không có finding.
 
 Các mục còn `UNCHECKED` hiện trạng thái `INCOMPLETE` và giữ nguyên exit code. Khác biệt file vẫn ảnh hưởng exit code của Compare. `--exit-zero` chỉ bỏ qua phần khác biệt đó. Với lệnh CLI cũ, bỏ cờ `--consistency-policy` cùng giá trị đi kèm.
 
@@ -229,7 +231,7 @@ rules:
   orphan_access: fail
 ```
 
-Severity: `fail` gate, `warn` chỉ báo, `skip` bỏ qua và đếm finding theo cấu hình, `off` tắt rule. WARN không gate trong cả hai policy.
+Dùng `fail` để gate, `warn` để báo mà không gate, `skip` để liệt kê riêng các finding dưới `SKIPPED` và `off` để tắt rule.
 
 Đặt severity độc lập cho từng rule trong `rules`, gồm ba rule service/function mới. CLI và Code Check của viewer dùng chung cấu hình. Bắt đầu từ [config policy đầy đủ](../../examples/checker-policy.yaml), thay package và hàm cấm mẫu bằng giá trị của dự án, rồi chọn file trong Code Check hoặc truyền `--consistency-config`.
 

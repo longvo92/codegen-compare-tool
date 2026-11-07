@@ -44,15 +44,15 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
    mode, or choose **Use Compare CURRENT**.
 2. Optionally choose a YAML/JSON policy config. Under **Scope overrides**,
    enter excluded file globs (one per line) or an additional ignored-port regex.
-3. Select **Run Code Check**. Filter results by severity or search text,
-   then select a finding to read its evidence and source context.
+3. Select **Run Code Check**. Filter **Findings** by result type or search text,
+   then select a row to read its reason and source context.
 4. Open **Coverage & policy** to review checked calls, scope and applied
    settings. Run the check again after changing inputs.
 
 | Result | Meaning |
 |---|---|
 | PASS | No failed rules or coverage gaps |
-| PASS WITH EXCEPTIONS | Passed with configured exceptions or scope adjustments |
+| PASS WITH EXCEPTIONS | Passed with coverage limits, policy settings or scoped exceptions |
 | NOT CHECKED | Coverage was skipped and no RTE calls were checked |
 | FAIL | At least one rule failed |
 | INCOMPLETE | Missing input, a scan error or unchecked items; review coverage |
@@ -60,8 +60,9 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 The checker covers generated `.c` Sender/Receiver RTE calls against ARXML,
 configured NVM/DEM interface packages, and forbidden function calls. Set package
 paths, forbidden names/globs and each rule's severity in the policy config.
-Unsupported RTE APIs appear under **IGNORED** in coverage. Compare and Code Check keep separate
-inputs and results when you switch modes.
+**IGNORED** lists coverage limits and regex matches. **SKIPPED** lists findings
+from rules set to `skip`. **EXCEPTION** lists matched scoped exceptions and their
+justifications. Compare and Code Check keep separate inputs and results when you switch modes.
 
 ## CLI
 

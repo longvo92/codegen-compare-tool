@@ -136,6 +136,12 @@ class CurrentTreeCheck:
     notes: List[str] = field(default_factory=list)
     ignored_coverage: List[Dict[str, Any]] = field(default_factory=list)
     ignored_rte_calls: int = 0
+    ignored_by_policy: List[Dict[str, Any]] = field(default_factory=list)
+    skipped_findings: List[Dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def ignored_items(self) -> List[Dict[str, Any]]:
+        return self.ignored_coverage + self.ignored_by_policy
 
     @property
     def ignored_coverage_summary(self):
@@ -188,14 +194,19 @@ _CHECKER_RULES = frozenset((
     'dem_package',
     'forbidden_function',
 ))
-_COVERAGE_LIMITS = frozenset((
-    'UNSUPPORTED_RTE_API',
-    'RUNNABLE_NOT_RESOLVED',
-    'RUNNABLE_NOT_IMPLEMENTED',
-    'AMBIGUOUS_PORT_DATAELEMENT',
-    'SERVICE_REFERENCE_UNRESOLVED',
-    'SERVICE_PACKAGE_NOT_CONFIGURED',
-))
+_COVERAGE_LIMITS = {
+    'UNSUPPORTED_RTE_API': 'This RTE API is outside the supported ARXML checks.',
+    'RUNNABLE_NOT_RESOLVED': 'The C function could not be mapped to a unique ARXML runnable.',
+    'RUNNABLE_NOT_IMPLEMENTED': 'No C function in the selected scope maps to this ARXML runnable.',
+    'AMBIGUOUS_PORT_DATAELEMENT': 'Multiple ARXML Port/DataElement pairs match this RTE API.',
+    'SERVICE_REFERENCE_UNRESOLVED': 'The service call point and required port do not resolve to a unique interface.',
+    'SERVICE_PACKAGE_NOT_CONFIGURED': 'No allowed packages are configured for this service.',
+}
+_REGEX_EXCLUSIONS = {
+    'IGNORED_RTE_CALL_REGEX': 'The API matches ignore_rte_call_regex.',
+    'IGNORED_ACCESS_PORT_REGEX': 'The C RTE access matches the ignored-port regex.',
+    'IGNORED_ARXML_ACCESS_REGEX': 'The ARXML access matches the ignored-port regex for orphan checks.',
+}
 _EXCEPTION_RULES = _CHECKER_RULES | {reason.lower() for reason in _COVERAGE_LIMITS}
 _CONFIG_LISTS = (
     'forbidden_rte_prefixes', 'ignore_access_port_regex', 'ignore_rte_call_regex',
@@ -228,6 +239,17 @@ DEFAULT_CHECKER_CONFIG = {
         'forbidden_function': 'fail',
     },
 }
+
+
+def ignored_explanation(item: Dict[str, Any]) -> str:
+    reason = item['reason']
+    if reason in _REGEX_EXCLUSIONS:
+        return '{} Pattern: {}'.format(_REGEX_EXCLUSIONS[reason], item['pattern'])
+    detail = _COVERAGE_LIMITS[reason]
+    if reason == 'SERVICE_PACKAGE_NOT_CONFIGURED':
+        return '{} Set {}_packages to check {}.'.format(
+            detail, item['service'].lower(), item['interface'])
+    return detail
 
 
 def _checker_defaults():
@@ -648,8 +670,8 @@ def _duplicate_inconsistencies(access_points):
 
 def _check_access_points(calls, access_points, runnables, ignore_pattern, config):
     issues = _duplicate_inconsistencies(access_points)
-    ignored = checked = 0
-    skipped = []
+    ignored, skipped = [], []
+    checked = 0
     used = set()
     by_scope, by_source = {}, {}
     for access in access_points:
@@ -665,7 +687,8 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
             continue
         payload = call.api[len('Rte_{}_'.format(call.api_type)):]
         if ignore_pattern and ignore_pattern.search(payload):
-            ignored += 1
+            ignored.append(dict(context, reason='IGNORED_ACCESS_PORT_REGEX',
+                                pattern=ignore_pattern.pattern))
             continue
         if runnable is None:
             # Preserve the existing missing-pair failure even without ownership.
@@ -705,8 +728,7 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
 
 def _orphan_accesses(functions, access_points, runnables, ignore_pattern, config, used):
     resolved = {_find_runnable(f.name, f.file, runnables, config) for f in functions}
-    findings = []
-    skipped = []
+    findings, skipped, ignored = [], [], []
     for identity, definitions in runnables.items():
         if identity not in resolved:
             skipped.append({'reason': 'RUNNABLE_NOT_IMPLEMENTED',
@@ -718,17 +740,21 @@ def _orphan_accesses(functions, access_points, runnables, ignore_pattern, config
                (access.direction, access.access_mode))
         report_key = (access.source_file, key)
         payload = '{}_{}'.format(access.port, access.data_element)
-        if (access.runnable not in resolved or key in used or report_key in seen
-                or (ignore_pattern and ignore_pattern.search(payload))):
+        if access.runnable not in resolved or key in used or report_key in seen:
             continue
         seen.add(report_key)
-        findings.append({
-            'reason': 'ORPHAN_ACCESS', 'arxml_file': access.source_file,
+        context = {
+            'arxml_file': access.source_file,
             'runnable': access.runnable, 'swc': access.swc, 'port': access.port,
             'data_element': access.data_element,
             'access': '{}/{} [{}]'.format(access.direction, access.access_mode, access.container),
-        })
-    return findings, skipped
+        }
+        if ignore_pattern and ignore_pattern.search(payload):
+            ignored.append(dict(context, reason='IGNORED_ARXML_ACCESS_REGEX',
+                                pattern=ignore_pattern.pattern))
+        else:
+            findings.append(dict(context, reason='ORPHAN_ACCESS'))
+    return findings, skipped, ignored
 
 
 def _apply_exceptions(items, exceptions):
@@ -774,15 +800,14 @@ def validate_checker_regex(config: Dict[str, Any],
 
 
 def _classify(findings, config):
-    out = []
-    skipped = 0
+    out, skipped = [], []
     for finding in findings:
         if finding['reason'] in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE'):
             out.append(finding)
             continue
         severity = config['rules'].get(finding['reason'].lower(), 'fail')
         if severity == 'skip':
-            skipped += 1
+            skipped.append(finding)
             continue
         if severity == 'off':
             continue
@@ -866,17 +891,21 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
                     finding['port'] = _ref_short_name(next(iter(pairs))[0])
             raw.append(finding)
     contract_calls = calls
-    ignored_rte_calls = 0
+    ignored_calls = []
     if rte_call_patterns:
-        contract_calls = [
-            call for call in calls
-            if not (call.api_type == 'Call'
-                    and any(pattern.search(call.api) for pattern in rte_call_patterns))
-        ]
-        ignored_rte_calls = len(calls) - len(contract_calls)
+        contract_calls = []
+        for call in calls:
+            match = None
+            if call.api_type == 'Call':
+                match = next((p for p in rte_call_patterns if p.search(call.api)), None)
+            if match is None:
+                contract_calls.append(call)
+            else:
+                ignored_calls.append({'reason': 'IGNORED_RTE_CALL_REGEX', 'call': call,
+                                      'pattern': match.pattern})
         notes.append('Ignored Rte_Call regex: {} ({} call(s))'.format(
             ', '.join(pattern.pattern for pattern in rte_call_patterns),
-            ignored_rte_calls))
+            len(ignored_calls)))
     service_issues, service_skips, handled, service_checked = _check_service_packages(
         contract_calls, runnables, service_points, ports, config)
     raw.extend(service_issues)
@@ -886,7 +915,7 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
     skipped.extend(service_skips)
     checked += service_checked
     raw.extend(issues)
-    orphans, unresolved = _orphan_accesses(
+    orphans, unresolved, ignored_arxml = _orphan_accesses(
         functions, access_points, runnables, ignore_pattern, config, used)
     raw.extend(orphans)
     skipped.extend(unresolved)
@@ -906,12 +935,13 @@ def current_tree_check(root: Path, config: Optional[Dict[str, Any]] = None,
         notes.append('Excluded file patterns: {}'.format(', '.join(exclude)))
     if ignore_pattern:
         notes.append('Ignored access regex: {}'.format(ignore_pattern.pattern))
-    findings, skipped_rules = _classify(raw, config)
+    findings, skipped_findings = _classify(raw, config)
     return CurrentTreeCheck(
-        findings, unchecked, skipped_rules, ignored, len(c_rels),
+        findings, unchecked, len(skipped_findings), len(ignored), len(c_rels),
         len(arxml_rels), len(functions), len(calls), len(access_points),
         checked_calls=checked, exemptions=exemptions, notes=notes, ignored_coverage=ignored_coverage,
-        ignored_rte_calls=ignored_rte_calls)
+        ignored_rte_calls=len(ignored_calls), ignored_by_policy=ignored_calls + ignored + ignored_arxml,
+        skipped_findings=skipped_findings)
 
 
 def _iface_changed(r):
