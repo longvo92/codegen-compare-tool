@@ -25,6 +25,21 @@ Path tương đối với `compare_tool/`.
 | `theme.py`, `resources.py` | Color role dùng chung và packaged asset tùy chọn |
 | `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt |
 
+## Xử lý ARXML
+
+Engine tùy chọn dùng lxml trong `compare_tool/arxml_handler/` được chuyển từ
+arxml_handler tại `4e27ad9`. Engine dùng định danh AUTOSAR đầy đủ và XML có
+namespace. CLI và Qt dùng chung bước lập kế hoạch, validation, khóa Master,
+rollback, Undo trong phiên và export report.
+
+`fix_suggestions.py` đưa ra hướng xử lý mà không cần lxml. Khi có lxml và input
+sửa rõ ràng, tool tạo bản sao tạm gồm các file checker cần và kết quả patch đã
+validate. Checker chạy lại với cùng policy và phạm vi để chứng minh lỗi mục
+tiêu biến mất mà không tạo lỗi mới. Access phải khớp runnable, reference đầy đủ,
+access mode và operation liên quan. Handler xác minh lại trước khi Apply.
+Code Check tự chạy lại sau Apply hoặc Undo từ luồng sửa. Các kết quả khác liên
+quan đến Master phải được quét lại.
+
 ## Data flow
 
 1. Source adapter đưa folder, ZIP hoặc Git snapshot về directory.

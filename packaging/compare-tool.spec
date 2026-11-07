@@ -21,7 +21,7 @@ _root = os.path.dirname(_here)
 # QtSvg comes along for the icon set: the toolbar glyphs are SVGs, and without
 # it Qt's svg image plugin cannot rasterise them (buttons would lose their
 # icons and keep only their labels).
-_HIDDEN = ['compare_tool.qtviewer.app', 'PySide6.QtSvg']
+_HIDDEN = ['compare_tool.qtviewer.app', 'PySide6.QtSvg', 'lxml.etree']
 
 # Images the viewer loads at runtime, plus the changelog its "Release notes"
 # dialog shows. compare_tool.resources looks for them under sys._MEIPASS

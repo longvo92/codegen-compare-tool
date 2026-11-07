@@ -1,8 +1,8 @@
 <div align="center">
 
-# CodeGen Inspector
+# CodeGen Studio
 
-**So sánh baseline codegen AUTOSAR và review thay đổi offline.**
+**So sánh codegen, kiểm tra tính nhất quán AUTOSAR và cập nhật ARXML.**
 
 [![CI](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](../../pyproject.toml)
@@ -30,10 +30,10 @@ cd codegen-compare-tool
 python -m compare_tool baseline current --report report.html
 ```
 
-CLI chỉ dùng Python standard library. Để mở desktop viewer:
+CLI Compare và Code Check chỉ dùng Python standard library. Để cài viewer và ARXML Handler:
 
 ```bash
-python -m pip install -e ".[viewer]"
+python -m pip install -e ".[viewer,arxml]"
 python -m compare_tool
 ```
 
@@ -54,6 +54,7 @@ python -m compare_tool --check-current current
 | Lọc noise | Lọc generator noise đã chứng minh, giữ khác biệt chưa giải thích được |
 | Desktop viewer | Review side-by-side |
 | Workspace Code Check | Check một folder/ZIP CURRENT với finding, source context và policy coverage |
+| ARXML Handler | Xem trước và cập nhật các bổ sung S/R từ ARXML đã generate. Code Check có thể đề xuất và kiểm chứng bản sửa. |
 | HTML report | Chia sẻ offline hoặc làm CI artifact |
 | `--no-report` | Xem summary và diagnostics trên terminal |
 | `--check-current PATH` | Kiểm tra RTE/ARXML trong CURRENT trước delivery |

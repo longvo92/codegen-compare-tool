@@ -1,4 +1,4 @@
-# CodeGen Inspector
+# CodeGen Studio
 
 Compare AUTOSAR MATLAB/Simulink generated-code folders while filtering proven generator noise.
 

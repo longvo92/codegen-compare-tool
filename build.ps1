@@ -11,12 +11,12 @@
 #                           window at runtime (see packaging\entry.py).
 #
 #   dist\compare_tool.pyz   optional tiny zipapp for machines that
-#                           already have Python 3.8+. Stdlib only, so the CLI
-#                           works anywhere; the viewer additionally needs
-#                           PySide6 installed on that machine.
+#                           already have Python 3.8+. Compare and Code Check
+#                           are stdlib-only. Install PySide6 for the viewer
+#                           and lxml for ARXML Handler.
 #
 # Usage:
-#   .\build.ps1             # exe only (needs pyinstaller + PySide6 locally)
+#   .\build.ps1             # exe only (build installs PyInstaller, PySide6 and lxml)
 #   .\build.ps1 -Pyz        # exe + zipapp
 #   .\build.ps1 -PyzOnly    # zipapp only (no PyInstaller / PySide6 needed)
 
@@ -51,7 +51,7 @@ sys.exit(main())
 
 # --- PyInstaller onefile (.exe): CLI + viewer in one binary ---
 if (-not $PyzOnly) {
-    python -m pip install --upgrade pyinstaller "PySide6>=6.5,!=6.12.0"
+    python -m pip install --upgrade pyinstaller "PySide6>=6.5,!=6.12.0" "lxml>=5.3,<7"
     if ($LASTEXITCODE -ne 0) { throw 'installing build dependencies failed' }
     python -m PyInstaller --noconfirm --clean packaging\compare-tool.spec
     if ($LASTEXITCODE -ne 0) { throw 'pyinstaller build failed' }

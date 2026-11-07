@@ -712,7 +712,8 @@ def _check_access_points(calls, access_points, runnables, ignore_pattern, config
         port_ref, data_ref = next(iter(pairs))
         expected = _expected_access(call.api_type)
         used.add((runnable, port_ref, data_ref, expected))
-        context.update(port=_ref_short_name(port_ref), data_element=_ref_short_name(data_ref))
+        context.update(port=_ref_short_name(port_ref), data_element=_ref_short_name(data_ref),
+                       port_ref=port_ref, data_ref=data_ref)
         for source_file in sorted({r.source_file for r in runnables[runnable]}):
             accesses = by_source.get((runnable, source_file, port_ref, data_ref), [])
             if not accesses:
