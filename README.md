@@ -1,8 +1,8 @@
 <div align="center">
 
-# CodeGen Inspector
+# CodeGen Studio
 
-**Compare AUTOSAR codegen baselines and review changes offline.**
+**Compare generated code, check AUTOSAR consistency, and patch ARXML.**
 
 [![CI](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/longvo92/codegen-compare-tool/actions/workflows/test.yml)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
@@ -30,10 +30,10 @@ cd codegen-compare-tool
 python -m compare_tool baseline current --report report.html
 ```
 
-The CLI uses only the Python standard library. For the desktop viewer:
+Compare and Code Check CLI use only the Python standard library. To install the viewer and ARXML Handler:
 
 ```bash
-python -m pip install -e ".[viewer]"
+python -m pip install -e ".[viewer,arxml]"
 python -m compare_tool
 ```
 
@@ -54,6 +54,7 @@ python -m compare_tool --check-current current
 | Noise filtering | Filter proven generator noise while retaining unexplained changes |
 | Desktop viewer | Review changes side by side |
 | Code Check workspace | Check one CURRENT folder/ZIP with findings, source context and policy coverage |
+| ARXML Handler | Preview and apply validated S/R additions from generated ARXML. Code Check can suggest and verify candidate fixes. |
 | HTML report | Share results offline or as a CI artifact |
 | `--no-report` | Review summaries and diagnostics in the terminal |
 | `--check-current PATH` | Check CURRENT RTE/ARXML consistency before delivery |

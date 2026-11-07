@@ -137,6 +137,52 @@ Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với
 
 **Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
 
+### ARXML Handler và đề xuất sửa
+
+**Xử lý ARXML** bổ sung datatype S/R và dependency, datatype mapping, interface,
+R/P port, assembly/delegation connector, data element, ComSpec và runnable access
+từ **Source ARXML** đã generate vào **Master**. Chọn hai thư mục tách biệt,
+không lồng nhau, mỗi thư mục chứa một bộ định nghĩa nhất quán. Source chỉ được đọc.
+Bấm **Xem trước thay đổi** để kiểm tra toàn bộ mục bổ sung, file đích, cảnh báo
+và lỗi chặn. **Cập nhật Master** ghi trực tiếp khi toàn bộ kế hoạch hợp lệ và
+có bổ sung. Có thể dùng CLI:
+
+```powershell
+compare-tool --arxml-handler --master Master --source Generated
+compare-tool --arxml-handler --master Master --source Generated --apply --xsd AUTOSAR_00047.xsd
+compare-tool --arxml-handler --master Master --source Generated --report PatchReport
+compare-tool --check-current Current --fix-master Current/Master --fix-source Generated
+```
+
+Code Check hiển thị **Đề xuất sửa** cho các finding được hỗ trợ. Với lỗi thiếu
+định nghĩa S/R, chọn Master trong CURRENT và thư mục Source đã generate. Tool
+kiểm tra toàn bộ bản sửa rồi chạy lại checker trên bản sao tạm với cùng policy
+và phạm vi. **Xem trước bản sửa** đánh dấu các bổ sung liên quan đến finding đã
+hết trên bản sao mà không phát sinh lỗi mới. Review toàn bộ bổ sung trước khi áp
+dụng. Sau Cập nhật hoặc Hoàn tác từ luồng này, ứng dụng tự kiểm tra lại CURRENT.
+Với input ZIP, giải nén ra thư mục làm việc rồi chạy lại Code Check trước khi
+tạo bản sửa. Cặp flag fix chỉ đánh giá bản sửa và giữ exit code của lần kiểm tra gốc.
+
+Handler hỗ trợ tài liệu AUTOSAR R4 khai báo `AUTOSAR_00047.xsd`. Để validate
+theo XSD lúc Apply, chọn schema cục bộ cùng các file import. Nếu không chọn XSD,
+tool vẫn kiểm tra cấu trúc và reference. Xung đột, dependency không được hỗ trợ
+và input đã thay đổi sẽ chặn ghi. Các định nghĩa hiện có được giữ nguyên. C/S,
+NV-Data, PR-Port và tạo component hoặc runnable nằm ngoài phạm vi import.
+
+**Hoàn tác lần cập nhật gần nhất** khôi phục bytes, quyền file và thời gian sửa
+trong phiên desktop nếu file chưa bị chỉnh từ bên ngoài. Nếu rollback chưa hoàn
+tất, giữ phiên mở và thử lại Hoàn tác sau khi xử lý lỗi truy cập file. Đóng
+process sẽ mất dữ liệu Undo. Tool thay thế nguyên tử từng file. Hãy dùng Master
+đã sao lưu riêng nếu cần phục hồi sau khi process hoặc máy bị dừng. CLI mất dữ
+liệu Undo khi kết thúc.
+
+**Lưu báo cáo** hoặc `--report` ghi `patch_report.txt` và `patch_report.json`
+vào thư mục mới hoặc rỗng, tách biệt với input. Handler trả `0` nếu Preview hoặc
+Apply thành công và `2` khi bị chặn, lỗi validation/ghi/export hoặc Apply khi
+không có mục bổ sung. EXE Windows đã kèm dependency. Khi cài từ source dùng
+`pip install "codegen-compare-tool[arxml]"`. Với zipapp, cài `lxml>=5.3,<7` vào
+môi trường Python chạy zipapp.
+
 ## Cái gì được tính là noise
 
 Đổi thứ tự lệnh được báo real change, kể cả scalar assignment có vẻ độc lập. Nối dòng C có thể đổi hành vi nên được giữ theo hướng bảo thủ. Nếu không đọc được nguồn khi render, HTML còn phần đọc được sẽ có banner REPORT INCOMPLETE và CLI trả exit 2 kể cả `--exit-zero`; viewer báo export thiếu nội dung.

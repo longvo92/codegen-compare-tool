@@ -25,6 +25,22 @@ Paths are relative to `compare_tool/`.
 | `theme.py`, `resources.py` | Shared color roles and optional packaged assets |
 | `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package |
 
+## ARXML Handler
+
+The optional lxml-backed engine lives in `compare_tool/arxml_handler/`.
+It uses the complete AUTOSAR identity and namespace-aware XML instead of Compare's
+noise rules. The CLI and Qt workspace share planning, pre-write validation,
+Master locking, rollback, in-session undo and report export. The engine was
+ported from arxml_handler at `4e27ad9`.
+
+`fix_suggestions.py` provides standard-library finding guidance. With lxml and
+explicit repair inputs, it stages checker files and the exact prepared patch in a
+temporary tree. Rechecking with the original policy and scope must remove the
+specific failure without new failures. The new access must match the checker
+call's owner, full references and expected mode, with a matching planned operation.
+Handler revalidates that result before Apply. Code Check reruns after Apply or Undo
+from its repair flow. Other overlapping results must be rescanned.
+
 ## Data flow
 
 1. Source adapters materialize folders, ZIPs or Git snapshots as directories.

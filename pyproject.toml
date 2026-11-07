@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codegen-compare-tool"
 authors = [{ name = "Long Vo Thien" }]
-description = "CodeGen Inspector: compare generated code and check AUTOSAR RTE/ARXML consistency"
+description = "CodeGen Studio: compare generated code and check AUTOSAR RTE/ARXML consistency"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.8"
@@ -29,6 +29,7 @@ dynamic = ["version"]
 # 6.12.0 crashes in Qt highlighting/teardown on Python 3.11, including the baseline.
 [project.optional-dependencies]
 viewer = ["PySide6>=6.5,!=6.12.0"]
+arxml = ["lxml>=5.3,<7"]
 
 [project.urls]
 Homepage = "https://github.com/longvo92/codegen-compare-tool"
@@ -38,7 +39,7 @@ Issues = "https://github.com/longvo92/codegen-compare-tool/issues"
 compare-tool = "compare_tool.main:main"
 
 [tool.setuptools]
-packages = ["compare_tool", "compare_tool.qtviewer"]
+packages = ["compare_tool", "compare_tool.qtviewer", "compare_tool.arxml_handler"]
 
 [tool.setuptools.dynamic]
 version = { attr = "compare_tool.__version__" }

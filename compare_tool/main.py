@@ -10,7 +10,9 @@ been a folder, then the temp directory is removed on exit.
 """
 
 import argparse
+import os
 import platform
+import shlex
 import shutil
 import sys
 import tempfile
@@ -20,6 +22,7 @@ from pathlib import Path
 from . import (APP_NAME, __version__, consistency, review, serialize, theme, userrules,
                zipsource)
 from .diff_engine import RULES, ruleset_for
+from .fix_suggestions import assess_fix, finding_key, suggestion
 from .report import (build_arxml_report, consistency_advisories,
                      model_overview, render_report)
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
@@ -146,7 +149,7 @@ def _terminal_overview_lines(results):
     return lines
 
 
-def _current_consistency_lines(check):
+def _current_consistency_lines(check, assessment=None):
     """Compact terminal rendering for the CURRENT-tree RTE/ARXML check."""
     status = check.status
     lines = [
@@ -196,6 +199,9 @@ def _current_consistency_lines(check):
         severity = finding['severity'].upper()
         lines.append('  !! [{}] {} {} -- {}'.format(
             severity, reason, location, detail))
+        fix = suggestion(finding, assessment)
+        if fix:
+            lines.append("     Suggested fix: " + fix)
     for item in check.skipped_accesses:
         call = item.get('call')
         location = '{}:{}'.format(call.file, call.line) if call else item.get('arxml_file', '-')
@@ -555,6 +561,10 @@ def _parser():
                     help='enable the CLI-only CURRENT-tree RTE/ARXML '
                          'consistency check; disabled by default and not '
                          'included in the viewer or HTML report')
+    ap.add_argument('--arxml-handler', action='store_true',
+                    help='ARXML patch workspace CLI; use --arxml-handler --help')
+    ap.add_argument('--fix-master', metavar='FOLDER', help='Master for read-only --check-current repair evaluation')
+    ap.add_argument('--fix-source', metavar='FOLDER', help='Source ARXML for read-only --check-current repair evaluation')
     ap.add_argument('--check-current', metavar='PATH', default=None,
                     help='check one CURRENT folder or ZIP without a baseline, '
                          'diff or HTML')
@@ -608,11 +618,12 @@ def viewer_requested(argv):
     up, so that decision and :func:`main`'s use exactly one rule.
     """
     argv = list(argv)
-    if any(a in ('-h', '--help') for a in argv):
-        return False  # the help text belongs on a console the user can read
+    if any(a in ('--arxml-handler', '-h', '--help') for a in argv):
+        return False  # CLI-only patch mode and help need a visible console
     try:
         args = _parser().parse_args(argv)
         if (args.check_current or args.check_consistency or args.consistency_config or
+                args.fix_master or args.fix_source or
                 args.ignore_access_port_regex):
             return False  # CLI-only option: keep usage errors visible too
         return _wants_viewer(args)
@@ -648,8 +659,26 @@ def _viewer_source(ap, arg, zip_temp):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ['--arxml-handler']:
+        if argv[1:] in ([], ['--help'], ['-h']):
+            from .handler_cli import parser
+            parser().print_help()
+            return 0
+        try:
+            from .arxml_handler.cli import main as handler_main
+        except ImportError as exc:
+            print('ARXML Handler requires lxml. Install codegen-compare-tool[arxml]: {}'.format(exc),
+                  file=sys.stderr)
+            return 2
+        return handler_main(argv[1:], prog='compare-tool --arxml-handler')
     ap = _parser()
     args = ap.parse_args(argv)
+    if args.arxml_handler:
+        ap.error('--arxml-handler must be the first argument')
+    if (args.fix_master or args.fix_source) and not (
+            args.check_current and args.fix_master and args.fix_source):
+        ap.error('--fix-master and --fix-source must be used together with --check-current')
     if not _wants_viewer(args):
         print('{} {}'.format(APP_NAME, __version__))
     # boxed so _resolve_source can create the extraction dir lazily; removed in
@@ -712,8 +741,31 @@ def _run_current(ap, args, zip_temp):
         root, config, exclude=args.exclude,
         ignore_access_port_regex=args.ignore_access_port_regex)
     print('CURRENT: {}'.format(args.current_name or label or args.check_current))
-    for line in _current_consistency_lines(check):
+    assessment = None
+    if args.fix_master:
+        if label:
+            print('Repair preview requires a working CURRENT folder on disk. Extract the ZIP and rerun.')
+        else:
+            assessment = assess_fix(root, args.fix_master, args.fix_source, check, config,
+                                    args.exclude, args.ignore_access_port_regex)
+    for line in _current_consistency_lines(check, assessment):
         print(line)
+    if assessment and assessment.plan:
+        related = {i for finding in check.findings
+                   for i in assessment.related.get(finding_key(finding), ())}
+        for index, operation in enumerate(assessment.plan.operations):
+            row = operation.record
+            print('  [{}] {} {} -> {}'.format(
+                'FIX' if index in related else 'ADD', row.Category, row.ObjectPath, row.TargetFile))
+        command = ['compare-tool', '--arxml-handler', '--master', args.fix_master,
+                   '--source', args.fix_source, '--apply']
+        if os.name == 'nt':
+            command_line = ' '.join("'" + value.replace("'", "''") + "'" for value in command[1:])
+            print('  To apply (PowerShell): compare-tool ' + command_line)
+        else:
+            print('  To apply: ' + ' '.join(shlex.quote(value) for value in command))
+    elif assessment:
+        print('  Repair preview: ' + assessment.status)
     return check.exit_code
 
 
@@ -755,7 +807,8 @@ def _run(ap, args, zip_temp):
             return run_viewer(old_dir, new_dir, exclude=args.exclude,
                               arxml_only=args.arxml_only, theme_name=args.theme,
                               user_rules=user_rules,
-                              skip_var_renames=args.skip_var_renames)
+                              skip_var_renames=args.skip_var_renames,
+                              temporary_root=zip_temp[0])
         except ImportError as e:
             # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
             # Say so plainly instead of dumping a traceback.

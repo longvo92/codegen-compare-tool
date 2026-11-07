@@ -1,9 +1,10 @@
 """Independent CURRENT-source check workspace; checker policy stays in consistency.py."""
 
+from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFontDatabase, QTextCursor
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -13,6 +14,9 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
 
 from .. import theme
 from ..messages import Message
+from ..fix_suggestions import FixAssessment, assess_fix, candidate, fail_counts, finding_key, suggestion
+from ..zipsource import is_zip
+from .arxml_handler import path_field
 from ..consistency import CHECKER_SCOPE, ignored_explanation
 from ..scanner import read_text
 from ..syntax import language_for
@@ -21,7 +25,7 @@ from .i18n import Texts
 from .highlight import CodeHighlighter
 from .settings import (load_code_check_defaults, preference_store,
                        save_code_check_defaults)
-from .worker import CodeCheckWorker
+from .worker import CodeCheckWorker, TaskWorker
 
 
 _RESULT_ROLES = {
@@ -30,10 +34,22 @@ _RESULT_ROLES = {
 }
 
 
+@dataclass(frozen=True)
+class CheckContext:
+    source: str
+    policy: str
+    exclude: tuple
+    ignore: str
+
+
 class CodeCheckPage(QWidget):
     """Own inputs/results independently of Compare, including incomplete coverage."""
 
-    def __init__(self, current_source, parent=None, texts=None, *, settings=None):
+    repair_selected = Signal(object, object, object, object)
+    activity_changed = Signal()
+
+    def __init__(self, current_source, parent=None, texts=None, *, settings=None,
+                 may_check=lambda: True, temporary_source=lambda _path: False):
         super().__init__(parent)
         self._text = Texts() if texts is None else texts
         self._settings = preference_store() if settings is None else settings
@@ -49,6 +65,13 @@ class CodeCheckPage(QWidget):
         self._result_path = ''
         self._current_source = current_source
         self.worker = None
+        self.fix_worker = None
+        self.assessment = None
+        self.fix_pending = False
+        self.may_check = may_check
+        self.temporary_source = temporary_source
+        self.context = None
+        self._recheck_baseline = None
         self.check = None
         self.root = None
         self._rows = []
@@ -192,6 +215,27 @@ class CodeCheckPage(QWidget):
         self.tabs.addTab(self.coverage, '')
         self._text.bind(self.tabs.setTabText, 'Coverage && policy', 1)
         body.addWidget(self.tabs, 1)
+        self.fix_group = self._text.widget(QGroupBox, 'Suggested fix')
+        fix_form = QFormLayout(self.fix_group)
+        fix_row, self.fix_master = path_field(self, self._text, 'Master folder to update')
+        fix_form.addRow(self._text.widget(QLabel, 'Master folder to update'), fix_row)
+        fix_row, self.fix_source = path_field(self, self._text, 'Source ARXML folder')
+        fix_form.addRow(self._text.widget(QLabel, 'Source ARXML folder'), fix_row)
+        self.fix_note = QLabel()
+        self.fix_note.setWordWrap(True)
+        self.fix_note.setTextFormat(Qt.PlainText)
+        fix_form.addRow(self.fix_note)
+        self.preview_fix = self._text.widget(QPushButton, 'Preview fix')
+        self.preview_fix.clicked.connect(self._open_fix)
+        fix_form.addRow(self.preview_fix)
+        self.fix_group.hide()
+        body.addWidget(self.fix_group)
+        self.fix_timer = QTimer(self)
+        self.fix_timer.setSingleShot(True)
+        self.fix_timer.setInterval(300)
+        self.fix_timer.timeout.connect(self._evaluate_fix)
+        for field in (self.fix_master, self.fix_source):
+            field.textChanged.connect(self._fix_inputs_changed)
         workspace.addWidget(results)
         workspace.setStretchFactor(0, 0)
         workspace.setStretchFactor(1, 1)
@@ -245,8 +289,18 @@ class CodeCheckPage(QWidget):
 
     def _inputs_changed(self):
         if self.check is not None:
-            self._set_status('STALE — run again', 'state-busy')
-        self.run_button.setEnabled(bool(self.source.text().strip()) and not self.is_running())
+            self.invalidate_check()
+        self.refresh_run_button()
+
+    def invalidate_check(self):
+        self._set_status('STALE — run again', 'state-busy')
+        self.assessment = None
+        self._clear_source('Run Code Check again before inspecting source.')
+        self._refresh_fix()
+
+    def refresh_run_button(self):
+        self.run_button.setEnabled(bool(self.source.text().strip()) and not self.is_running()
+                                   and self.may_check())
 
     def _scope_changed(self):
         self._set_defaults_status('')
@@ -269,13 +323,28 @@ class CodeCheckPage(QWidget):
     def is_running(self):
         return bool(self.worker and self.worker.isRunning())
 
-    def start_check(self):
-        if self.is_running() or not self.source.text().strip():
+    def input_context(self):
+        source = self.source.text().strip()
+        return CheckContext(str(Path(source).resolve()) if source else '', self.policy_path,
+                            tuple(line.strip() for line in self.excludes.toPlainText().splitlines()
+                                  if line.strip()), self.ignore.text().strip())
+
+    def recheck(self, repair_context):
+        context, config = repair_context
+        baseline = self.check if self.context == context else None
+        self.start_check(context, baseline=baseline, config=config)
+
+    def start_check(self, context=None, *, baseline=None, config=None):
+        context = context if isinstance(context, CheckContext) else self.input_context()
+        if self.is_running() or not self.may_check() or not context.source:
             return
         self.cleanup()
-        source = str(Path(self.source.text().strip()).resolve())
-        config_path = self._run_policy_path = self.policy_path
-        exclude = tuple(line.strip() for line in self.excludes.toPlainText().splitlines() if line.strip())
+        self.context = context
+        self._recheck_baseline = baseline
+        self.assessment = None
+        self.fix_group.hide()
+        source, config_path, exclude = context.source, context.policy, context.exclude
+        self._run_policy_path = config_path
         self._run_config = str(Path(config_path).resolve()) if config_path else ''
         self._result_path = source
         self.result_source.setText(self._text('Results for: {}', source))
@@ -299,21 +368,24 @@ class CodeCheckPage(QWidget):
         self.save_defaults.setEnabled(False)
         self.run_button.setEnabled(False)
         self.progress.show()
-        self.worker = CodeCheckWorker(source, config_path, exclude, self.ignore.text().strip(), self)
+        self.worker = CodeCheckWorker(source, config_path, exclude, context.ignore, self, config=config)
         self.worker.done.connect(self._done)
         self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self._finished)
         self.worker.start()
+        self.activity_changed.emit()
 
     def _finished(self):
         self.inputs.setEnabled(True)
         self.scope.setEnabled(True)
         self.save_defaults.setEnabled(True)
-        self.run_button.setEnabled(bool(self.source.text().strip()))
+        self.refresh_run_button()
         self.progress.hide()
         self.refresh_current()
-        if self.check is not None and self.policy_path != self._run_policy_path:
-            self._inputs_changed()
+        if self.check is not None and self.context != self.input_context():
+            self.invalidate_check()
+        self.activity_changed.emit()
+        self._evaluate_fix()
 
     def _done(self, check, root):
         self.check, self.root = check, Path(root)
@@ -333,11 +405,18 @@ class CodeCheckPage(QWidget):
             sum(f['severity'] == 'warn' for f in check.findings),
             len(check.skipped_accesses), len(check.exemptions),
             len(ignored_items), check.skipped_rules))
+        if (self._recheck_baseline is not None and self._recheck_baseline.exit_code != 2
+                and check.exit_code != 2):
+            previous, actual = fail_counts(self._recheck_baseline), fail_counts(check)
+            self._set_summary(Message('{}\nRecheck: {} resolved · {} remaining · {} new FAIL',
+                                      self._summary_text, sum((previous - actual).values()),
+                                      sum((actual & previous).values()), sum((actual - previous).values())))
         self._show_coverage(check)
         self.tabs.setCurrentIndex(1 if status == 'PASS WITH EXCEPTIONS' and not self._rows else 0)
         self.severity.setEnabled(True)
         self.search.setEnabled(True)
         self._filter_rows()
+        self._refresh_fix()
 
     def _set_summary(self, message):
         self._summary_text = message
@@ -398,6 +477,7 @@ class CodeCheckPage(QWidget):
         elif self.coverage.toPlainText():
             self.coverage.setPlainText(self._config_text())
         item = self.findings.currentItem()
+        self._refresh_fix()
         if item is not None:
             self._show_details(*self._rows[item.data(0, Qt.UserRole)])
         if not self.source_location.toolTip():
@@ -441,6 +521,10 @@ class CodeCheckPage(QWidget):
     def _show_details(self, severity, finding):
         tr = self._text
         lines = [severity + ' — ' + finding['reason']]
+        if severity in ('FAIL', 'WARN', 'IGNORED', 'UNCHECKED'):
+            fix = suggestion(finding, self.assessment)
+            if fix:
+                lines.append(tr('Suggested fix') + ': ' + tr(fix))
         if severity == 'IGNORED':
             lines.append(tr(ignored_explanation(finding)))
         elif severity == 'SKIPPED':
@@ -458,12 +542,16 @@ class CodeCheckPage(QWidget):
 
     def _select_finding(self):
         item = self.findings.currentItem()
+        self._refresh_fix()
         if item is None:
             return
         severity, finding = self._rows[item.data(0, Qt.UserRole)]
         self._show_details(severity, finding)
         call = finding.get('call')
         rel = item.text(2)
+        if self._status_text == 'STALE — run again':
+            self._clear_source('Run Code Check again before inspecting source.')
+            return
         if not self.root or not rel or rel == '.':
             self._clear_source('No source location for this result.')
             return
@@ -485,6 +573,90 @@ class CodeCheckPage(QWidget):
                 self.source_preview.centerCursor()
         except Exception as e:
             self._clear_source(Message('Source could not be read: {}', e))
+
+    def _fix_inputs(self):
+        return self.fix_master.text().strip(), self.fix_source.text().strip()
+
+    def _fix_inputs_changed(self):
+        self.assessment = None
+        self.fix_pending = True
+        self.fix_timer.start()
+        self._refresh_fix()
+
+    def _repair_is_available(self):
+        return (self.worker is not None and self.check is not None and self.context is not None
+                and self._status_text != 'STALE — run again' and not self.is_running()
+                and not is_zip(Path(self.context.source))
+                and not self.temporary_source(self.root))
+
+    def _evaluate_fix(self):
+        self._refresh_fix()
+        if self.fix_worker or not self.may_check() or not self._repair_is_available():
+            return
+        master, source = self._fix_inputs()
+        if not master or not source or not any(candidate(f) for f in self.check.findings):
+            return
+        context, check, root, config = self.context, self.check, self.root, self.worker.config
+        self._fix_ticket = (check, self._fix_inputs())
+        self._fix_config = config
+        self.fix_pending = False
+        self.fix_worker = TaskWorker(
+            lambda: assess_fix(root, master, source, check, config, context.exclude, context.ignore),
+            self)
+        self.fix_worker.finished.connect(self._fix_finished)
+        self.fix_worker.start()
+        self.activity_changed.emit()
+        self._refresh_fix()
+
+    def _fix_finished(self):
+        worker, self.fix_worker = self.fix_worker, None
+        check, inputs = self._fix_ticket
+        if self.check is check and self._fix_inputs() == inputs and self._repair_is_available():
+            if worker.error:
+                self.assessment = FixAssessment(Message('ARXML repair could not be verified: {}', worker.error))
+            else:
+                self.assessment = worker.result
+        worker.deleteLater()
+        self.activity_changed.emit()
+        self._refresh_fix()
+        if self.fix_pending:
+            self._evaluate_fix()
+
+    def _refresh_fix(self):
+        item = self.findings.currentItem()
+        finding = self._rows[item.data(0, Qt.UserRole)][1] if item is not None else None
+        relevant = bool(finding and item.text(0) == 'FAIL' and candidate(finding))
+        self.fix_group.setVisible(relevant)
+        if not relevant:
+            return
+        allowed = self._repair_is_available()
+        self.fix_master.parentWidget().setEnabled(allowed)
+        self.fix_source.parentWidget().setEnabled(allowed)
+        valid = allowed and self.assessment and finding_key(finding) in self.assessment.related
+        self.preview_fix.setEnabled(bool(valid) and not self.fix_worker)
+        self.fix_note.setText(self._text(
+            'Run Code Check on a working folder to preview a repair.' if not allowed
+            else 'Checking the proposed ARXML repair…' if self.fix_worker
+            else suggestion(finding, self.assessment) or ''))
+        self._show_details('FAIL', finding)
+
+    def _open_fix(self):
+        if not self.preview_fix.isEnabled():
+            return
+        item = self.findings.currentItem()
+        finding = self._rows[item.data(0, Qt.UserRole)][1]
+        key = finding_key(finding)
+        plan = self.assessment.plan
+        master, source = self._fix_inputs()
+        context, check, root, config = self.context, self.check, self.root, self._fix_config
+
+        def verify(xsd):
+            assessment = assess_fix(root, master, source, check, config,
+                                    context.exclude, context.ignore, plan=plan, xsd=xsd)
+            if key not in assessment.related:
+                raise ValueError(str(assessment.status))
+
+        self.repair_selected.emit(plan, self.assessment.related[key], verify, (context, config))
 
     def _clear_source(self, message=''):
         self.source_highlighter.configure(None, repaint=False)
@@ -519,6 +691,8 @@ class CodeCheckPage(QWidget):
             item.setForeground(0, QBrush(QColor(theme.c(role))))
 
     def cleanup(self):
+        self.fix_timer.stop()
+        self.fix_pending = False
         if self.worker and not self.worker.isRunning():
             self.worker.cleanup()
             self.worker.deleteLater()

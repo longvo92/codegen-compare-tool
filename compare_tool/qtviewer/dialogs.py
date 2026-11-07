@@ -74,6 +74,18 @@ paths, forbidden names/globs and each rule's severity in the policy config.
 from rules set to `skip`. **EXCEPTION** lists matched scoped exceptions and their
 justifications. Compare and Code Check keep separate inputs and results when you switch modes.
 
+## ARXML Handler
+
+Select separate Master and generated Source folders, then choose **Preview
+Changes**. Review all proposed S/R additions and blockers before **Update Master**.
+Choose a local AUTOSAR 00047 XSD for optional schema validation. **Undo Last Update**
+restores the latest update during this session. **Save Report** exports text and JSON.
+
+In **Code Check**, open a failed finding to see **Suggested fix**. For missing S/R
+definitions, select Master and Source to verify a patch on a temporary copy.
+Open **Preview fix** when available. Code Check reruns after applying or undoing
+that repair.
+
 ## CLI
 
 For CLI commands, options and configuration examples, see the
@@ -82,7 +94,7 @@ For CLI commands, options and configuration examples, see the
 
 ABOUT_HTML = """
 <p style="font-size:13px;"><b>{app_name} {version}</b></p>
-<p>Compare generated code and check AUTOSAR RTE/ARXML consistency.</p>
+<p>Compare generated code, check AUTOSAR consistency, and patch ARXML.</p>
 <p>Author: <b>Long Vo Thien</b> &middot; MIT License<br>
 Built with Python and PySide6</p>
 <p><a style="color:{link};"
@@ -147,6 +159,17 @@ Khai báo đường dẫn Package, tên/glob bị cấm và severity của từn
 policy config. **IGNORED** liệt kê giới hạn coverage và mục khớp regex.
 **SKIPPED** liệt kê finding của rule đặt thành `skip`. **EXCEPTION** liệt kê
 exception theo phạm vi cùng lý do áp dụng. Hai tab giữ riêng input và kết quả.
+
+## Xử lý ARXML
+
+Chọn thư mục Master và Source đã generate tách biệt, rồi bấm **Xem trước thay đổi**.
+Review toàn bộ bổ sung S/R và lỗi chặn trước khi **Cập nhật Master**. Có thể chọn
+XSD AUTOSAR 00047 cục bộ. **Hoàn tác lần cập nhật gần nhất** chỉ có hiệu lực trong
+phiên. **Lưu báo cáo** xuất text và JSON.
+
+Trong **Code Check**, chọn finding lỗi để xem **Đề xuất sửa**. Với lỗi thiếu định
+nghĩa S/R, chọn Master và Source để kiểm chứng trên bản sao tạm. Bấm **Xem trước
+bản sửa** khi khả dụng. Code Check tự chạy lại sau khi cập nhật hoặc hoàn tác.
 
 ## CLI
 

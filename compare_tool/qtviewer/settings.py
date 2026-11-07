@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QLabel, QLineEdit, QPushButton, QVBoxLayout)
 
-from .. import APP_NAME, theme
+from .. import theme
 from .icons import app_icon
 
 
@@ -30,7 +30,7 @@ _CODE_CHECK_DEFAULTS_KEY = 'code_check/defaults'
 
 
 def preference_store():
-    return QSettings('CodeGenInspector', APP_NAME)
+    return QSettings('CodeGenInspector', 'CodeGen Inspector')
 
 
 def load_preferences(store):

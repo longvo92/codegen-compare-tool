@@ -13,7 +13,7 @@ import webbrowser
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
                                QHeaderView, QLabel, QLineEdit,
@@ -30,6 +30,7 @@ from ..main import default_report_name
 from ..report import build_arxml_report, render_report, consistency_advisories
 from ..scanner import summarize
 from .advisories import AdvisoryPanel
+from .arxml_handler import ArxmlHandlerPage
 from .codecheck import CodeCheckPage
 from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
@@ -86,7 +87,7 @@ def _arxml_include():
 
 class MainWindow(QMainWindow):
     def __init__(self, old=None, new=None, exclude=(), arxml_only=False,
-                 theme_name=None, user_rules=(), skip_var_renames=False, *, settings=None):
+                 theme_name=None, user_rules=(), skip_var_renames=False, *, settings=None, temporary_root=None):
         super().__init__()
         self._settings = preference_store() if settings is None else settings
         self._prefs = load_preferences(self._settings)
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         # scratch for materialised sources this session: git checkouts and
         # unpacked zips both land here, and go together on close
         self._src_temp = None
+        self._external_temp = temporary_root
         self._old_label = None    # what OLD is, when its folder does not say
         self._new_label = None    # ... and CURRENT, when a zip stands in for it
         # one scan, one automatic jump to the first change. Flipping a compare
@@ -234,9 +236,19 @@ class MainWindow(QMainWindow):
         self.compare_page = central
         self.modes.addTab(central, '')
         self._text.bind(self.modes.setTabText, 'Compare', 0)
-        self.code_check = CodeCheckPage(lambda: self.new, self, self._text, settings=self._settings)
+        self.arxml_handler = ArxmlHandlerPage(self._text, self._may_write_arxml, self,
+                                             protected_source=self._temporary_source)
+        self.code_check = CodeCheckPage(lambda: self.new, self, self._text, settings=self._settings,
+                                        may_check=lambda: not self.arxml_handler.writing,
+                                        temporary_source=self._temporary_source)
         self.modes.addTab(self.code_check, '')
         self._text.bind(self.modes.setTabText, 'Code Check', 1)
+        self.modes.addTab(self.arxml_handler, '')
+        self._text.bind(self.modes.setTabText, 'ARXML Handler', 2)
+        self.code_check.activity_changed.connect(self.arxml_handler.refresh_buttons)
+        self.arxml_handler.activity_changed.connect(self._arxml_activity_changed)
+        self.arxml_handler.master_written.connect(self._master_written)
+        self.code_check.repair_selected.connect(self._show_arxml_repair)
         self.setCentralWidget(self.modes)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
@@ -274,16 +286,16 @@ class MainWindow(QMainWindow):
     def _switch_workspace(self, index):
         comparing = index == 0
         for action in self._compare_toolbar_actions:
-            action.setVisible(comparing)
+            action.setVisible(comparing and not self.arxml_handler.writing)
         for action in (self.act_first, self.act_prev, self.act_next, self.act_last):
-            action.setEnabled(comparing)
-        self.act_export.setEnabled(comparing and bool(self._raw_results))
+            action.setEnabled(comparing and not self.arxml_handler.writing)
+        self.act_export.setEnabled(comparing and not self.arxml_handler.writing and bool(self._raw_results))
         self.statusBar().setVisible(comparing)
         self.code_check.refresh_current()
         self._update_title()
 
     def _update_title(self):
-        title = APP_NAME + ' — ' + self._text('Code Check' if self.modes.currentIndex() else 'Compare')
+        title = APP_NAME + ' — ' + self._text(('Compare', 'Code Check', 'ARXML Handler')[self.modes.currentIndex()])
         if not self.modes.currentIndex() and self._compare_name is not None:
             title += ' — ' + self._compare_name
             if self.skip_var_renames:
@@ -347,6 +359,7 @@ class MainWindow(QMainWindow):
             self.summary.retranslate()
             self.advisories.retranslate()
             self.code_check.retranslate()
+            self.arxml_handler.retranslate()
             self.diff.retranslate()
             self._update_tree_labels()
         self._set_theme(prefs.theme)
@@ -548,9 +561,75 @@ class MainWindow(QMainWindow):
         b.setAutoRaise(True)  # flat until hovered -- no button chrome at rest
         return b
 
+    def _temporary_source(self, path):
+        if not path:
+            return False
+        roots = [self._src_temp, self._external_temp]
+        check = getattr(self, 'code_check', None)
+        if check and check.worker and check.worker._temp:
+            roots.append(check.worker._temp.name)
+        try:
+            return any(self._paths_overlap(path, root) for root in roots if root)
+        except (OSError, RuntimeError, ValueError):
+            return True
+
+    @staticmethod
+    def _paths_overlap(first, second):
+        a, b = Path(first).resolve(), Path(second).resolve()
+        return a == b or a in b.parents or b in a.parents
+
+    def _may_write_arxml(self):
+        check = getattr(self, 'code_check', None)
+        return not ((self.worker and self.worker.isRunning())
+                    or (check and (check.is_running() or check.fix_worker is not None))
+                    or getattr(self, '_close_pending', False))
+
+    def _arxml_activity_changed(self):
+        writing = self.arxml_handler.writing
+        self.compare_page.setEnabled(not writing)
+        self.code_check.setEnabled(not writing)
+        self.code_check.refresh_run_button()
+        self._switch_workspace(self.modes.currentIndex())
+        if getattr(self, '_close_pending', False) and self.arxml_handler.worker is None:
+            QTimer.singleShot(0, self.close)
+
+    def _show_arxml_repair(self, plan, related, verify, context):
+        if self.arxml_handler.load_repair(plan, related, verify, context):
+            self.modes.setCurrentWidget(self.arxml_handler)
+        else:
+            self.statusBar().showMessage(self._text('Finish the current ARXML operation first.'), 5000)
+            self.modes.setCurrentWidget(self.arxml_handler)
+
+    def _master_written(self, master, context):
+        if any(self._paths_overlap(root, master) for root in (self.old, self.new) if root):
+            self._raw_results = {}
+            self.results = {}
+            self.tree.clear()
+            self.summary.set_results({})
+            self._show_advisories(())
+            self.diff.clear()
+            self.counts_label.clear()
+            self.act_export.setEnabled(False)
+            self._set_state('busy', 'STALE — run again')
+            self._banner_message = 'Master changed. Rescan before reviewing or exporting.'
+            self.banner.setText(self._text(self._banner_message))
+            self.banner.show()
+        if self.code_check.root and self._paths_overlap(self.code_check.root, master):
+            self.code_check.invalidate_check()
+        if context is not None and not getattr(self, '_close_pending', False):
+            self.code_check.recheck(context)
+
     def closeEvent(self, event):
-        running = [w for w in (self.worker, self.code_check.worker) if w and w.isRunning()]
-        if running:
+        running = [w for w in (self.worker, self.code_check.worker, self.code_check.fix_worker,
+                               self.arxml_handler.worker) if w and w.isRunning()]
+        if self.arxml_handler.recovery_required:
+            event.ignore()
+            self._close_pending = False
+            self.setEnabled(True)
+            self.modes.setCurrentWidget(self.arxml_handler)
+            self.arxml_handler.refresh_buttons()
+            return
+        if running or self.arxml_handler.worker is not None:
             # Keep source directories and QThreads alive until their reads finish.
             event.ignore()
             if not getattr(self, '_close_pending', False):
@@ -607,6 +686,9 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
+        if self.arxml_handler.writing or self.modes.currentWidget() is self.arxml_handler:
+            event.ignore()
+            return
         paths = self._droppable(event)
         if not paths:
             return
@@ -757,7 +839,7 @@ class MainWindow(QMainWindow):
 
     def _start_scan(self):
         self.code_check.refresh_current()
-        if not (self.old and self.new):
+        if not (self.old and self.new) or self.arxml_handler.writing:
             return
         if self.worker and self.worker.isRunning():
             return
@@ -786,7 +868,9 @@ class MainWindow(QMainWindow):
         self.worker.progressed.connect(self._on_progress)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_fail)
+        self.worker.finished.connect(self.arxml_handler.refresh_buttons)
         self.worker.start()
+        self.arxml_handler.refresh_buttons()
 
     def _on_progress(self, done, total, rel):
         self.progress.setRange(0, max(total, 1))
@@ -992,7 +1076,7 @@ class MainWindow(QMainWindow):
         report's own badges still let the reader hide categories while looking
         at it.
         """
-        if not self._raw_results:
+        if self.arxml_handler.writing or not self._raw_results:
             return
         default = str(Path(self.new).parent / default_report_name(self.arxml_only))
         out, _sel = QFileDialog.getSaveFileName(
@@ -1372,7 +1456,7 @@ def _taskbar_identity():
 
 
 def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
-               theme_name=None, user_rules=(), skip_var_renames=False):
+               theme_name=None, user_rules=(), skip_var_renames=False, *, temporary_root=None):
     app = QApplication.instance()
     owns = app is None
     if owns:
@@ -1380,7 +1464,7 @@ def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
         app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     win = MainWindow(old, new, exclude, arxml_only, theme_name, user_rules,
-                     skip_var_renames)
+                     skip_var_renames, temporary_root=temporary_root)
     app.setWindowIcon(app_icon())
     win.show()
     return app.exec() if owns else 0

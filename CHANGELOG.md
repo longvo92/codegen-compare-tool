@@ -5,6 +5,10 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Add the ARXML Handler workspace and CLI to preview and apply validated AUTOSAR S/R additions, with desktop session undo.
+- Show Code Check repair guidance and verify supported fixes against a temporary CURRENT copy before offering Apply.
+- Rename the application to CodeGen Studio. Existing commands and saved viewer settings carry forward.
+
 ## [2.1.0] — 2026-11-07
 
 ### Added

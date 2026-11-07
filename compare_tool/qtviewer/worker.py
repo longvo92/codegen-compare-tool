@@ -55,24 +55,26 @@ class CodeCheckWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, source, config_path='', exclude=(),
-                 ignore_regex='', parent=None):
+                 ignore_regex='', parent=None, *, config=None):
         super().__init__(parent)
         self.source = source
         self.config_path = config_path
         self.exclude = tuple(exclude)
         self.ignore_regex = ignore_regex
         self._temp = None
+        self.config = config
 
     def run(self):
         try:
-            config = load_checker_config(Path(self.config_path) if self.config_path else None)
+            if self.config is None:
+                self.config = load_checker_config(Path(self.config_path) if self.config_path else None)
             root = Path(self.source)
             if not root.is_dir():
                 if not zipsource.is_zip(root):
                     raise ValueError('CURRENT must be an existing folder or readable ZIP: {}'.format(root))
                 self._temp = tempfile.TemporaryDirectory(prefix='codegen-check-')
                 root = zipsource.extract(root, self._temp.name)
-            check = current_tree_check(root, config, self.exclude,
+            check = current_tree_check(root, self.config, self.exclude,
                                        self.ignore_regex or None)
             self.done.emit(check, str(root))
         except Exception as e:
@@ -83,3 +85,20 @@ class CodeCheckWorker(QThread):
         if self._temp is not None:
             self._temp.cleanup()
             self._temp = None
+
+class TaskWorker(QThread):
+    """Return both results and typed exceptions after the thread stops."""
+
+    def __init__(self, task, parent=None):
+        super().__init__(parent)
+        self.task = task
+        self.result = None
+        self.error = None
+
+    def run(self):
+        try:
+            self.result = self.task()
+        except Exception as exc:
+            self.error = exc
+        finally:
+            self.task = None

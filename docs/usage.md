@@ -137,6 +137,54 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 **Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
 
+### ARXML Handler and suggested fixes
+
+**ARXML Handler** imports missing S/R datatypes and dependencies, datatype mappings,
+interfaces, R/P ports, assembly/delegation connectors, data elements, ComSpecs and
+runnable access points from generated **Source ARXML** into **Master**. Use two
+separate, non-nested folders with one coherent definition set each. Source stays
+read-only. Select **Preview Changes** to review every addition, destination,
+warning and blocker. **Update Master** writes in place only if the entire plan
+passes validation and has additions. For repeatable automation:
+
+```powershell
+compare-tool --arxml-handler --master Master --source Generated
+compare-tool --arxml-handler --master Master --source Generated --apply --xsd AUTOSAR_00047.xsd
+compare-tool --arxml-handler --master Master --source Generated --report PatchReport
+compare-tool --check-current Current --fix-master Current/Master --fix-source Generated
+```
+
+Code Check displays **Suggested fix** with each supported finding. For missing
+S/R definitions, choose Master within CURRENT and a generated Source folder.
+The tool validates the complete patch and rechecks a temporary copy with the same
+policy and scope. **Preview fix** highlights the additions tied to the selected
+finding once the finding is resolved on the copy without new failures. Review
+all additions before applying. After Update or Undo through this workflow,
+the desktop rechecks CURRENT. For ZIP input, extract to a working folder and
+run Code Check again before creating a fix. The paired CLI fix flags only
+evaluate a patch and keep the exit code of the original check.
+
+The handler supports AUTOSAR R4 namespace documents declaring
+`AUTOSAR_00047.xsd`. Supply a local schema and its imports to validate against
+the XSD during Apply. Built-in structural and reference checks also run without
+an XSD. Conflicts, unsupported dependencies and changed inputs block writes.
+Existing definitions are preserved. C/S, NV-Data, PR-Ports, and creation of
+components or runnables are outside the import scope.
+
+**Undo Last Update** restores the latest update's bytes, mode and modification
+times within the desktop session, provided the files have not changed externally.
+If rollback needs recovery, keep the session open and retry Undo after fixing
+file access. Ending the process loses the undo data. Writes replace each file
+atomically. Use an independently backed-up Master if you need recovery across a
+process or machine failure. The CLI loses undo data when it exits.
+
+**Save Report** or `--report` writes `patch_report.txt` and `patch_report.json`
+to a separate new or empty folder. Handler exit codes are `0` for successful
+preview or apply and `2` for blocked plans, validation/write/export failures or
+Apply with no additions. The Windows executable bundles the handler dependency.
+For source installs use `pip install "codegen-compare-tool[arxml]"`. For the
+zipapp install `lxml>=5.3,<7` into the Python environment running it.
+
 ## What counts as noise
 
 Statement reorders are reported as real changes, including apparently independent scalar assignments. C line continuations affect execution and are preserved conservatively. If source content cannot be rendered, the partial HTML carries a REPORT INCOMPLETE banner and the CLI exits 2 even with `--exit-zero`; the viewer reports an incomplete export.
