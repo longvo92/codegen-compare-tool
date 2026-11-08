@@ -141,7 +141,7 @@ Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn 
 Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
 
 1. Code Check tự điền thư mục CURRENT từ Compare nếu có. Chọn hoặc thả thư mục hay ZIP khác để dùng nguồn riêng trong phiên làm việc. Xóa ô nguồn rồi mở lại tab Code Check để dùng lại CURRENT từ Compare.
-2. Sửa policy YAML nhúng trong **Cài đặt**, hoặc chọn file YAML/JSON để nhập nội dung. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
+2. Trong **Cài đặt → Code Check**, sửa các mẫu policy, mức độ rule, ánh xạ hàm và ngoại lệ theo phạm vi bằng các ô tương tác; hoặc chọn file YAML/JSON để nhập nội dung. Bấm **Lưu** để áp dụng policy đã sửa. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
 3. Chọn **Run Code Check**. Lọc theo loại kết quả hoặc nội dung. Chọn một dòng để xem lý do và vị trí nguồn.
 
 **Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.

@@ -142,6 +142,76 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(YamlSettings(path).value('language'), 'vi')
         self.assertEqual(win.code_check.policy_path, '')
 
+    def test_policy_editor_round_trip_lists_rules_mappings_and_exceptions(self):
+        policy = app_config.defaults()['code_check']['policy']
+        policy['forbidden_rte_prefixes'] = ['Rte_IRead_', 'Rte_Ω_']
+        policy['ignore_rte_call_regex'] = ['^Rte_Call_Test']
+        policy['rules']['orphan_access'] = 'skip'
+        policy['function_mappings'] = [{
+            'file': 'src/Ω.c', 'function': 'Run_Task',
+            'runnable': '/Component/Run_Task', 'reason': 'Reviewed mapping',
+        }]
+        policy['exceptions'] = [{
+            'rule': 'orphan_access', 'reason': 'Generated stub',
+            'file': 'src/Ω.c', 'swc': '/Component',
+        }]
+        policy['no_rte_expected'] = 'Library-only code'
+        config = app_config.defaults()
+        config['code_check']['policy'] = policy
+        dialog = SettingsDialog(None, Preferences(), Texts('en'), config=config)
+        self.addCleanup(dialog.close)
+        self.assertFalse(hasattr(dialog, 'policy_data'))
+        self.assertEqual(dialog.policy_editor.policy(), policy)
+        editor = dialog.policy_editor
+        with mock.patch('compare_tool.qtviewer.policy_editor.QInputDialog.getText',
+                        return_value=('Rte_New_', True)):
+            editor._add_list_item('forbidden_rte_prefixes')
+        self.assertEqual(editor.lists['forbidden_rte_prefixes'].count(), 3)
+        editor.lists['forbidden_rte_prefixes'].setCurrentRow(2)
+        editor._remove_list_item('forbidden_rte_prefixes')
+        editor.lists['forbidden_rte_prefixes'].item(1).setText('Rte_Changed_')
+        editor.rules['orphan_access'].setCurrentIndex(
+            editor.rules['orphan_access'].findData('warn'))
+        editor.mappings.item(0, 3).setText('Reviewed again')
+        editor.exceptions.item(0, 1).setText('Known generated stub')
+        updated = dialog.config()['code_check']['policy']
+        self.assertEqual(updated['forbidden_rte_prefixes'], ['Rte_IRead_', 'Rte_Changed_'])
+        self.assertEqual(updated['rules']['orphan_access'], 'warn')
+        self.assertEqual(updated['function_mappings'][0]['reason'], 'Reviewed again')
+        self.assertEqual(updated['exceptions'][0]['reason'], 'Known generated stub')
+        self.assertEqual(updated['exceptions'][0]['swc'], '/Component')
+        self.assertEqual(updated['no_rte_expected'], 'Library-only code')
+        editor._add_row(editor.exceptions, ('rule', 'reason', 'file', 'swc', 'runnable', 'port'))
+        with self.assertRaises(ValueError):
+            dialog.config()
+
+    def test_policy_file_import_updates_editable_draft(self):
+        path = Path(self.tmp.name) / 'policy.json'
+        path.write_text('{"rules": {"orphan_access": "off"}, '
+                        '"forbidden_functions": ["UnsafeCall"]}', encoding='utf-8')
+        dialog = SettingsDialog(None, Preferences(), Texts('vi'))
+        self.addCleanup(dialog.close)
+        with mock.patch('compare_tool.qtviewer.settings.QFileDialog.getOpenFileName',
+                        return_value=(str(path), '')):
+            dialog._pick_policy()
+        self.assertEqual(dialog.policy_editor.rules['orphan_access'].currentData(), 'off')
+        self.assertEqual(dialog.policy_editor.lists['forbidden_functions'].item(0).text(),
+                         'UnsafeCall')
+        dialog.policy_editor.rules['orphan_access'].setCurrentIndex(
+            dialog.policy_editor.rules['orphan_access'].findData('warn'))
+        self.assertEqual(dialog.config()['code_check']['policy']['rules']['orphan_access'], 'warn')
+        self.assertEqual(dialog.policy_editor.tabs.tabText(0), 'Mẫu và tên')
+
+        bad = Path(self.tmp.name) / 'bad-policy.json'
+        bad.write_text('{"rules": {"orphan_access": "invalid"}}', encoding='utf-8')
+        before = dialog.policy_editor.policy()
+        with mock.patch('compare_tool.qtviewer.settings.QFileDialog.getOpenFileName',
+                        return_value=(str(bad), '')):
+            with mock.patch('compare_tool.qtviewer.settings.QMessageBox.warning') as warning:
+                dialog._pick_policy()
+        warning.assert_called_once()
+        self.assertEqual(dialog.policy_editor.policy(), before)
+
     def test_legacy_migration_embeds_policy_once(self):
         legacy = QSettings(str(Path(self.tmp.name) / 'legacy.ini'), QSettings.IniFormat)
         legacy.setValue('language', 'vi')

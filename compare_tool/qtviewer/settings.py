@@ -16,6 +16,7 @@ from .. import theme
 from .. import config as app_config
 from ..consistency import load_checker_config
 from .icons import app_icon
+from .policy_editor import PolicyEditor
 
 
 class Preferences(NamedTuple):
@@ -201,24 +202,26 @@ class SettingsDialog(QDialog):
         policy_layout = QVBoxLayout(policy)
         label = QLabel(tr('Import policy file (optional YAML / JSON)'))
         self.policy = QLineEdit(policy_path)
-        self.policy.setPlaceholderText(tr('Use embedded policy below'))
+        self.policy.setPlaceholderText(tr('Select a policy file to import'))
         self.policy.setClearButtonEnabled(True)
         label.setBuddy(self.policy)
         browse = QPushButton(tr('Choose config…'))
         browse.clicked.connect(self._pick_policy)
+        if config is not None:
+            label.hide()
+            self.policy.hide()
+            browse.setText(tr('Import policy file…'))
         row = QHBoxLayout()
         row.addWidget(self.policy, 1)
         row.addWidget(browse)
         policy_layout.addWidget(label)
         policy_layout.addLayout(row)
-        policy_layout.addWidget(QLabel(tr('Embedded policy (YAML)')))
         code_tab = QWidget()
         code_layout = QVBoxLayout(code_tab)
         code_layout.addWidget(policy)
-        self.policy_data = QPlainTextEdit()
-        self.policy_data.setPlainText(app_config._yaml().safe_dump(
-            self._config['code_check']['policy'], allow_unicode=True, sort_keys=False))
-        code_layout.addWidget(self.policy_data)
+        self.policy_editor = PolicyEditor(tr)
+        self.policy_editor.set_policy(self._config['code_check']['policy'])
+        code_layout.addWidget(self.policy_editor)
         self.tabs.addTab(code_tab, tr('Code Check'))
 
         compare_tab = QWidget()
@@ -287,6 +290,12 @@ class SettingsDialog(QDialog):
             self, tr('Code Check policy'), self.policy.text().strip(),
             tr('Policy files (*.yaml *.yml *.json);;All files (*)'))
         if path:
+            try:
+                loaded = load_checker_config(path)
+            except (OSError, UnicodeError, ValueError) as exc:
+                QMessageBox.warning(self, tr('Code Check policy'), str(exc))
+                return
+            self.policy_editor.set_policy(loaded)
             self.policy.setText(path)
 
     def config(self):
@@ -298,10 +307,7 @@ class SettingsDialog(QDialog):
                                 arxml_only=self.arxml_only.isChecked(), skip_var_renames=self.skip_renames.isChecked(),
                                 check_consistency=self.check_consistency.isChecked(), exit_zero=self.exit_zero.isChecked(),
                                 custom_rules=json.loads(self.rules.toPlainText()))
-        if self.policy.text().strip():
-            value['code_check']['policy'] = load_checker_config(self.policy_path())
-        else:
-            value['code_check']['policy'] = app_config.parse_yaml(self.policy_data.toPlainText())
+        value['code_check']['policy'] = self.policy_editor.policy()
         value['report'].update(theme=self.report_theme.currentData(), enabled=self.report_enabled.isChecked(),
                                max_diff_lines=int(self.max_lines.text()))
         return app_config.validate(value)
@@ -318,8 +324,7 @@ class SettingsDialog(QDialog):
             widget.setChecked(value['compare'][key])
         self.rules.setPlainText(json.dumps(value['compare']['custom_rules'], indent=2))
         self.policy.clear()
-        self.policy_data.setPlainText(app_config._yaml().safe_dump(value['code_check']['policy'],
-                                                                   allow_unicode=True, sort_keys=False))
+        self.policy_editor.set_policy(value['code_check']['policy'])
         self.report_theme.setCurrentIndex(self.report_theme.findData(value['report']['theme']))
         self.report_enabled.setChecked(value['report']['enabled'])
         self.max_lines.setText(str(value['report']['max_diff_lines']))

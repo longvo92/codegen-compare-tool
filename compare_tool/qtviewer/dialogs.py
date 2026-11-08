@@ -50,8 +50,9 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 1. Open **Code Check**. The CURRENT folder from Compare is prefilled when
    available. You can select or drop another folder or ZIP. Clear the source
    and return to Code Check to use Compare's CURRENT again.
-2. Edit the embedded policy YAML in **Settings**, or choose a policy file.
-   Save to reuse it next time. Under
+2. In **Settings → Code Check**, edit policy patterns, rule severities,
+   function mappings and scoped exceptions in their fields, or import a policy
+   file. Save to reuse the edited policy next time. Under
    **Scope overrides**, enter excluded file globs (one per line) or an
    additional ignored-port regex. Select **Save scope as default** to keep them.
 3. Select **Run Code Check**. Filter **Findings** by result type or search text,
@@ -136,9 +137,10 @@ Trong **Cài đặt**, bạn cũng có thể chọn ngôn ngữ và theme. Bấm
 1. Mở **Code Check**. Nếu Compare đã có thư mục CURRENT, ứng dụng tự điền
    nguồn đó. Bạn có thể chọn hoặc thả thư mục hay ZIP khác. Để dùng lại CURRENT
    từ Compare, xóa ô nguồn rồi mở lại tab Code Check.
-2. Chọn policy config YAML/JSON trong **Cài đặt** và lưu để dùng lại lần sau.
-   Xóa đường dẫn policy trong Cài đặt để dùng policy mặc định. Trong **Điều chỉnh
-   phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua
+2. Trong **Cài đặt → Code Check**, chỉnh các mẫu, rule, ánh xạ hàm và ngoại lệ
+   bằng các ô tương tác, hoặc nhập file policy YAML/JSON. Bấm **Lưu** để dùng
+   policy đã sửa lần sau. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ
+   (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua
    Port. Chọn **Lưu phạm vi làm mặc định** để giữ các giá trị đó.
 3. Chọn **Chạy Code Check**. Lọc **Finding** theo loại kết quả hoặc tìm kiếm,
    rồi chọn một dòng để xem lý do và ngữ cảnh source.

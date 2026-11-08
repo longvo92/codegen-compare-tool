@@ -142,7 +142,7 @@ Open **Settings** from either workspace to choose English or Tiếng Việt, Lig
 Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 1. Code Check uses Compare's CURRENT folder when available. Select or drop a different folder or ZIP to override it for the session. Clear the source and return to the Code Check tab to follow Compare again.
-2. Edit the embedded policy YAML in **Settings**, or choose a YAML/JSON policy file to import its contents. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
+2. In **Settings → Code Check**, edit policy patterns, rule severities, function mappings and scoped exceptions in their fields, or choose a YAML/JSON policy file to import its contents. **Save** applies the edited policy. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
 3. Select **Run Code Check**. Filter by result type or text. Select a row to inspect its reason and source context.
 
 **Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
