@@ -354,7 +354,7 @@ class MainWindow(QMainWindow):
         try:
             if dialog.exec() == QDialog.Accepted:
                 if self._config is not None:
-                    if self._settings_error and not dialog._replaced_error:
+                    if self._settings_error and not dialog._replaced_config:
                         QMessageBox.warning(self, self._text('Settings'),
                                             self._text('Import a valid config or restore defaults before saving.'))
                         return
@@ -375,8 +375,9 @@ class MainWindow(QMainWindow):
                         self.banner.hide()
                     self._settings_error = ''
                     self._apply_preferences(dialog.preferences())
-                    self.code_check.excludes.setPlainText('\n'.join(updated['code_check']['exclude']))
-                    self.code_check.ignore.setText(updated['code_check']['ignore_regex'])
+                    if dialog._replaced_config:
+                        self.code_check.excludes.setPlainText('\n'.join(updated['code_check']['exclude']))
+                        self.code_check.ignore.setText(updated['code_check']['ignore_regex'])
                     if previous['code_check'] != updated['code_check']:
                         self.code_check.invalidate_check()
                     if previous['compare'] != updated['compare'] and self._raw_results:

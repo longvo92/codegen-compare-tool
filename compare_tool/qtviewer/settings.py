@@ -90,7 +90,9 @@ class YamlSettings:
             except Exception:
                 self._pending = None
                 raise
-            self.config = self._pending
+            # Keep the shared config object live for an already-open MainWindow.
+            self.config.clear()
+            self.config.update(self._pending)
             self._pending = None
 
     def status(self):
@@ -150,7 +152,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent, prefs, texts, *, policy_path='', config=None):
         super().__init__(parent)
         self._text = tr = texts
-        self._replaced_error = False
+        self._replaced_config = False
         self.setObjectName('viewerSettings')
         self.setWindowTitle(tr('Settings'))
         self.setWindowIcon(app_icon())
@@ -213,13 +215,6 @@ class SettingsDialog(QDialog):
         code_tab = QWidget()
         code_layout = QVBoxLayout(code_tab)
         code_layout.addWidget(policy)
-        self.scope = QPlainTextEdit('\n'.join(self._config['code_check']['exclude']))
-        self.scope.setPlaceholderText(tr('Excluded globs, one per line'))
-        code_layout.addWidget(QLabel(tr('Code Check exclusions')))
-        code_layout.addWidget(self.scope)
-        self.ignore = QLineEdit(self._config['code_check']['ignore_regex'])
-        code_layout.addWidget(QLabel(tr('Additional ignored-port regex')))
-        code_layout.addWidget(self.ignore)
         self.policy_data = QPlainTextEdit()
         self.policy_data.setPlainText(app_config._yaml().safe_dump(
             self._config['code_check']['policy'], allow_unicode=True, sort_keys=False))
@@ -303,8 +298,6 @@ class SettingsDialog(QDialog):
                                 arxml_only=self.arxml_only.isChecked(), skip_var_renames=self.skip_renames.isChecked(),
                                 check_consistency=self.check_consistency.isChecked(), exit_zero=self.exit_zero.isChecked(),
                                 custom_rules=json.loads(self.rules.toPlainText()))
-        value['code_check'].update(exclude=[x.strip() for x in self.scope.toPlainText().splitlines() if x.strip()],
-                                   ignore_regex=self.ignore.text())
         if self.policy.text().strip():
             value['code_check']['policy'] = load_checker_config(self.policy_path())
         else:
@@ -324,8 +317,6 @@ class SettingsDialog(QDialog):
                             ('check_consistency', self.check_consistency), ('exit_zero', self.exit_zero)):
             widget.setChecked(value['compare'][key])
         self.rules.setPlainText(json.dumps(value['compare']['custom_rules'], indent=2))
-        self.scope.setPlainText('\n'.join(value['code_check']['exclude']))
-        self.ignore.setText(value['code_check']['ignore_regex'])
         self.policy.clear()
         self.policy_data.setPlainText(app_config._yaml().safe_dump(value['code_check']['policy'],
                                                                    allow_unicode=True, sort_keys=False))
@@ -338,7 +329,7 @@ class SettingsDialog(QDialog):
         if path:
             try:
                 self._load_fields(app_config.load(path))
-                self._replaced_error = True
+                self._replaced_config = True
             except (OSError, UnicodeError, ValueError) as exc:
                 QMessageBox.warning(self, self._text('Settings'), str(exc))
 
@@ -352,7 +343,7 @@ class SettingsDialog(QDialog):
 
     def _restore_defaults(self):
         self._load_fields(app_config.defaults())
-        self._replaced_error = True
+        self._replaced_config = True
 
     def _import_rules(self):
         path, _ = QFileDialog.getOpenFileName(self, self._text('Import Rules…'), '', 'JSON (*.json)')

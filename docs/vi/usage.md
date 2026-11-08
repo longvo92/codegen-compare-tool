@@ -103,7 +103,7 @@ python -m compare_tool baseline current --no-report --check-consistency --exit-z
 
 ## Cấu hình YAML
 
-Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn, kết quả hoặc review notes.
+Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Phạm vi Code Check được chỉnh trong workspace; bấm **Save scope as default** trước khi export nếu muốn mang theo phạm vi vừa sửa. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn, kết quả hoặc review notes.
 
 CLI chỉ đọc YAML khi truyền `--config settings.yaml`. Flag được truyền rõ ràng có ưu tiên cao hơn file. `--export-config output.yaml` ghi settings đã resolve mà không chạy scan. Các flag `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` và `--clear-exclude` ghi đè giá trị bật trong YAML. Với bản Python, cài extra `config`; EXE và zipapp đã bundle YAML.
 

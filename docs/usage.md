@@ -104,7 +104,7 @@ python -m compare_tool baseline current --no-report --check-consistency --exit-z
 
 ## Portable settings
 
-The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths, results and review notes are not included. Start from [this example](../examples/app-settings.yaml) if editing by hand.
+The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Code Check's scope fields are edited in its workspace; use **Save scope as default** before exporting to include current scope changes. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths, results and review notes are not included. Start from [this example](../examples/app-settings.yaml) if editing by hand.
 
 CLI uses its existing defaults unless `--config settings.yaml` is supplied. Explicit flags override the file. `--export-config output.yaml` writes resolved settings without scanning. Use `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` or `--clear-exclude` to override enabled settings. Python installations need the `config` extra for YAML; EXE and zipapp bundle it.
 

@@ -3,7 +3,6 @@
 VI = {
     'General': 'Chung',
     'Report': 'Báo cáo',
-    'Code Check exclusions': 'Mẫu loại trừ Code Check',
     'Compare exclusions': 'Mẫu loại trừ Compare',
     'Custom noise rules (JSON)': 'Quy tắc noise tùy chỉnh (JSON)',
     'Import Rules…': 'Nhập quy tắc…',

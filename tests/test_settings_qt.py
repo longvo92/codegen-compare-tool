@@ -170,6 +170,41 @@ class TestSettings(unittest.TestCase):
                 store.sync()
         self.assertEqual(store.config['appearance']['language'], old)
 
+    def test_code_check_scope_has_one_editor_and_settings_keeps_run_override(self):
+        path = Path(self.tmp.name) / 'settings.yaml'
+        with mock.patch('compare_tool.qtviewer.settings.QSettings') as legacy:
+            legacy.return_value.allKeys.return_value = []
+            self.store = YamlSettings(path)
+        win = self.window()
+        win.code_check.excludes.setPlainText('session/*.c')
+        win.code_check.ignore.setText('^Session_')
+        dialog = SettingsDialog(win, win._prefs, win._text, config=win._config)
+        self.addCleanup(dialog.close)
+        self.assertFalse(hasattr(dialog, 'scope'))
+        self.assertFalse(hasattr(dialog, 'ignore'))
+        self.edit_dialog(win, QDialogButtonBox.Save)
+        self.assertEqual(win.code_check.excludes.toPlainText(), 'session/*.c')
+        self.assertEqual(win.code_check.ignore.text(), '^Session_')
+        self.assertEqual(app_config.load(path)['code_check']['exclude'], [])
+        win.code_check.save_defaults.click()
+        self.assertEqual(win._config['code_check']['exclude'], ['session/*.c'])
+        self.assertEqual(win._config['code_check']['ignore_regex'], '^Session_')
+
+        imported = app_config.defaults()
+        imported['code_check']['exclude'] = ['imported/*.h']
+        imported['code_check']['ignore_regex'] = '^Imported_'
+
+        def accept_import(dialog):
+            dialog._load_fields(imported)
+            dialog._replaced_config = True
+            return 1  # QDialog.Accepted
+
+        with mock.patch.object(SettingsDialog, 'exec', accept_import):
+            win.act_settings.trigger()
+        self.assertEqual(win.code_check.excludes.toPlainText(), 'imported/*.h')
+        self.assertEqual(win.code_check.ignore.text(), '^Imported_')
+        self.assertEqual(app_config.load(path)['code_check']['exclude'], ['imported/*.h'])
+
     def test_release_notes_show_only_dated_sections(self):
         changelog = ('# Changelog\n\n## [Unreleased]\n\nPending\n\n'
                      '## [2.0.0] — 2026-11-06\n\nPublished\n\n'
