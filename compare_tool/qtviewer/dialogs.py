@@ -35,8 +35,8 @@ Compare a BASELINE with CURRENT and review their differences.
    Select a **Quick changes** entry to jump to an AUTOSAR or A2L change.
 5. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report.
 
-**Settings** also changes the GUI language and theme. Save applies changes
-immediately and remembers them for the next launch.
+**Settings** changes the GUI language and theme and imports/exports YAML config.
+Import edits a draft; Save applies it and remembers it for the next launch.
 
 **Modified**, **Added** and **Deleted** need review. **Comment** and
 **Unimportant** contain only comments or generator noise. **Not compared**
@@ -50,8 +50,8 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 1. Open **Code Check**. The CURRENT folder from Compare is prefilled when
    available. You can select or drop another folder or ZIP. Clear the source
    and return to Code Check to use Compare's CURRENT again.
-2. Choose a YAML/JSON policy in **Settings** and save it to reuse it next time.
-   Clear the policy path in Settings to use the built-in policy. Under
+2. Edit the embedded policy YAML in **Settings**, or choose a policy file.
+   Save to reuse it next time. Under
    **Scope overrides**, enter excluded file globs (one per line) or an
    additional ignored-port regex. Select **Save scope as default** to keep them.
 3. Select **Run Code Check**. Filter **Findings** by result type or search text,

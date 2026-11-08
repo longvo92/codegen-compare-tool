@@ -23,6 +23,9 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--qt`, `--viewer` | Aliases: open the desktop viewer instead of CLI comparison. Requires PySide6; input paths are optional. |
 | `--arxml-only` | Restrict comparison to ARXML/XML/A2L and produce a compact update report. Off by default. |
 | `--exclude PATTERN` | Skip matching relative paths or bare file names on both sides. Repeat for multiple globs, e.g. `--exclude "*.tmp" --exclude "cache/*"`. No exclusions by default. |
+| `--config FILE` | Load portable YAML settings for this run. |
+| `--export-config FILE` | Export resolved settings and exit without scanning. |
+| `--clear-exclude` | Clear exclusions loaded from YAML. |
 
 #### Reports and results
 
@@ -38,6 +41,7 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
 | `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
 | `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Enabled consistency failures still return `1`, and input, scan or output errors return `2`. |
+| `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` | Turn off the corresponding YAML setting for this run. |
 
 #### CURRENT consistency
 
@@ -98,6 +102,12 @@ Gate CURRENT consistency failures while allowing ordinary file differences:
 python -m compare_tool baseline current --no-report --check-consistency --exit-zero
 ```
 
+## Portable settings
+
+The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths, results and review notes are not included. Start from [this example](../examples/app-settings.yaml) if editing by hand.
+
+CLI uses its existing defaults unless `--config settings.yaml` is supplied. Explicit flags override the file. `--export-config output.yaml` writes resolved settings without scanning. Use `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` or `--clear-exclude` to override enabled settings. Python installations need the `config` extra for YAML; EXE and zipapp bundle it.
+
 ## Side-by-side viewer
 
 Install the [optional viewer](../README.md#run-from-source), then run:
@@ -109,7 +119,7 @@ python -m compare_tool --viewer baseline current
 
 Select folders or ZIPs, or use **Git compare** to compare a commit with the current checkout. Git compare leaves the working tree unchanged. Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
 
-Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports from the viewer open in its current theme.
+Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
 
 | Verdict | Meaning |
 |---|---|
@@ -132,7 +142,7 @@ Open **Settings** from either workspace to choose English or Tiếng Việt, Lig
 Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 1. Code Check uses Compare's CURRENT folder when available. Select or drop a different folder or ZIP to override it for the session. Clear the source and return to the Code Check tab to follow Compare again.
-2. Choose a YAML/JSON policy config in **Settings** and save it for future launches. Clear the path there to use the built-in policy. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
+2. Edit the embedded policy YAML in **Settings**, or choose a YAML/JSON policy file to import its contents. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
 3. Select **Run Code Check**. Filter by result type or text. Select a row to inspect its reason and source context.
 
 **Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.

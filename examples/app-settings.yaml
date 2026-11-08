@@ -1,0 +1,23 @@
+# Portable CodeGen Studio settings; omitted keys use built-in defaults.
+schema_version: 1
+appearance:
+  language: en
+  theme: light
+display:
+  comment: true
+  unimportant: true
+  hide_identical: false
+compare:
+  exclude: []
+  arxml_only: false
+  skip_var_renames: false
+  custom_rules: []
+  check_consistency: false
+  exit_zero: false
+code_check:
+  exclude: []
+  ignore_regex: ''
+report:
+  theme: dark
+  enabled: true
+  max_diff_lines: 0

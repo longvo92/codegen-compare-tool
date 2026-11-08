@@ -53,6 +53,14 @@ jobs:
           test "$code" -eq 1   # fixtures hold real changes
           test -s pyz.html     # exit code alone would pass on an empty record
 
+      - name: YAML works without installed packages
+        shell: bash
+        run: |
+          python -S dist/compare_tool.pyz --export-config exported.yaml
+          test -s exported.yaml
+          python -S dist/compare_tool.pyz --config exported.yaml --export-config roundtrip.yaml
+          test -s roundtrip.yaml
+
       - name: The viewer has to be inside it
         shell: bash
         run: |
@@ -101,7 +109,7 @@ jobs:
 
       - name: Install the viewer dependency
         if: matrix.python-version == '3.11'
-        run: python -m pip install "PySide6>=6.5,!=6.12.0" "lxml>=5.3,<7" pytest
+        run: python -m pip install "PySide6>=6.5,!=6.12.0" "lxml>=5.3,<7" "PyYAML==6.0.3" pytest
 
       # A wheel that installs but cannot load (a missing system library) would
       # otherwise turn straight back into silent skips. Fail here instead.

@@ -41,6 +41,8 @@ sys.exit(main())
     New-Item -ItemType Directory -Force $stage | Out-Null
     Copy-Item compare_tool $stage -Recurse
     Copy-Item CHANGELOG.md "$stage\compare_tool\CHANGELOG.md"
+    python -m pip install --disable-pip-version-check --no-deps --target $stage "PyYAML==6.0.3"
+    if ($LASTEXITCODE -ne 0) { throw 'bundling PyYAML failed' }
     Get-ChildItem $stage -Recurse -Directory -Filter __pycache__ |
         Remove-Item -Recurse -Force
     Set-Content "$stage\__main__.py" $entry -Encoding ascii
@@ -51,7 +53,7 @@ sys.exit(main())
 
 # --- PyInstaller onefile (.exe): CLI + viewer in one binary ---
 if (-not $PyzOnly) {
-    python -m pip install --upgrade pyinstaller "PySide6>=6.5,!=6.12.0" "lxml>=5.3,<7"
+    python -m pip install --upgrade pyinstaller "PySide6>=6.5,!=6.12.0" "lxml>=5.3,<7" "PyYAML==6.0.3"
     if ($LASTEXITCODE -ne 0) { throw 'installing build dependencies failed' }
     python -m PyInstaller --noconfirm --clean packaging\compare-tool.spec
     if ($LASTEXITCODE -ne 0) { throw 'pyinstaller build failed' }

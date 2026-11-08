@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 from compare_tool import theme
+from compare_tool import config as app_config
 from compare_tool.messages import Message
 from compare_tool.qtviewer.i18n import Texts
 from compare_tool.qtviewer.vi import VI
@@ -18,7 +19,7 @@ try:
     from PySide6.QtWidgets import QApplication, QDialogButtonBox
     from compare_tool.qtviewer.app import MainWindow
     from compare_tool.qtviewer.dialogs import published_release_notes
-    from compare_tool.qtviewer.settings import Preferences, SettingsDialog, load_preferences
+    from compare_tool.qtviewer.settings import Preferences, SettingsDialog, YamlSettings, load_preferences
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
@@ -128,6 +129,46 @@ class TestSettings(unittest.TestCase):
             self.assertIsNone(launch.call_args.kwargs['theme_name'])
             self.assertEqual(main(['--qt', '--theme', 'dark']), 0)
             self.assertEqual(launch.call_args.kwargs['theme_name'], 'dark')
+
+    def test_yaml_store_save_cancel_and_embedded_policy(self):
+        path = Path(self.tmp.name) / 'settings.yaml'
+        self.store = YamlSettings(path)
+        before = path.read_bytes() if path.exists() else None
+        win = self.window()
+        self.edit_dialog(win, QDialogButtonBox.Cancel)
+        self.assertEqual(path.read_bytes() if path.exists() else None, before)
+        self.edit_dialog(win, QDialogButtonBox.Save)
+        self.assertEqual(app_config.load(path)['appearance']['language'], 'vi')
+        self.assertEqual(YamlSettings(path).value('language'), 'vi')
+        self.assertEqual(win.code_check.policy_path, '')
+
+    def test_legacy_migration_embeds_policy_once(self):
+        legacy = QSettings(str(Path(self.tmp.name) / 'legacy.ini'), QSettings.IniFormat)
+        legacy.setValue('language', 'vi')
+        policy = Path(self.tmp.name) / 'policy.yaml'
+        policy.write_text('rules:\n  orphan_access: off\n', encoding='utf-8')
+        legacy.setValue('code_check/defaults', {'config_path': str(policy),
+                                                'excludes': '*.tmp', 'ignore_regex': ''})
+        legacy.sync()
+        destination = Path(self.tmp.name) / 'migrated.yaml'
+        with mock.patch('compare_tool.qtviewer.settings.QSettings', return_value=legacy):
+            store = YamlSettings(destination)
+        self.assertEqual(store.config['appearance']['language'], 'vi')
+        self.assertEqual(store.config['code_check']['exclude'], ['*.tmp'])
+        self.assertEqual(store.config['code_check']['policy']['rules']['orphan_access'], 'off')
+        self.assertTrue(destination.exists())
+
+    def test_yaml_save_failure_keeps_applied_settings(self):
+        path = Path(self.tmp.name) / 'settings.yaml'
+        with mock.patch('compare_tool.qtviewer.settings.QSettings') as legacy:
+            legacy.return_value.allKeys.return_value = []
+            store = YamlSettings(path)
+        old = store.config['appearance']['language']
+        store.setValue('language', 'vi')
+        with mock.patch('compare_tool.qtviewer.settings.app_config.save', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                store.sync()
+        self.assertEqual(store.config['appearance']['language'], old)
 
     def test_release_notes_show_only_dated_sections(self):
         changelog = ('# Changelog\n\n## [Unreleased]\n\nPending\n\n'

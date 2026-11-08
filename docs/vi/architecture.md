@@ -105,7 +105,7 @@ Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/liter
 | Function/object caption | `funcname.enclosing` |
 | Color role / review identity | `theme.py` / `review.py` |
 
-Tùy chọn GUI thuộc `qtviewer/settings.py` và được lưu qua `QSettings` riêng của ứng dụng. `qtviewer/i18n.py` gắn nội dung GUI với catalog tiếng Việt. Thông báo có cấu trúc giữ chuỗi English cho CLI/report và cung cấp template cùng tham số để viewer dịch. Đổi ngôn ngữ và hiển thị dùng lại kết quả hiện có, không chạy lại worker.
+`compare_tool/config.py` quản lý YAML settings có version, dùng chung cho viewer và CLI `--config` khi được chỉ định. `qtviewer/settings.py` chuyển QSettings cũ một lần rồi lưu YAML của người dùng. PyYAML là dependency tùy chọn của comparison core và được bundle trong bản đóng gói. `qtviewer/i18n.py` gắn nội dung GUI với catalog tiếng Việt. Thông báo có cấu trúc giữ chuỗi English cho CLI/report và cung cấp template cùng tham số để viewer dịch. Đổi ngôn ngữ và hiển thị dùng lại kết quả hiện có, không chạy lại worker.
 
 Help nhúng nội dung hướng dẫn song ngữ và About. `resources.doc_text` đọc changelog từ checkout, tài nguyên trong EXE hoặc dữ liệu package bên trong zipapp để Release notes hoạt động offline.
 

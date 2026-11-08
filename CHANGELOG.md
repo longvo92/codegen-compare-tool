@@ -5,6 +5,9 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Save reusable GUI settings in YAML, with import/export and embedded Code Check policy and custom noise rules.
+- Add explicit `--config` and `--export-config` for portable CLI settings.
+
 ## [2.2.0] — 2026-11-07
 
 - Add the ARXML Handler workspace and CLI to preview and apply validated AUTOSAR S/R additions, with desktop session undo.

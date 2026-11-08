@@ -1,6 +1,7 @@
 """Independent CURRENT-source check workspace; checker policy stays in consistency.py."""
 
 from dataclasses import dataclass
+from copy import deepcopy
 from pathlib import Path
 from pprint import pformat
 
@@ -23,7 +24,7 @@ from ..syntax import language_for
 from .diffpane import DiffEditor
 from .i18n import Texts
 from .highlight import CodeHighlighter
-from .settings import (load_code_check_defaults, preference_store,
+from .settings import (YamlSettings, load_code_check_defaults, preference_store,
                        save_code_check_defaults)
 from .worker import CodeCheckWorker, TaskWorker
 
@@ -338,6 +339,8 @@ class CodeCheckPage(QWidget):
         context = context if isinstance(context, CheckContext) else self.input_context()
         if self.is_running() or not self.may_check() or not context.source:
             return
+        if config is None and isinstance(self._settings, YamlSettings) and not context.policy:
+            config = deepcopy(self._settings.config['code_check']['policy'])
         self.cleanup()
         self.context = context
         self._recheck_baseline = baseline
@@ -345,7 +348,8 @@ class CodeCheckPage(QWidget):
         self.fix_group.hide()
         source, config_path, exclude = context.source, context.policy, context.exclude
         self._run_policy_path = config_path
-        self._run_config = str(Path(config_path).resolve()) if config_path else ''
+        self._run_config = str(Path(config_path).resolve()) if config_path else (
+            'Embedded settings' if config is not None else '')
         self._result_path = source
         self.result_source.setText(self._text('Results for: {}', source))
         self.result_source.show()
