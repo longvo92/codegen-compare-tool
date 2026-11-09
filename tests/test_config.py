@@ -1,5 +1,8 @@
 """Portable config and CLI behavior across the optional YAML boundary."""
 
+import contextlib
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,6 +74,35 @@ class TestConfig(unittest.TestCase):
         with mock.patch('compare_tool.qtviewer.run_viewer', return_value=0) as launch:
             self.assertEqual(main(['--qt', '--config', str(self.path)]), 0)
         self.assertTrue(launch.call_args.kwargs['app_config']['compare']['check_consistency'])
+
+    def test_current_ignores_saved_report_limit_but_rejects_explicit_limit(self):
+        value = config.defaults()
+        value['report']['max_diff_lines'] = 50
+        value['code_check']['policy']['no_rte_expected'] = 'Standalone C source'
+        config.save(self.path, value)
+        current = Path(self.temp.name) / 'current'
+        current.mkdir()
+        (current / 'standalone.c').write_text('int a;\n', encoding='utf-8')
+        args = ['--check-current', str(current), '--config', str(self.path)]
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(args), 0)
+        self.assertIn('CURRENT:', output.getvalue())
+        with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit) as exc:
+            main(args + ['--max-diff-lines', '50'])
+        self.assertEqual(exc.exception.code, 2)
+        self.assertIn('--check-current cannot be combined with --max-diff-lines', errors.getvalue())
+
+    def test_export_resolves_both_supported_rules_file_shapes(self):
+        config.save(self.path, config.defaults())
+        source = Path(self.temp.name) / 'rules.json'
+        output = Path(self.temp.name) / 'resolved.yaml'
+        rules = [{'name': 'build stamp', 'pattern': 'STAMP_[0-9]+'}]
+        for payload in (rules, {'rules': rules}):
+            with self.subTest(payload=payload):
+                source.write_text(json.dumps(payload), encoding='utf-8')
+                self.assertEqual(main(['--config', str(self.path), '--rules', str(source),
+                                       '--export-config', str(output)]), 0)
+                self.assertEqual(config.load(output)['compare']['custom_rules'], rules)
 
     def test_plain_cli_never_reads_personal_settings(self):
         old = Path(self.temp.name) / 'old'

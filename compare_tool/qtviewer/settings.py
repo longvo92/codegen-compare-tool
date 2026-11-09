@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
 from .. import theme
 from .. import config as app_config
 from ..consistency import load_checker_config
+from ..userrules import read_items
 from .icons import app_icon
 from .policy_editor import PolicyEditor
 
@@ -34,14 +35,19 @@ class CodeCheckDefaults(NamedTuple):
 
 
 _CODE_CHECK_DEFAULTS_KEY = 'code_check/defaults'
+_RECOVERY_REQUIRED = 'Import a valid config or restore defaults before saving.'
 
 
 class YamlSettings:
     """QSettings-compatible narrow adapter for existing viewer callers."""
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, *, recovering=False):
         self.path = app_config.settings_path() if path is None else path
-        self.config = app_config.load(self.path) if self.path.exists() else self._migrate()
+        self.recovering = recovering
+        if recovering:
+            self.config = app_config.defaults()
+        else:
+            self.config = app_config.load(self.path) if self.path.exists() else self._migrate()
         self._pending = None
 
     def _migrate(self):
@@ -87,7 +93,7 @@ class YamlSettings:
     def sync(self):
         if self._pending is not None:
             try:
-                app_config.save(self.path, self._pending)
+                self.save(self._pending)
             except Exception:
                 self._pending = None
                 raise
@@ -95,6 +101,12 @@ class YamlSettings:
             self.config.clear()
             self.config.update(self._pending)
             self._pending = None
+
+    def save(self, value, *, recover=False):
+        if self.recovering and not recover:
+            raise ValueError(_RECOVERY_REQUIRED)
+        app_config.save(self.path, value)
+        self.recovering = False
 
     def status(self):
         return QSettings.Status.NoError
@@ -342,6 +354,10 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, self._text('Export Config…'), '', 'YAML (*.yaml *.yml)')
         if path:
             try:
+                store = getattr(self.parent(), '_settings', None)
+                if (isinstance(store, YamlSettings) and store.recovering
+                        and Path(path).resolve() == store.path.resolve()):
+                    raise ValueError(self._text(_RECOVERY_REQUIRED))
                 app_config.save(path, self.config())
             except (OSError, UnicodeError, ValueError) as exc:
                 QMessageBox.warning(self, self._text('Settings'), str(exc))
@@ -354,7 +370,7 @@ class SettingsDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, self._text('Import Rules…'), '', 'JSON (*.json)')
         if path:
             try:
-                rules = json.loads(Path(path).read_text(encoding='utf-8'))
+                rules = read_items(path)
                 candidate = app_config.defaults()
                 candidate['compare']['custom_rules'] = rules
                 app_config.validate(candidate)

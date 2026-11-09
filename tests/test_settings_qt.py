@@ -142,10 +142,87 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(YamlSettings(path).value('language'), 'vi')
         self.assertEqual(win.code_check.policy_path, '')
 
+    def test_cli_scan_overrides_are_the_settings_draft_and_stale_baseline(self):
+        from compare_tool.main import main
+        path = Path(self.tmp.name) / 'settings.yaml'
+        app_config.save(path, app_config.defaults())
+        rule_file = Path(self.tmp.name) / 'rules.json'
+        rule_file.write_text('{"rules": [{"name": "stamp", "pattern": "STAMP_[0-9]+"}]}', encoding='utf-8')
+        with mock.patch('compare_tool.qtviewer.run_viewer', return_value=0) as launch:
+            self.assertEqual(main(['--qt', '--exclude', '*.c', '--skip-var-renames',
+                                   '--rules', str(rule_file)]), 0)
+        win = MainWindow(*launch.call_args.args, **launch.call_args.kwargs, settings=YamlSettings(path))
+        self.addCleanup(win.close)
+        self.assertEqual(app_config.load(path), app_config.defaults())
+        win._raw_results = {'kept.h': {'status': 'identical'}}
+        win.act_export.setEnabled(True)
+        self.edit_dialog(win, QDialogButtonBox.Save)
+        self.assertEqual(win.exclude, ('*.c',))
+        self.assertTrue(win.skip_var_renames)
+        self.assertEqual([rule.name for rule in win.user_rules], ['stamp'])
+        self.assertEqual(app_config.load(path)['compare']['exclude'], ['*.c'])
+        self.assertTrue(win.act_export.isEnabled())
+
+        def change_scope(dialog):
+            dialog.compare_exclude.clear()
+            return 1
+
+        with mock.patch.object(SettingsDialog, 'exec', change_scope):
+            win.act_settings.trigger()
+        self.assertEqual(win.exclude, ())
+        self.assertEqual(win._raw_results, {})
+        self.assertFalse(win.act_export.isEnabled())
+
+    def test_explicit_negative_gui_flags_override_personal_config(self):
+        from compare_tool.main import main
+        path = Path(self.tmp.name) / 'settings.yaml'
+        value = app_config.defaults()
+        value['compare'].update(arxml_only=True, skip_var_renames=True, exclude=['*.c'])
+        app_config.save(path, value)
+        with mock.patch('compare_tool.qtviewer.run_viewer', return_value=0) as launch:
+            self.assertEqual(main(['--qt', '--no-arxml-only', '--no-skip-var-renames', '--clear-exclude']), 0)
+        win = MainWindow(*launch.call_args.args, **launch.call_args.kwargs, settings=YamlSettings(path))
+        self.addCleanup(win.close)
+        self.assertFalse(win.arxml_only)
+        self.assertFalse(win.skip_var_renames)
+        self.assertEqual(win.exclude, ())
+        self.assertEqual(app_config.load(path), value)
+
+    def test_scope_save_preserves_unreadable_settings_until_explicit_recovery(self):
+        path = Path(self.tmp.name) / 'settings.yaml'
+        original = b'schema_version: 999\ncompare:\n  exclude: [critical.c]\n'
+        path.write_bytes(original)
+        with mock.patch('compare_tool.config.settings_path', return_value=path):
+            win = MainWindow()
+        self.addCleanup(win.close)
+        win.code_check.excludes.setPlainText('*.bak')
+        win.code_check.save_defaults.click()
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(win.code_check.defaults_status.text(), 'Code Check scope could not be saved.')
+
+        dialog = SettingsDialog(win, win._prefs, win._text, config=win._config)
+        with mock.patch('compare_tool.qtviewer.settings.QFileDialog.getSaveFileName',
+                        return_value=(str(path), '')), mock.patch(
+                            'compare_tool.qtviewer.settings.QMessageBox.warning') as warning:
+            dialog._export_config()
+        warning.assert_called_once()
+        self.assertEqual(path.read_bytes(), original)
+
+        def restore(dialog):
+            dialog._restore_defaults()
+            return 1
+
+        with mock.patch.object(SettingsDialog, 'exec', restore):
+            win.act_settings.trigger()
+        self.assertEqual(app_config.load(path), app_config.defaults())
+        win.code_check.excludes.setPlainText('*.bak')
+        win.code_check.save_defaults.click()
+        self.assertEqual(app_config.load(path)['code_check']['exclude'], ['*.bak'])
+
     def test_policy_editor_round_trip_lists_rules_mappings_and_exceptions(self):
         policy = app_config.defaults()['code_check']['policy']
         policy['forbidden_rte_prefixes'] = ['Rte_IRead_', 'Rte_Ω_']
-        policy['ignore_rte_call_regex'] = ['^Rte_Call_Test']
+        policy['ignore_rte_call_regex'] = [' Rte_Call_Test ']
         policy['rules']['orphan_access'] = 'skip'
         policy['function_mappings'] = [{
             'file': 'src/Ω.c', 'function': 'Run_Task',
@@ -175,6 +252,7 @@ class TestSettings(unittest.TestCase):
         editor.mappings.item(0, 3).setText('Reviewed again')
         editor.exceptions.item(0, 1).setText('Known generated stub')
         updated = dialog.config()['code_check']['policy']
+        self.assertEqual(updated['ignore_rte_call_regex'], [' Rte_Call_Test '])
         self.assertEqual(updated['forbidden_rte_prefixes'], ['Rte_IRead_', 'Rte_Changed_'])
         self.assertEqual(updated['rules']['orphan_access'], 'warn')
         self.assertEqual(updated['function_mappings'][0]['reason'], 'Reviewed again')

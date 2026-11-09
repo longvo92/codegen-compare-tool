@@ -95,6 +95,12 @@ def _parse_rule(item, warn):
     return Rule(name, regex, replacement, exts)
 
 
+def read_items(path):
+    """Read the rule payload from either supported JSON file shape."""
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    return data.get('rules', []) if isinstance(data, dict) else data
+
+
 def load(path):
     """Parse a ``--rules`` file into ``(rules, warnings)``.
 
@@ -102,11 +108,7 @@ def load(path):
     Raises only when the file cannot be read or is not JSON at all -- a
     malformed *rule* is skipped and reported in ``warnings``, so one typo does
     not throw away a whole rules file or abort the compare."""
-    data = json.loads(Path(path).read_text(encoding='utf-8'))
-    if isinstance(data, dict):
-        raw = data.get('rules', [])
-    else:
-        raw = data
+    raw = read_items(path)
     warn = []
     if not isinstance(raw, list):
         return [], ['rules file must be a list of rules, or {"rules": [...]}']

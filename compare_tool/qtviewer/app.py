@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import webbrowser
+from copy import deepcopy
 from html import escape
 from pathlib import Path
 
@@ -87,8 +88,8 @@ def _arxml_include():
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, old=None, new=None, exclude=(), arxml_only=False,
-                 theme_name=None, user_rules=(), skip_var_renames=False, *, settings=None,
+    def __init__(self, old=None, new=None, exclude=None, arxml_only=None,
+                 theme_name=None, user_rules=None, skip_var_renames=None, *, settings=None,
                  temporary_root=None, app_config=None):
         super().__init__()
         self._settings_error = ''
@@ -96,12 +97,9 @@ class MainWindow(QMainWindow):
             self._settings = preference_store() if settings is None else settings
         except (OSError, UnicodeError, ValueError) as exc:
             self._settings_error = str(exc)
-            self._settings = YamlSettings.__new__(YamlSettings)
-            self._settings.path = app_config_module.settings_path()
-            self._settings.config = app_config_module.defaults()
-            self._settings._pending = None
+            self._settings = YamlSettings(recovering=True)
         if app_config is not None and isinstance(self._settings, YamlSettings):
-            self._settings.config = app_config
+            self._settings.config = deepcopy(app_config)
         self._prefs = load_preferences(self._settings)
         self._text = Texts(self._prefs.language)
         self._theme = theme.set_current(theme_name or self._prefs.theme)
@@ -112,21 +110,27 @@ class MainWindow(QMainWindow):
         self._config = self._settings.config if isinstance(self._settings, YamlSettings) else None
         self.old = old
         self.new = new
-        self.exclude = tuple(exclude if app_config is not None else
-                             (exclude or (self._config['compare']['exclude'] if self._config else ())))
-        arxml_only = arxml_only if app_config is not None else (
-            arxml_only or bool(self._config and self._config['compare']['arxml_only']))
-        self.include = _arxml_include() if arxml_only else ()
-        self.arxml_only = arxml_only
-        # extra --rules noise patterns; the viewer and the CLI share the engine,
-        # so both must apply them or the same folders would read two ways
-        self.user_rules = tuple(user_rules if app_config is not None else
-                                (user_rules or (app_config_module.compile_rules(self._config) if self._config else ())))
-        # --skip-var-renames: the unproven quick check. Baked into the scan
-        # like --rules is, because it decides verdicts -- it is not a view
-        # toggle the reviewer can flip back on over the same results.
-        self.skip_var_renames = bool(skip_var_renames if app_config is not None else
-                                     (skip_var_renames or (self._config and self._config['compare']['skip_var_renames'])))
+        if self._config is not None:
+            compare = self._config['compare']
+            if exclude is not None:
+                compare['exclude'] = list(exclude)
+            if arxml_only is not None:
+                compare['arxml_only'] = arxml_only
+            if skip_var_renames is not None:
+                compare['skip_var_renames'] = skip_var_renames
+            if user_rules is not None:
+                compare['custom_rules'] = [
+                    {'name': rule.name, 'pattern': rule.regex.pattern,
+                     'replacement': rule.replacement,
+                     'extensions': sorted(rule.exts) if rule.exts is not None else None}
+                    for rule in user_rules]
+            self._apply_compare_config()
+        else:
+            self.exclude = tuple(exclude or ())
+            self.arxml_only = bool(arxml_only)
+            self.include = _arxml_include() if self.arxml_only else ()
+            self.user_rules = tuple(user_rules or ())
+            self.skip_var_renames = bool(skip_var_renames)
         self._raw_results = {}  # verdicts straight from the scan
         self.results = {}       # ... after the current compare rules
         self.worker = None
@@ -348,6 +352,14 @@ class MainWindow(QMainWindow):
         self.counts_label.setStyleSheet('color:{}; padding:0 8px;'
                                         .format(theme.c('st-ign')))
 
+    def _apply_compare_config(self):
+        compare = self._config['compare']
+        self.exclude = tuple(compare['exclude'])
+        self.arxml_only = compare['arxml_only']
+        self.include = _arxml_include() if self.arxml_only else ()
+        self.user_rules = app_config_module.compile_rules(self._config)
+        self.skip_var_renames = compare['skip_var_renames']
+
     def _show_settings(self):
         dialog = SettingsDialog(self, self._prefs._replace(theme=self._theme), self._text,
                                 policy_path=self.code_check.policy_path, config=self._config)
@@ -363,7 +375,7 @@ class MainWindow(QMainWindow):
                         return
                     try:
                         updated = dialog.config()
-                        app_config_module.save(self._settings.path, updated)
+                        self._settings.save(updated, recover=dialog._replaced_config)
                     except (OSError, UnicodeError, ValueError) as exc:
                         QMessageBox.warning(self, self._text('Settings'), str(exc))
                         return
@@ -385,11 +397,7 @@ class MainWindow(QMainWindow):
                         self.results = {}
                         self.act_export.setEnabled(False)
                         self._set_state('error', 'STALE — run again')
-                    self.exclude = tuple(updated['compare']['exclude'])
-                    self.arxml_only = updated['compare']['arxml_only']
-                    self.include = _arxml_include() if self.arxml_only else ()
-                    self.user_rules = app_config_module.compile_rules(updated)
-                    self.skip_var_renames = updated['compare']['skip_var_renames']
+                    self._apply_compare_config()
                     return
                 prefs = dialog.preferences()
                 policy_path = dialog.policy_path()
@@ -1517,8 +1525,8 @@ def _taskbar_identity():
         pass  # not Windows, or the call is unavailable: cosmetic either way
 
 
-def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
-               theme_name=None, user_rules=(), skip_var_renames=False, *, temporary_root=None,
+def run_viewer(old=None, new=None, exclude=None, arxml_only=None,
+               theme_name=None, user_rules=None, skip_var_renames=None, *, temporary_root=None,
                app_config=None):
     app = QApplication.instance()
     owns = app is None

@@ -527,7 +527,7 @@ def _parser():
     for name in ('arxml-only', 'skip-var-renames', 'check-consistency', 'exit-zero'):
         ap.add_argument('--no-' + name, dest=name.replace('-', '_'), action='store_false', default=None,
                         help='disable configured ' + name)
-    ap.add_argument('--exclude', metavar='PATTERN', action='append', default=[],
+    ap.add_argument('--exclude', metavar='PATTERN', action='append',
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
     ap.add_argument('--review', metavar='REVIEW.json', default=None,
@@ -593,7 +593,7 @@ def _parser():
                     help='also write a SARIF 2.1.0 log of the files that need '
                          'action (modified / added / deleted / error), so GitHub '
                          'or Azure DevOps code scanning can annotate them inline')
-    ap.add_argument('--max-diff-lines', metavar='N', type=int, default=0,
+    ap.add_argument('--max-diff-lines', metavar='N', type=int,
                     help='cap the diff embedded PER FILE in the HTML report at '
                          'about N lines (0 = no cap, the default). A regenerate '
                          'that touched a whole tree can otherwise render one '
@@ -606,6 +606,7 @@ def _parser():
                          '(report-only mode for CI pipelines); current-tree '
                          'consistency failures still exit 1 and compare or '
                          'consistency scan errors still exit 2')
+    ap.set_defaults(arxml_only=None, skip_var_renames=None, check_consistency=None, exit_zero=None)
     return ap
 
 
@@ -680,6 +681,8 @@ def main(argv=None):
         return handler_main(argv[1:], prog='compare-tool --arxml-handler')
     ap = _parser()
     args = ap.parse_args(argv)
+    if args.clear_exclude:
+        args.exclude = []
     from . import config as app_config
     try:
         settings = app_config.load(args.config) if args.config else None
@@ -690,24 +693,16 @@ def main(argv=None):
             viewer_mode = _wants_viewer(args)
             current_mode = bool(args.check_current)
             for key in ('arxml_only', 'skip_var_renames', 'check_consistency', 'exit_zero'):
-                option = '--' + key.replace('_', '-')
-                if ((current_mode or (viewer_mode and key in ('check_consistency', 'exit_zero')))
-                        and option not in explicit and '--no-' + key.replace('_', '-') not in explicit):
-                    setattr(args, key, False)
-                elif option not in explicit and '--no-' + key.replace('_', '-') not in explicit:
-                    setattr(args, key, compare[key])
-                else:
+                if getattr(args, key) is not None:
                     compare[key] = getattr(args, key)
-            if args.clear_exclude:
-                args.exclude = []
-            elif '--exclude' not in explicit and not current_mode:
-                args.exclude = list(compare['exclude'])
-            if not current_mode:
-                compare['exclude'] = list(args.exclude)
+                elif not current_mode and not (viewer_mode and key in ('check_consistency', 'exit_zero')):
+                    setattr(args, key, compare[key])
+            scope = settings['code_check'] if current_mode else compare
+            if args.exclude is None:
+                args.exclude = list(scope['exclude'])
+            else:
+                scope['exclude'] = list(args.exclude)
             if args.check_current:
-                if '--exclude' not in explicit and not args.clear_exclude:
-                    args.exclude = list(settings['code_check']['exclude'])
-                settings['code_check']['exclude'] = list(args.exclude)
                 if args.ignore_access_port_regex is None:
                     args.ignore_access_port_regex = settings['code_check']['ignore_regex'] or None
             if args.theme is None:
@@ -716,14 +711,10 @@ def main(argv=None):
                 settings['appearance']['theme'] = args.theme
             else:
                 settings['report']['theme'] = args.theme
-            if '--max-diff-lines' not in explicit:
-                args.max_diff_lines = settings['report']['max_diff_lines']
-            else:
+            if args.max_diff_lines is not None:
                 settings['report']['max_diff_lines'] = args.max_diff_lines
-            if args.rules:
-                from pathlib import Path as _Path
-                import json as _json
-                settings['compare']['custom_rules'] = _json.loads(_Path(args.rules).read_text(encoding='utf-8'))
+            elif not current_mode:
+                args.max_diff_lines = settings['report']['max_diff_lines']
             if args.consistency_config:
                 settings['code_check']['policy'] = consistency.load_checker_config(Path(args.consistency_config))
             if args.ignore_access_port_regex is not None:
@@ -735,20 +726,25 @@ def main(argv=None):
             elif '--report' in explicit:
                 settings['report']['enabled'] = True
             if args.export_config:
+                if args.rules:
+                    compare['custom_rules'] = userrules.read_items(args.rules)
                 app_config.save(args.export_config, settings)
                 return 0
         args._app_config = settings
     except (OSError, UnicodeError, ValueError) as exc:
         ap.error('application config is invalid: {}'.format(exc))
-    for key in ('arxml_only', 'skip_var_renames', 'check_consistency', 'exit_zero'):
-        if getattr(args, key) is None:
-            setattr(args, key, False)
+    if args.max_diff_lines is None:
+        args.max_diff_lines = 0
     if args.arxml_handler:
         ap.error('--arxml-handler must be the first argument')
     if (args.fix_master or args.fix_source) and not (
             args.check_current and args.fix_master and args.fix_source):
         ap.error('--fix-master and --fix-source must be used together with --check-current')
     if not _wants_viewer(args):
+        if args.exclude is None:
+            args.exclude = []
+        args.arxml_only = bool(args.arxml_only)
+        args.skip_var_renames = bool(args.skip_var_renames)
         print('{} {}'.format(APP_NAME, __version__))
     # boxed so _resolve_source can create the extraction dir lazily; removed in
     # the finally whichever way this run exits
@@ -881,7 +877,7 @@ def _run(ap, args, zip_temp):
         try:
             return run_viewer(old_dir, new_dir, exclude=args.exclude,
                               arxml_only=args.arxml_only, theme_name=args.theme,
-                              user_rules=user_rules,
+                              user_rules=user_rules if args.rules else None,
                               skip_var_renames=args.skip_var_renames,
                               temporary_root=zip_temp[0], app_config=args._app_config)
         except ImportError as e:

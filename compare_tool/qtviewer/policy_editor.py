@@ -133,7 +133,7 @@ class PolicyEditor(QWidget):
         value, accepted = QInputDialog.getText(self, self._tr(_LIST_LABELS[key]),
                                                self._tr('Value'))
         if accepted and value.strip():
-            item = QListWidgetItem(value.strip())
+            item = QListWidgetItem(value)
             item.setFlags(item.flags() | Qt.ItemIsEditable)
             self.lists[key].addItem(item)
 
@@ -190,7 +190,7 @@ class PolicyEditor(QWidget):
         result = []
         for row in range(table.rowCount()):
             entry = {key: (table.cellWidget(row, column).currentData()
-                           if key == 'rule' else table.item(row, column).text().strip())
+                           if key == 'rule' else table.item(row, column).text())
                      for column, key in enumerate(columns)}
             if columns == _EXCEPTION_COLUMNS:
                 entry = {key: value for key, value in entry.items() if value}
@@ -200,9 +200,9 @@ class PolicyEditor(QWidget):
     def policy(self):
         value = deepcopy(self._policy)
         for key, widget in self.lists.items():
-            value[key] = [widget.item(row).text().strip() for row in range(widget.count())]
+            value[key] = [widget.item(row).text() for row in range(widget.count())]
         value['rules'] = {key: combo.currentData() for key, combo in self.rules.items()}
         value['function_mappings'] = self._rows(self.mappings, _MAPPING_COLUMNS)
         value['exceptions'] = self._rows(self.exceptions, _EXCEPTION_COLUMNS)
-        value['no_rte_expected'] = self.no_rte_expected.text().strip()
+        value['no_rte_expected'] = self.no_rte_expected.text()
         return value
