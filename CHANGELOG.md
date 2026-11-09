@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-11-09
+
 - Save reusable GUI settings in YAML, with import/export, interactive Code Check policy fields and embedded custom noise rules.
 - Add explicit `--config` and `--export-config` for portable CLI settings.
 - Keep comment changes on matched C lines separate from nearby code changes in comparisons.
