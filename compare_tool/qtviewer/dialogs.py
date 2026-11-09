@@ -35,8 +35,8 @@ Compare a BASELINE with CURRENT and review their differences.
    Select a **Quick changes** entry to jump to an AUTOSAR or A2L change.
 5. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report.
 
-**Settings** also changes the GUI language and theme. Save applies changes
-immediately and remembers them for the next launch.
+**Settings** changes the GUI language and theme and imports/exports YAML config.
+Import edits a draft; Save applies it and remembers it for the next launch.
 
 **Modified**, **Added** and **Deleted** need review. **Comment** and
 **Unimportant** contain only comments or generator noise. **Not compared**
@@ -50,8 +50,9 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 1. Open **Code Check**. The CURRENT folder from Compare is prefilled when
    available. You can select or drop another folder or ZIP. Clear the source
    and return to Code Check to use Compare's CURRENT again.
-2. Choose a YAML/JSON policy in **Settings** and save it to reuse it next time.
-   Clear the policy path in Settings to use the built-in policy. Under
+2. In **Settings → Code Check**, edit policy patterns, rule severities,
+   function mappings and scoped exceptions in their fields, or import a policy
+   file. Save to reuse the edited policy next time. Under
    **Scope overrides**, enter excluded file globs (one per line) or an
    additional ignored-port regex. Select **Save scope as default** to keep them.
 3. Select **Run Code Check**. Filter **Findings** by result type or search text,
@@ -136,9 +137,10 @@ Trong **Cài đặt**, bạn cũng có thể chọn ngôn ngữ và theme. Bấm
 1. Mở **Code Check**. Nếu Compare đã có thư mục CURRENT, ứng dụng tự điền
    nguồn đó. Bạn có thể chọn hoặc thả thư mục hay ZIP khác. Để dùng lại CURRENT
    từ Compare, xóa ô nguồn rồi mở lại tab Code Check.
-2. Chọn policy config YAML/JSON trong **Cài đặt** và lưu để dùng lại lần sau.
-   Xóa đường dẫn policy trong Cài đặt để dùng policy mặc định. Trong **Điều chỉnh
-   phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua
+2. Trong **Cài đặt → Code Check**, chỉnh các mẫu, rule, ánh xạ hàm và ngoại lệ
+   bằng các ô tương tác, hoặc nhập file policy YAML/JSON. Bấm **Lưu** để dùng
+   policy đã sửa lần sau. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ
+   (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua
    Port. Chọn **Lưu phạm vi làm mặc định** để giữ các giá trị đó.
 3. Chọn **Chạy Code Check**. Lọc **Finding** theo loại kết quả hoặc tìm kiếm,
    rồi chọn một dòng để xem lý do và ngữ cảnh source.

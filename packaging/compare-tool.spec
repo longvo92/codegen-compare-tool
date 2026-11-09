@@ -10,6 +10,7 @@
 #     dist/compare-tool(.exe)
 
 import os
+import importlib.metadata
 
 # SPECPATH is the folder holding this spec (…/packaging); the repo root one
 # level up must be on the path so `import compare_tool` resolves.
@@ -31,6 +32,11 @@ _DATAS = [
     (os.path.join(_root, 'resources', 'logo'), os.path.join('resources', 'logo')),
     (os.path.join(_root, 'CHANGELOG.md'), '.'),
 ]
+_yaml_distribution = importlib.metadata.distribution('PyYAML')
+for _item in _yaml_distribution.files or ():
+    if str(_item).replace('\\', '/').endswith('licenses/LICENSE'):
+        _DATAS.append((str(_yaml_distribution.locate_file(_item)), 'licenses/PyYAML'))
+        break
 
 _ICON = os.path.join(_root, 'resources', 'logo', 'app.ico')
 

@@ -1,7 +1,8 @@
 """The import promises the shipped artefacts rest on.
 
 `compare_tool.pyz` is the documented fallback for machines where antivirus
-blocks the .exe: ~110 KB, nothing installed, stdlib only. That promise is
+blocks the .exe: nothing installed. Comparison core imports are stdlib only;
+the YAML config module loads bundled PyYAML only when requested. That promise is
 stated in the README and in AGENTS.md, and until now nothing checked it -- a
 single third-party import in `scanner.py` would keep every test green here and
 break the tool on exactly the machines the zipapp exists for.
@@ -46,11 +47,12 @@ class TestCoreIsStdlibOnly(unittest.TestCase):
         for path in CORE:
             extra = sorted(m for m in _imports(path)
                            if m not in sys.stdlib_module_names
-                           and m != 'compare_tool')
+                           and m != 'compare_tool'
+                           and not (path.name == 'config.py' and m == 'yaml'))
             if extra:
                 offenders[path.name] = extra
         self.assertEqual(offenders, {},
-                         'compare_tool.pyz ships stdlib only -- these imports '
+                         'comparison core must stay stdlib-only -- these imports '
                          'would break it on a machine with nothing installed')
 
     def test_the_core_actually_got_scanned(self):

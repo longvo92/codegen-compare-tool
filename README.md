@@ -37,6 +37,8 @@ python -m pip install -e ".[viewer,arxml]"
 python -m compare_tool
 ```
 
+The viewer can import/export portable YAML settings with Code Check policy and custom noise rules. CLI reads YAML only with `--config settings.yaml`; see the [User Guide](docs/usage.md#portable-settings). A Python CLI installation needs `pip install "codegen-compare-tool[config]"` for YAML.
+
 Sample inputs: [tests/fixtures/demo](tests/fixtures/demo).
 
 ## Usage

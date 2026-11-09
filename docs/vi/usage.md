@@ -23,6 +23,9 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 | `--qt`, `--viewer` | Hai tên cho cùng flag: mở desktop viewer thay CLI comparison. Cần PySide6; input path không bắt buộc. |
 | `--arxml-only` | Chỉ compare ARXML/XML/A2L và tạo compact update report. Mặc định tắt. |
 | `--exclude PATTERN` | Bỏ qua relative path hoặc file name khớp glob ở cả hai phía. Lặp để thêm glob, ví dụ `--exclude "*.tmp" --exclude "cache/*"`. Mặc định không exclude. |
+| `--config FILE` | Đọc YAML settings cho lần chạy này. |
+| `--export-config FILE` | Ghi settings đã resolve rồi thoát, không scan. |
+| `--clear-exclude` | Xóa exclusions được nạp từ YAML. |
 
 #### Report và kết quả
 
@@ -98,6 +101,12 @@ Cho phép file difference và dùng consistency failure của CURRENT để quy�
 python -m compare_tool baseline current --no-report --check-consistency --exit-zero
 ```
 
+## Cấu hình YAML
+
+Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Phạm vi Code Check được chỉnh trong workspace; bấm **Save scope as default** trước khi export nếu muốn mang theo phạm vi vừa sửa. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn, kết quả hoặc review notes.
+
+CLI chỉ đọc YAML khi truyền `--config settings.yaml`. Flag được truyền rõ ràng có ưu tiên cao hơn file. `--export-config output.yaml` ghi settings đã resolve mà không chạy scan. Các flag `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` và `--clear-exclude` ghi đè giá trị bật trong YAML. Với bản Python, cài extra `config`; EXE và zipapp đã bundle YAML.
+
 ## Viewer side-by-side
 
 Cài [viewer tùy chọn](README.md#chạy-từ-source), rồi chạy:
@@ -109,7 +118,7 @@ python -m compare_tool --viewer baseline current
 
 Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit với checkout hiện tại. Git compare không thay đổi working tree. Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
 
-Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer mở theo theme hiện tại.
+Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer dùng theme trong tab Report.
 
 | Verdict | Ý nghĩa |
 |---|---|
@@ -132,7 +141,7 @@ Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn 
 Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
 
 1. Code Check tự điền thư mục CURRENT từ Compare nếu có. Chọn hoặc thả thư mục hay ZIP khác để dùng nguồn riêng trong phiên làm việc. Xóa ô nguồn rồi mở lại tab Code Check để dùng lại CURRENT từ Compare.
-2. Chọn policy config YAML/JSON trong **Cài đặt** và lưu cho lần mở sau. Xóa đường dẫn tại đó để dùng policy mặc định. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
+2. Trong **Cài đặt → Code Check**, sửa các mẫu policy, mức độ rule, ánh xạ hàm và ngoại lệ theo phạm vi bằng các ô tương tác; hoặc chọn file YAML/JSON để nhập nội dung. Bấm **Lưu** để áp dụng policy đã sửa. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
 3. Chọn **Run Code Check**. Lọc theo loại kết quả hoặc nội dung. Chọn một dòng để xem lý do và vị trí nguồn.
 
 **Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.

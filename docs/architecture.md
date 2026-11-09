@@ -64,7 +64,7 @@ Git uses `git archive` without changing HEAD, index or working files. ZIP extrac
 Both passes use `linediff.hunks`, with patience anchors and exact gap matching:
 
 1. **Truth:** compare normalized shadows while preserving literals and significant Python/YAML indentation. Remaining differences are real.
-2. **Display:** diff raw lines. Non-real hunks receive a single-rule kind, or `mixed` when several rules are needed.
+2. **Display:** diff raw lines. In C files with real changes, preserve line pairs matched by the shadow and diff raw text within the gaps. Classify raw differences on matched pairs independently of nearby code changes. Non-real hunks receive a single-rule kind, or `mixed` when several rules are needed.
 
 Hunk kinds include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `uuid`, `timestamp`, `sw-version`, `description`, `whitespace` and `mixed`.
 
@@ -108,7 +108,7 @@ The shared `c_source.py` lexical view handles C line splicing before comments/li
 
 Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Exports use the raw scan.
 
-Viewer preferences live in `qtviewer/settings.py` and use an app-specific `QSettings` store. `qtviewer/i18n.py` binds GUI text to a Vietnamese catalog. Structured messages keep their English string value for CLI and reports and expose templates and values for translation in the viewer. Language and display changes render existing results without running either worker again.
+`compare_tool/config.py` owns the versioned YAML settings shared by viewer and opt-in CLI `--config`. `qtviewer/settings.py` migrates legacy QSettings once and edits the user's YAML file; `qtviewer/policy_editor.py` edits the embedded checker policy as structured fields. PyYAML is optional for the comparison core and bundled for packaged config use. `qtviewer/i18n.py` binds GUI text to a Vietnamese catalog. Structured messages keep their English string value for CLI and reports and expose templates and values for translation in the viewer. Language and display changes render existing results without running either worker again.
 
 Help embeds its bilingual guide and About content. `resources.doc_text` reads the changelog from the checkout, frozen executable assets, or package data inside the zipapp, keeping Release notes available offline.
 

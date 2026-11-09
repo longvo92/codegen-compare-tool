@@ -2,8 +2,8 @@
 
 Pass 1: diff raw lines -> ALL textual differences (shown when toggle is ON).
 Pass 2: diff normalized-shadow lines (+ rename map for C) -> REAL differences.
-A raw hunk that does not intersect any real hunk is ignorable; it is labeled
-by testing single normalization rules one at a time.
+In C files with real changes, the display pass keeps shadow-matched line
+pairs together. Ignorable hunks are labeled using the normalization rules.
 
 Hunk dict: {kind, old_range: [i1, i2), new_range: [j1, j2)}  (0-based lines)
 kind in {real, moved, comment, rename, assumed-rename, uuid,
@@ -200,6 +200,24 @@ def _split_balanced(h):
     if i2 - i1 == j2 - j1 and i2 - i1 > 1:
         return [(i1 + k, i1 + k + 1, j1 + k, j1 + k + 1) for k in range(i2 - i1)]
     return [h]
+
+
+def _c_raw_hunks(old_lines, new_lines, shadow_hunks):
+    """Yield raw ranges and whether the shadow already matched their lines.
+
+    Diff raw text inside unmatched regions. Between them, keep the shadow's
+    line pairing and emit the raw differences on those pairs separately.
+    """
+    old_at = new_at = 0
+    end = (len(old_lines), len(old_lines), len(new_lines), len(new_lines))
+    for i1, i2, j1, j2 in (*shadow_hunks, end):
+        for i, j in zip(range(old_at, i1), range(new_at, j1)):
+            if old_lines[i] != new_lines[j]:
+                yield (i, i + 1, j, j + 1), True
+        for a1, a2, b1, b2 in _diff_hunks(old_lines[i1:i2], new_lines[j1:j2]):
+            for h in _split_balanced((i1 + a1, i1 + a2, j1 + b1, j1 + b2)):
+                yield h, False
+        old_at, new_at = i2, j2
 
 
 def _merge_adjacent(hunks):
@@ -450,17 +468,24 @@ def compare_pair(old_text, new_text, path, user_rules=(),
     # Balanced replace hunks are split per line so a comment-line change
     # adjacent to a real change gets its own label; same-kind neighbours are
     # merged back afterwards.
-    raw_hunks = []
-    for h in _diff_hunks(old_lines, new_lines):
-        raw_hunks.extend(_split_balanced(h))
+    # Keep the existing verdict split for files with only ignorable changes.
+    if ruleset == 'c' and real_hunks:
+        raw_hunks = _c_raw_hunks(old_lines, new_lines, shadow_hunks)
+    else:
+        raw_hunks = ((part, False) for h in _diff_hunks(old_lines, new_lines)
+                     for part in _split_balanced(h))
     variants = _build_variants(old_text, new_text, ruleset, rename_map, ext,
                                user_rules)
 
     hunks = []
-    for h in raw_hunks:
+    for h, shadow_match in raw_hunks:
         i1, i2, j1, j2 = h
         extra = {}
-        if _overlaps(h, plain_real):
+        if shadow_match:
+            # An adjacent insertion/deletion can touch this pair's boundary,
+            # but its own shadow text is equal. Label it from the variants.
+            kind = None
+        elif _overlaps(h, plain_real):
             kind = 'real'
         else:
             kind = None

@@ -521,7 +521,13 @@ def _parser():
                     help='initial viewer or HTML theme. Viewer uses its saved theme '
                          'or light if unset; CLI HTML defaults to dark. Change the '
                          'viewer theme in Settings, or switch it in the HTML report.')
-    ap.add_argument('--exclude', metavar='PATTERN', action='append', default=[],
+    ap.add_argument('--config', metavar='SETTINGS.yaml', help='load portable application settings')
+    ap.add_argument('--export-config', metavar='OUT.yaml', help='write resolved settings and exit')
+    ap.add_argument('--clear-exclude', action='store_true', help='clear configured file exclusions')
+    for name in ('arxml-only', 'skip-var-renames', 'check-consistency', 'exit-zero'):
+        ap.add_argument('--no-' + name, dest=name.replace('-', '_'), action='store_false', default=None,
+                        help='disable configured ' + name)
+    ap.add_argument('--exclude', metavar='PATTERN', action='append',
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
     ap.add_argument('--review', metavar='REVIEW.json', default=None,
@@ -587,7 +593,7 @@ def _parser():
                     help='also write a SARIF 2.1.0 log of the files that need '
                          'action (modified / added / deleted / error), so GitHub '
                          'or Azure DevOps code scanning can annotate them inline')
-    ap.add_argument('--max-diff-lines', metavar='N', type=int, default=0,
+    ap.add_argument('--max-diff-lines', metavar='N', type=int,
                     help='cap the diff embedded PER FILE in the HTML report at '
                          'about N lines (0 = no cap, the default). A regenerate '
                          'that touched a whole tree can otherwise render one '
@@ -600,6 +606,7 @@ def _parser():
                          '(report-only mode for CI pipelines); current-tree '
                          'consistency failures still exit 1 and compare or '
                          'consistency scan errors still exit 2')
+    ap.set_defaults(arxml_only=None, skip_var_renames=None, check_consistency=None, exit_zero=None)
     return ap
 
 
@@ -618,7 +625,7 @@ def viewer_requested(argv):
     up, so that decision and :func:`main`'s use exactly one rule.
     """
     argv = list(argv)
-    if any(a in ('--arxml-handler', '-h', '--help') for a in argv):
+    if any(a in ('--arxml-handler', '-h', '--help', '--export-config') for a in argv):
         return False  # CLI-only patch mode and help need a visible console
     try:
         args = _parser().parse_args(argv)
@@ -674,12 +681,70 @@ def main(argv=None):
         return handler_main(argv[1:], prog='compare-tool --arxml-handler')
     ap = _parser()
     args = ap.parse_args(argv)
+    if args.clear_exclude:
+        args.exclude = []
+    from . import config as app_config
+    try:
+        settings = app_config.load(args.config) if args.config else None
+        if settings is not None or args.export_config:
+            settings = settings or app_config.defaults()
+            compare = settings['compare']
+            explicit = set(arg.split('=', 1)[0] for arg in argv if arg.startswith('--'))
+            viewer_mode = _wants_viewer(args)
+            current_mode = bool(args.check_current)
+            for key in ('arxml_only', 'skip_var_renames', 'check_consistency', 'exit_zero'):
+                if getattr(args, key) is not None:
+                    compare[key] = getattr(args, key)
+                elif not current_mode and not (viewer_mode and key in ('check_consistency', 'exit_zero')):
+                    setattr(args, key, compare[key])
+            scope = settings['code_check'] if current_mode else compare
+            if args.exclude is None:
+                args.exclude = list(scope['exclude'])
+            else:
+                scope['exclude'] = list(args.exclude)
+            if args.check_current:
+                if args.ignore_access_port_regex is None:
+                    args.ignore_access_port_regex = settings['code_check']['ignore_regex'] or None
+            if args.theme is None:
+                args.theme = settings['appearance']['theme'] if viewer_mode else settings['report']['theme']
+            elif viewer_mode:
+                settings['appearance']['theme'] = args.theme
+            else:
+                settings['report']['theme'] = args.theme
+            if args.max_diff_lines is not None:
+                settings['report']['max_diff_lines'] = args.max_diff_lines
+            elif not current_mode:
+                args.max_diff_lines = settings['report']['max_diff_lines']
+            if args.consistency_config:
+                settings['code_check']['policy'] = consistency.load_checker_config(Path(args.consistency_config))
+            if args.ignore_access_port_regex is not None:
+                settings['code_check']['ignore_regex'] = args.ignore_access_port_regex
+            if '--no-report' not in explicit and '--report' not in explicit and not viewer_mode and not current_mode:
+                args.no_report = not settings['report']['enabled']
+            elif '--no-report' in explicit:
+                settings['report']['enabled'] = False
+            elif '--report' in explicit:
+                settings['report']['enabled'] = True
+            if args.export_config:
+                if args.rules:
+                    compare['custom_rules'] = userrules.read_items(args.rules)
+                app_config.save(args.export_config, settings)
+                return 0
+        args._app_config = settings
+    except (OSError, UnicodeError, ValueError) as exc:
+        ap.error('application config is invalid: {}'.format(exc))
+    if args.max_diff_lines is None:
+        args.max_diff_lines = 0
     if args.arxml_handler:
         ap.error('--arxml-handler must be the first argument')
     if (args.fix_master or args.fix_source) and not (
             args.check_current and args.fix_master and args.fix_source):
         ap.error('--fix-master and --fix-source must be used together with --check-current')
     if not _wants_viewer(args):
+        if args.exclude is None:
+            args.exclude = []
+        args.arxml_only = bool(args.arxml_only)
+        args.skip_var_renames = bool(args.skip_var_renames)
         print('{} {}'.format(APP_NAME, __version__))
     # boxed so _resolve_source can create the extraction dir lazily; removed in
     # the finally whichever way this run exits
@@ -698,6 +763,9 @@ def _load_user_rules(ap, args):
     readable file is not fatal -- it is skipped and warned about, so one typo
     does not throw the whole file away."""
     if not args.rules:
+        if args._app_config:
+            from .config import compile_rules
+            return compile_rules(args._app_config)
         return ()
     try:
         rules, warnings = userrules.load(args.rules)
@@ -726,8 +794,10 @@ def _run_current(ap, args, zip_temp):
     if conflicts:
         ap.error('--check-current cannot be combined with {}'.format(', '.join(conflicts)))
     try:
-        config = consistency.load_checker_config(
-            Path(args.consistency_config) if args.consistency_config else None)
+        config = (consistency.load_checker_config(Path(args.consistency_config))
+                  if args.consistency_config else
+                  args._app_config['code_check']['policy'] if args._app_config else
+                  consistency.load_checker_config(None))
         consistency.validate_checker_regex(config, args.ignore_access_port_regex)
     except (OSError, UnicodeError, ValueError) as exc:
         ap.error('consistency configuration is invalid: {}'.format(exc))
@@ -792,9 +862,10 @@ def _run(ap, args, zip_temp):
     checker_config = None
     if args.check_consistency:
         try:
-            checker_config = consistency.load_checker_config(
-                Path(args.consistency_config)
-                if args.consistency_config else None)
+            checker_config = (consistency.load_checker_config(Path(args.consistency_config))
+                              if args.consistency_config else
+                              args._app_config['code_check']['policy'] if args._app_config else
+                              consistency.load_checker_config(None))
             consistency.validate_checker_regex(
                 checker_config, args.ignore_access_port_regex)
         except (OSError, UnicodeError, ValueError) as e:
@@ -806,9 +877,9 @@ def _run(ap, args, zip_temp):
         try:
             return run_viewer(old_dir, new_dir, exclude=args.exclude,
                               arxml_only=args.arxml_only, theme_name=args.theme,
-                              user_rules=user_rules,
+                              user_rules=user_rules if args.rules else None,
                               skip_var_renames=args.skip_var_renames,
-                              temporary_root=zip_temp[0])
+                              temporary_root=zip_temp[0], app_config=args._app_config)
         except ImportError as e:
             # a stdlib-only install (the .pyz, a locked-down box) has no Qt.
             # Say so plainly instead of dumping a traceback.

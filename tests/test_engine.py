@@ -787,6 +787,46 @@ class TestCommentSplit(unittest.TestCase):
     """Comment-only differences are their own verdict, separate from the other
     ignorable kinds (UUID / timestamp / rename / whitespace)."""
 
+    def assert_annotated_c_hunks(self, old, new, expected):
+        def source(lines, first_id):
+            return ''.join("{} /* '<S{}>/Gain' */\n".format(line, block_id)
+                           for block_id, line in enumerate(lines, first_id))
+
+        result = compare_pair(source(old, 100), source(new, 200), 'model.c')
+        self.assertEqual(result['status'], 'real-change')
+        self.assertEqual([(h['kind'], h['old_range'], h['new_range'])
+                          for h in result['hunks']], expected)
+
+    def test_renumbered_comments_around_declaration_insert_and_delete(self):
+        self.assert_annotated_c_hunks(
+            ['float a;', 'float b;', 'float gone;', 'float c;', 'float d;'],
+            ['float a;', 'float b;', 'float c;', 'float added;', 'float d;'],
+            [('comment', [0, 2], [0, 2]), ('real', [2, 3], [2, 2]),
+             ('comment', [3, 4], [2, 3]), ('real', [4, 4], [3, 4]),
+             ('comment', [4, 5], [4, 5])])
+
+    def test_renumbered_comments_in_array_with_repeated_values(self):
+        old = ('0.005F, 0.065F, 0.005F, 0.495F, 0.005F, 2.995F, '
+               '0.005F, 9.995F, 0.005F, 1.495F, 0.005F,').split()
+        new = old[:3] + old[4:8] + ['0.045F,'] + old[8:]
+        self.assert_annotated_c_hunks(
+            ['float gains[] = {'] + old + ['};'],
+            ['float gains[] = {'] + new + ['};'],
+            [('comment', [0, 4], [0, 4]), ('real', [4, 5], [4, 4]),
+             ('comment', [5, 9], [4, 8]), ('real', [9, 9], [8, 9]),
+             ('comment', [9, 13], [9, 13])])
+
+    def test_comment_like_literal_changes_stay_real_with_renumbered_comments(self):
+        self.assert_annotated_c_hunks(
+            ['const char *label = "/* <S10>/Gain */";', 'float keep;'],
+            ['const char *label = "/* <S20>/Gain */";', 'float keep;'],
+            [('real', [0, 1], [0, 1]), ('comment', [1, 2], [1, 2])])
+
+    def test_ambiguous_comment_move_between_repeated_calls_keeps_verdict(self):
+        old = 'a();\na(); /* note */\n'
+        new = 'a(); /* note */\na();\n'
+        self.assertEqual(compare_pair(old, new, 'model.c')['status'], 'ignorable-only')
+
     def test_comment_only_across_all_rulesets(self):
         cases = [('f.c', '/* Mon */\nint x = 1;\n', '/* Tue */\nint x = 1;\n'),
                  ('f.arxml', '<!-- Mon -->\n<A>x</A>\n', '<!-- Tue -->\n<A>x</A>\n'),

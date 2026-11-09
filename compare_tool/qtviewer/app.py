@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import webbrowser
+from copy import deepcopy
 from html import escape
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
                                QVBoxLayout, QWidget)
 
 from .. import APP_NAME, filepair, gitsource, theme, zipsource
+from .. import config as app_config_module
 from ..diff_engine import RULES
 from ..messages import Message
 from ..main import default_report_name
@@ -36,7 +38,7 @@ from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .i18n import Texts
 from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
-                       preference_store, save_code_check_defaults, save_preferences)
+                       YamlSettings, preference_store, save_code_check_defaults, save_preferences)
 from .icons import ACCENT, app_icon, icon, std_icon
 from .pickers import pick_commit, pick_folders
 from .section import NO_MAX, Section
@@ -86,10 +88,18 @@ def _arxml_include():
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, old=None, new=None, exclude=(), arxml_only=False,
-                 theme_name=None, user_rules=(), skip_var_renames=False, *, settings=None, temporary_root=None):
+    def __init__(self, old=None, new=None, exclude=None, arxml_only=None,
+                 theme_name=None, user_rules=None, skip_var_renames=None, *, settings=None,
+                 temporary_root=None, app_config=None):
         super().__init__()
-        self._settings = preference_store() if settings is None else settings
+        self._settings_error = ''
+        try:
+            self._settings = preference_store() if settings is None else settings
+        except (OSError, UnicodeError, ValueError) as exc:
+            self._settings_error = str(exc)
+            self._settings = YamlSettings(recovering=True)
+        if app_config is not None and isinstance(self._settings, YamlSettings):
+            self._settings.config = deepcopy(app_config)
         self._prefs = load_preferences(self._settings)
         self._text = Texts(self._prefs.language)
         self._theme = theme.set_current(theme_name or self._prefs.theme)
@@ -97,18 +107,30 @@ class MainWindow(QMainWindow):
         self._compare_name = None
         self._banner_message = ''
         self._state = ('idle', 'Ready')
+        self._config = self._settings.config if isinstance(self._settings, YamlSettings) else None
         self.old = old
         self.new = new
-        self.exclude = tuple(exclude)
-        self.include = _arxml_include() if arxml_only else ()
-        self.arxml_only = arxml_only
-        # extra --rules noise patterns; the viewer and the CLI share the engine,
-        # so both must apply them or the same folders would read two ways
-        self.user_rules = tuple(user_rules)
-        # --skip-var-renames: the unproven quick check. Baked into the scan
-        # like --rules is, because it decides verdicts -- it is not a view
-        # toggle the reviewer can flip back on over the same results.
-        self.skip_var_renames = bool(skip_var_renames)
+        if self._config is not None:
+            compare = self._config['compare']
+            if exclude is not None:
+                compare['exclude'] = list(exclude)
+            if arxml_only is not None:
+                compare['arxml_only'] = arxml_only
+            if skip_var_renames is not None:
+                compare['skip_var_renames'] = skip_var_renames
+            if user_rules is not None:
+                compare['custom_rules'] = [
+                    {'name': rule.name, 'pattern': rule.regex.pattern,
+                     'replacement': rule.replacement,
+                     'extensions': sorted(rule.exts) if rule.exts is not None else None}
+                    for rule in user_rules]
+            self._apply_compare_config()
+        else:
+            self.exclude = tuple(exclude or ())
+            self.arxml_only = bool(arxml_only)
+            self.include = _arxml_include() if self.arxml_only else ()
+            self.user_rules = tuple(user_rules or ())
+            self.skip_var_renames = bool(skip_var_renames)
         self._raw_results = {}  # verdicts straight from the scan
         self.results = {}       # ... after the current compare rules
         self.worker = None
@@ -265,6 +287,10 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(False)
         self.statusBar().addPermanentWidget(self.progress)
         self._set_state('idle', 'Ready')
+        if self._settings_error:
+            self._banner_message = 'Settings could not be loaded: ' + self._settings_error
+            self.banner.setText(self._banner_message)
+            self.banner.show()
 
         self._build_toolbar()
         self._update_title()
@@ -326,11 +352,53 @@ class MainWindow(QMainWindow):
         self.counts_label.setStyleSheet('color:{}; padding:0 8px;'
                                         .format(theme.c('st-ign')))
 
+    def _apply_compare_config(self):
+        compare = self._config['compare']
+        self.exclude = tuple(compare['exclude'])
+        self.arxml_only = compare['arxml_only']
+        self.include = _arxml_include() if self.arxml_only else ()
+        self.user_rules = app_config_module.compile_rules(self._config)
+        self.skip_var_renames = compare['skip_var_renames']
+
     def _show_settings(self):
         dialog = SettingsDialog(self, self._prefs._replace(theme=self._theme), self._text,
-                                policy_path=self.code_check.policy_path)
+                                policy_path=self.code_check.policy_path, config=self._config)
         try:
             if dialog.exec() == QDialog.Accepted:
+                if self._config is not None:
+                    if self._settings_error and not dialog._replaced_config:
+                        QMessageBox.warning(self, self._text('Settings'),
+                                            self._text('Import a valid config or restore defaults before saving.'))
+                        return
+                    if (self.worker and self.worker.isRunning()) or self.code_check.is_running() or self.arxml_handler.writing:
+                        QMessageBox.warning(self, self._text('Settings'), self._text('Wait for the current task to finish.'))
+                        return
+                    try:
+                        updated = dialog.config()
+                        self._settings.save(updated, recover=dialog._replaced_config)
+                    except (OSError, UnicodeError, ValueError) as exc:
+                        QMessageBox.warning(self, self._text('Settings'), str(exc))
+                        return
+                    previous = self._config
+                    self._settings.config = updated
+                    self._config = updated
+                    if self._settings_error:
+                        self._banner_message = ''
+                        self.banner.hide()
+                    self._settings_error = ''
+                    self._apply_preferences(dialog.preferences())
+                    if dialog._replaced_config:
+                        self.code_check.excludes.setPlainText('\n'.join(updated['code_check']['exclude']))
+                        self.code_check.ignore.setText(updated['code_check']['ignore_regex'])
+                    if previous['code_check'] != updated['code_check']:
+                        self.code_check.invalidate_check()
+                    if previous['compare'] != updated['compare'] and self._raw_results:
+                        self._raw_results = {}
+                        self.results = {}
+                        self.act_export.setEnabled(False)
+                        self._set_state('error', 'STALE — run again')
+                    self._apply_compare_config()
+                    return
                 prefs = dialog.preferences()
                 policy_path = dialog.policy_path()
                 saved = save_preferences(self._settings, prefs)
@@ -1085,18 +1153,20 @@ class MainWindow(QMainWindow):
         if not out:
             return
         try:
+            report_theme = self._config['report']['theme'] if self._config else self._theme
             if self.arxml_only:
                 page = build_arxml_report(self._raw_results, self.old, self.new,
                                           old_label=self._old_label,
                                           new_label=self._new_label,
-                                          theme_name=self._theme)
+                                          theme_name=report_theme)
             else:
                 # the report opens in whatever the viewer is showing, and
                 # carries both palettes so the reader can still switch
                 rendered = render_report(self._raw_results, self.old, self.new,
                                     old_label=self._old_label,
                                     new_label=self._new_label,
-                                    theme_name=self._theme)
+                                    theme_name=report_theme,
+                                    max_diff_lines=self._config['report']['max_diff_lines'] if self._config else 0)
                 page = rendered.html
             Path(out).write_text(page, encoding='utf-8')
             if not self.arxml_only and rendered.diagnostics:
@@ -1455,8 +1525,9 @@ def _taskbar_identity():
         pass  # not Windows, or the call is unavailable: cosmetic either way
 
 
-def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
-               theme_name=None, user_rules=(), skip_var_renames=False, *, temporary_root=None):
+def run_viewer(old=None, new=None, exclude=None, arxml_only=None,
+               theme_name=None, user_rules=None, skip_var_renames=None, *, temporary_root=None,
+               app_config=None):
     app = QApplication.instance()
     owns = app is None
     if owns:
@@ -1464,7 +1535,7 @@ def run_viewer(old=None, new=None, exclude=(), arxml_only=False,
         app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     win = MainWindow(old, new, exclude, arxml_only, theme_name, user_rules,
-                     skip_var_renames, temporary_root=temporary_root)
+                     skip_var_renames, temporary_root=temporary_root, app_config=app_config)
     app.setWindowIcon(app_icon())
     win.show()
     return app.exec() if owns else 0
