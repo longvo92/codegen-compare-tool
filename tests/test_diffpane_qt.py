@@ -849,6 +849,24 @@ class TestMutedCategories(unittest.TestCase):
                  for r in self._show(('comment',))]
         self.assertEqual(muted, plain)
 
+    def test_c_comment_rows_stay_aligned_when_muted_beside_a_deletion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new = Path(tmp, 'old'), Path(tmp, 'new')
+            old.mkdir()
+            new.mkdir()
+            rel = 'model.h'
+            (old / rel).write_text("float a; /* '<S10>/Gain' */\nfloat removed;\n"
+                                   "float b; /* '<S11>/Gain' */\n", encoding='utf-8')
+            (new / rel).write_text("float a; /* '<S20>/Gain' */\n"
+                                   "float b; /* '<S21>/Gain' */\n", encoding='utf-8')
+            result = scan(old, new)[rel]
+            for muted, comment_mode in [((), 'comment'), (('comment',), 'muted')]:
+                self.pane.set_muted_modes(muted)
+                self.pane.show_file(rel, result, str(old), str(new))
+                self.assertEqual([(r.old_no, r.new_no, r.mode) for r in self.pane.rows[:3]],
+                                 [(1, 1, comment_mode), (2, None, 'real'), (3, 2, comment_mode)])
+                self.assertIn("'<S21>/Gain'", self.pane.rows[2].new_txt)
+
     def test_the_comment_rows_lose_their_diff_colour(self):
         from compare_tool import theme
         from compare_tool.view_model import MUTED
