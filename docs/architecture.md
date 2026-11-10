@@ -21,7 +21,7 @@ Paths are relative to `compare_tool/`.
 | `view_model.py`, `funcname.py` | Shared labels, aligned rows, muting and object captions |
 | `report.py`, `serialize.py` | Offline HTML, shared model Overview, JSON and SARIF |
 | `review.py` | Review identity, notes and sign-offs |
-| `gitsource.py`, `zipsource.py` | Read-only Git snapshots and safe temporary ZIP extraction |
+| `gitsource.py`, `gitgraph.py`, `zipsource.py` | Git history, graph lanes, read-only snapshots and safe temporary ZIP extraction |
 | `theme.py`, `resources.py` | Shared color roles and optional packaged assets |
 | `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package |
 
@@ -113,6 +113,12 @@ Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py`
 Help embeds its bilingual guide and About content. `resources.doc_text` reads the changelog from the checkout, frozen executable assets, or package data inside the zipapp, keeping Release notes available offline.
 
 `main.viewer_requested` selects the front end. `run_compare` removes stale target HTML before scanning; write failures preserve terminal results and exit 2. Full report rendering returns HTML plus diagnostics internally; the string-returning builder remains available. Source rendering failures retain partial HTML with a global incomplete banner and force CLI exit 2, including JSON exit metadata; GUI export reports the incomplete output. Raw scan verdicts/counts remain unchanged. `--no-report` skips HTML and leaves existing reports untouched. `summary_lines` and `diagnostic_lines` consume the raw scan without changing results.
+
+The Qt Git picker loads topological history in pages from resolved tips and
+renders lanes from parent SHAs. It returns an ordered comparison request. The
+window prepares both sources on a worker, then passes their directories to the
+ordinary scan. Completed Git snapshots are cached by repository, commit and
+folder and kept until the window closes.
 
 ## Verification
 

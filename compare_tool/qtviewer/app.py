@@ -40,12 +40,13 @@ from .i18n import Texts
 from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
                        YamlSettings, preference_store, save_code_check_defaults, save_preferences)
 from .icons import ACCENT, app_icon, icon, std_icon
-from .pickers import pick_commit, pick_folders
+from .gitpicker import pick_commit, ref_label
+from .pickers import pick_folders
 from .section import NO_MAX, Section
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip,
                    status_color)
-from .worker import ScanWorker
+from .worker import ScanWorker, TaskWorker
 
 REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
 STATUS_ROLE = Qt.UserRole + 2
@@ -137,6 +138,9 @@ class MainWindow(QMainWindow):
         # scratch for materialised sources this session: git checkouts and
         # unpacked zips both land here, and go together on close
         self._src_temp = None
+        self._git_folder = None
+        self._git_worker = None
+        self._git_report_dir = None
         self._external_temp = temporary_root
         self._old_label = None    # what OLD is, when its folder does not say
         self._new_label = None    # ... and CURRENT, when a zip stands in for it
@@ -498,7 +502,7 @@ class MainWindow(QMainWindow):
         self.act_git = QAction(icon('git-commit'), '', self)
         self._text.bind(self.act_git.setText, 'Git compare…')
         self._text.bind(self.act_git.setToolTip,
-                        'Compare a folder against one of its own commits — no second folder to choose')
+                        'Compare Git commits or compare a commit with the working tree')
         self.act_git.triggered.connect(self._pick_commit)
         self._icon_actions.append((self.act_git, 'git-commit', None))
 
@@ -648,7 +652,7 @@ class MainWindow(QMainWindow):
 
     def _may_write_arxml(self):
         check = getattr(self, 'code_check', None)
-        return not ((self.worker and self.worker.isRunning())
+        return not (self._git_worker is not None or (self.worker and self.worker.isRunning())
                     or (check and (check.is_running() or check.fix_worker is not None))
                     or getattr(self, '_close_pending', False))
 
@@ -697,7 +701,7 @@ class MainWindow(QMainWindow):
             self.modes.setCurrentWidget(self.arxml_handler)
             self.arxml_handler.refresh_buttons()
             return
-        if running or self.arxml_handler.worker is not None:
+        if running or self._git_worker is not None or self.arxml_handler.worker is not None:
             # Keep source directories and QThreads alive until their reads finish.
             event.ignore()
             if not getattr(self, '_close_pending', False):
@@ -718,6 +722,8 @@ class MainWindow(QMainWindow):
     # --- folder selection ---
 
     def _pick_folders(self):
+        if self._git_worker is not None:
+            return
         # both sides in one dialog, prefilled: changing only one of them was
         # two native dialogs' worth of clicking, the second of which just
         # re-picked the folder that was already right
@@ -754,7 +760,7 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
-        if self.arxml_handler.writing or self.modes.currentWidget() is self.arxml_handler:
+        if self._git_worker or self.arxml_handler.writing or self.modes.currentWidget() is self.arxml_handler:
             event.ignore()
             return
         paths = self._droppable(event)
@@ -788,10 +794,7 @@ class MainWindow(QMainWindow):
 
     # --- comparing against a commit or a zip ---
     #
-    # Neither is a second kind of compare: a commit or a zip only supplies one
-    # of the two folders, materialised read-only into a temp directory.
-    # Everything after that -- scan, verdicts, folding, notes, export -- is the
-    # ordinary path, none the wiser where the folder came from.
+    # Git snapshots and ZIPs supply directories to the ordinary compare scan.
 
     def _extract_zip(self, path):
         """Unpack a dropped zip into the session temp, busy cursor up. Returns
@@ -826,63 +829,74 @@ class MainWindow(QMainWindow):
             self.diff.set_old_label(label, tip)
         else:
             self.new, self._new_label = folder, label
+            self._git_report_dir = None
             self.diff.set_new_label(label, tip)
         return True
 
-    def _git_load(self, folder):
-        """``(repo root, subpath, commits)`` for a folder, for the picker.
-
-        Raises :class:`gitsource.GitError` with something the reviewer can act
-        on; the dialog prints it inline and stays open, so a wrong folder costs
-        one more click instead of a closed window.
-        """
-        root = gitsource.repo_root(folder)
-        if root is None:
-            raise gitsource.GitError(
-                self._text('Not inside a git checkout: {}\nPick a folder from your '
-                           'repository, or use Open folders… to compare two folders by hand.', folder))
-        sub = gitsource.rel_in_repo(root, folder)
-        return root, sub, gitsource.log(root, sub)
-
     def _pick_commit(self):
-        # the folder lives in the dialog, not out here: reusing whatever was
-        # loaded meant the second git compare of a session was stuck on the
-        # first one's repository until the app was restarted
-        start = self.new if (self.new and gitsource.repo_root(self.new)) else None
-        picked = pick_commit(self, start, self._git_load, gitsource.resolve)
-        self._front()
-        if picked is None:
+        if self._git_worker or self.arxml_handler.writing or (self.worker and self.worker.isRunning()):
             return
-        folder, root, sub, commit = picked
-        self.new = folder
-        self._checkout(root, sub, commit)
+        start = self.new if self.new and not self._temporary_source(self.new) else self._git_folder
+        picked = pick_commit(self, start)
+        self._front()
+        if picked is not None:
+            self._prepare_git_comparison(picked)
 
-    def _checkout(self, root, sub, commit):
+    def _prepare_git_comparison(self, picked):
         if self._src_temp is None:
             self._src_temp = tempfile.mkdtemp(prefix='codegen-compare-src-')
-        self._set_state('busy', Message('Checking out {}…', commit.short))
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        QApplication.processEvents()  # let the status chip paint before the wait
-        try:
-            path = gitsource.export(root, commit.sha, sub, self._src_temp)
-        except gitsource.GitError as e:
-            # loud: a failed checkout must never fall through to a stale or
-            # empty OLD folder and produce a compare that looks finished
-            QMessageBox.critical(self, self._text('Checkout failed'), str(e))
-            self._set_state('error', 'Checkout failed')
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
+        scratch = self._src_temp
+        self._git_folder = picked.folder
+        self._git_previous_state = self._state
+        self._set_state('busy', 'Preparing Git snapshots…')
 
-        self.old = str(path)
-        subject = commit.subject if len(commit.subject) <= 60 else \
-            commit.subject[:57] + '…'
-        self._old_label = '{}  {}  {}'.format(commit.short, commit.when, subject)
-        self.diff.set_old_label(
-            '{}  ·  {}'.format(commit.short, subject),
-            Message('{}\n{} — {}\n\nchecked out to {}',
-                commit.subject, commit.when, commit.author, path))
-        self._start_scan()
+        def prepare():
+            old = gitsource.export(picked.root, picked.baseline.sha, picked.sub, scratch)
+            new = (gitsource.export(picked.root, picked.current.sha, picked.sub, scratch)
+                   if picked.current else Path(picked.folder))
+            if not new.is_dir():
+                raise gitsource.GitError('Working tree folder no longer exists: {}'.format(new))
+            return picked, str(old), str(new)
+
+        self._git_worker = TaskWorker(prepare, self)
+        self._git_worker.finished.connect(self._git_prepared)
+        self._git_worker.start()
+        self.arxml_handler.refresh_buttons()
+
+    def _git_prepared(self):
+        worker = self._git_worker
+        self._git_worker = None
+        worker.deleteLater()
+        if getattr(self, '_close_pending', False):
+            QTimer.singleShot(0, self.close)
+            return
+        self.arxml_handler.refresh_buttons()
+        if worker.error is not None:
+            self._set_state(*self._git_previous_state)
+            QMessageBox.critical(self, self._text('Git comparison failed'), str(worker.error))
+            return
+
+        picked, self.old, self.new = worker.result
+        self._git_report_dir = Path(picked.folder).parent if picked.current else None
+        self._old_label, tip = self._git_label(picked.baseline)
+        self.diff.set_old_label(self._old_label, tip)
+        if picked.current:
+            self._new_label, tip = self._git_label(picked.current)
+            self.diff.set_new_label(self._new_label, tip)
+        else:
+            self._new_label = 'Working tree · {}'.format(Path(picked.folder).name)
+            self.diff.set_new_label(
+                self._text('Working tree · {}', Path(picked.folder).name),
+                self._text('Includes uncommitted changes in {}', picked.folder))
+        self._start_scan(compare_name=Path(picked.folder).name)
+
+    @staticmethod
+    def _git_label(commit):
+        tags = ', '.join(ref_label(ref) for ref in commit.refs if ref.startswith('refs/tags/'))
+        label = '{}  ·  {}'.format(commit.short, commit.subject)
+        if tags:
+            label = '{}  [{}]'.format(label, tags)
+        return label, '\n'.join((commit.sha, commit.subject, commit.when, commit.author, tags)).rstrip()
 
     # --- scan lifecycle ---
 
@@ -905,9 +919,9 @@ class MainWindow(QMainWindow):
             muted.append('ignorable-only')
         return tuple(muted)
 
-    def _start_scan(self):
+    def _start_scan(self, *, compare_name=None):
         self.code_check.refresh_current()
-        if not (self.old and self.new) or self.arxml_handler.writing:
+        if not (self.old and self.new) or self.arxml_handler.writing or self._git_worker:
             return
         if self.worker and self.worker.isRunning():
             return
@@ -925,7 +939,7 @@ class MainWindow(QMainWindow):
         # the folder NAME, not the two absolute paths: a title bar is not wide
         # enough for a pair of them, and both roots are already named over the
         # diff panes -- with the full path in their tooltip
-        self._compare_name = Path(self.new).name or str(self.new)
+        self._compare_name = compare_name or Path(self.new).name or str(self.new)
         self._update_title()
         self.counts_label.setText('')
         self._set_state('busy', 'Scanning…')
@@ -1146,7 +1160,8 @@ class MainWindow(QMainWindow):
         """
         if self.arxml_handler.writing or not self._raw_results:
             return
-        default = str(Path(self.new).parent / default_report_name(self.arxml_only))
+        report_dir = self._git_report_dir or Path(self.new).parent
+        default = str(report_dir / default_report_name(self.arxml_only))
         out, _sel = QFileDialog.getSaveFileName(
             self, self._text('Export HTML report'), default, self._text('HTML report (*.html)'))
         self._front()

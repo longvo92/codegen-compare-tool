@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Compare any two selected Git commits from a history graph with merge paths, branch labels and tags. The context menu also supports comparing a commit with the working tree.
+
 ## [2.3.0] — 2026-11-09
 
 - Save reusable GUI settings in YAML, with import/export, interactive Code Check policy fields and embedded custom noise rules.

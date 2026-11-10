@@ -25,8 +25,10 @@ Compare a BASELINE with CURRENT and review their differences.
 1. Choose **Compare**, then **Open folders…**. Set BASELINE and CURRENT to
    folders or ZIPs and select **Compare**. You can also drop both sources
    onto Compare, BASELINE first.
-2. To compare against Git history, choose **Git compare…**, select a folder
-   in the repository, then choose a commit or enter a revision.
+2. In **Git compare…**, choose a folder and inspect the graph from HEAD.
+   Ctrl-click two commits, then right-click and choose **Compare selected**.
+   The older commit is BASELINE. Use **Swap baseline/current** to reverse the
+   direction, or right-click one commit to **Compare with working tree**.
 3. Select a file to read its differences. Use **F7** / **F8** for the previous
    or next change across files, and **Ctrl+F** to search the open file.
 4. Filter files by path or open **Settings** to enable **Hide identical**.
@@ -112,8 +114,10 @@ GUIDE_VI = """
 1. Trong tab **So sánh**, chọn **Mở thư mục…**. Chọn thư mục hoặc file ZIP
    cho BASELINE và CURRENT rồi bấm **So sánh**. Bạn cũng có thể kéo thả
    cả hai nguồn vào tab này, BASELINE trước.
-2. Để đối chiếu với Git history, chọn **So sánh với Git…**, chọn thư mục
-   trong repository rồi chọn commit hoặc nhập revision.
+2. Trong **So sánh với Git…**, chọn thư mục và xem graph từ HEAD. Giữ Ctrl
+   để chọn hai commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**.
+   Commit cũ hơn là BASELINE. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều,
+   hoặc bấm chuột phải vào một commit để **So sánh với working tree**.
 3. Chọn file để xem Diff. Dùng **F7** / **F8** để đến thay đổi trước hoặc
    tiếp theo giữa các file. Dùng **Ctrl+F** để tìm trong file đang mở.
 4. Lọc theo đường dẫn hoặc bật **Ẩn file Identical** trong **Cài đặt**.
