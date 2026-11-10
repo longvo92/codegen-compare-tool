@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Mark ignored Compare hunks with a subtle gutter bracket while keeping their normal background and syntax colours.
+
 ## [2.3.0] — 2026-11-09
 
 - Save reusable GUI settings in YAML, with import/export, interactive Code Check policy fields and embedded custom noise rules.

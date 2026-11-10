@@ -12,9 +12,8 @@ changed characters inside a line are highlighted at the exact offsets
 identical spans. Every colour comes from :mod:`compare_tool.theme`, looked up
 when it is painted, so the dark/light switch is a repaint.
 
-A category the reviewer switches off is *muted*, not removed: the lines keep
-their place and stay readable in one flat grey, and only the surfaces that
-answer "where are the changes" -- the minimap and F7/F8 -- stop counting them.
+Muted hunks keep their alignment and syntax colours. A bracket in the CURRENT
+gutter marks each hunk, while the minimap and F7/F8 skip them.
 
 Foreground is the other channel: :mod:`compare_tool.syntax` colours the code
 itself, and the two never touch -- the diff owns background, syntax owns text.
@@ -121,10 +120,6 @@ _ROW_BG = {
     ('comment', 'old'): 'del-bg-dim', ('comment', 'new'): 'add-bg-dim',
     ('minor', 'old'):   'del-bg-dim', ('minor', 'new'):   'add-bg-dim',
     ('moved', 'old'):   'mv-bg',      ('moved', 'new'):   'mv-bg',
-    # a muted row -- a category the reviewer switched off -- keeps its code but
-    # loses its diff colour: one flat grey, same on both sides, so the eye
-    # passes over it on the way to the change that still counts
-    (MUTED, 'old'):     'muted-bg',   (MUTED, 'new'):     'muted-bg',
 }
 # inline changed-span background by mode/side. No entry for MUTED on purpose:
 # marking the changed characters inside a line the rules no longer report would
@@ -135,16 +130,6 @@ _SEG_BG = {
     ('minor', 'old'):   'seg-del-dim-bg', ('minor', 'new'):   'seg-add-dim-bg',
     ('moved', 'old'):   'seg-mv-bg',      ('moved', 'new'):   'seg-mv-bg',
 }
-def _gutter_tint(mode, real_role):
-    """The gutter role for one side of one row: the del/add role on a real
-    change, flat grey on a muted (folded-off) row -- same as its code cell,
-    see ``_ROW_BG`` -- and no tint at all otherwise (comment/minor still shown
-    in dim colour, and moved, neither of which the gutter number joins in)."""
-    if mode == 'real':
-        return real_role
-    if mode == MUTED:
-        return 'muted-bg'
-    return ''
 
 
 _ZOOM_MIN, _ZOOM_MAX = 6, 24  # point size clamp for Ctrl+wheel zoom
@@ -214,6 +199,7 @@ class DiffEditor(QPlainTextEdit):
         self.apply_theme()
         self._nos = []  # per block: line-number string ('' for padding)
         self._tints = []  # per block: gutter role name for a real-change row, or ''
+        self._ignored_rows = {}  # block number -> (starts hunk, ends hunk)
         self._cur_rows = frozenset()  # blocks carrying the current-change arrow
         self._gutter = _Gutter(self)
         self.blockCountChanged.connect(lambda _n: self._update_gutter_width())
@@ -246,14 +232,18 @@ class DiffEditor(QPlainTextEdit):
         """Zoom a standalone source editor using the comparison zoom limits."""
         self.set_point_size(max(_ZOOM_MIN, min(_ZOOM_MAX, self.font().pointSize() + step)))
 
-    def set_numbers(self, nos, tints=None):
-        """``nos`` is the line-number string per block; ``tints`` is the
-        matching gutter role name per block ('gutter-del-bg' / 'gutter-add-bg'
-        / '' for no tint), the number column's own real-change wash. Real
-        change only -- moved is a different colour language and comment/minor
-        stay flat grey when revealed, so neither gets a second tint here."""
+    def set_numbers(self, nos, tints=None, *, ignored_ranges=()):
+        """Set per-block line numbers, real-change tints and ignored brackets.
+
+        Each ignored range gives the first block and the exclusive end block.
+        Its bracket can span alignment padding as well as numbered lines.
+        """
         self._nos = nos
         self._tints = tints or []
+        self._ignored_rows = {
+            idx: (idx == start, idx == end - 1)
+            for start, end in ignored_ranges for idx in range(start, end)
+        }
         self._update_gutter_width()
         self._gutter.update()
 
@@ -302,6 +292,7 @@ class DiffEditor(QPlainTextEdit):
         bottom = top + self.blockBoundingRect(block).height()
         h = self.fontMetrics().height()
         marker = _qc('cur-marker')
+        gutter_fg = _qc('gutter-fg')
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 idx = block.blockNumber()
@@ -310,7 +301,7 @@ class DiffEditor(QPlainTextEdit):
                 if tint:
                     painter.fillRect(QRectF(0, top, num_w, bottom - top), _qc(tint))
                 if num:
-                    painter.setPen(_qc('gutter-fg'))
+                    painter.setPen(gutter_fg)
                     painter.drawText(0, int(top), num_w - 6, h, Qt.AlignRight, num)
                 if idx in self._cur_rows:
                     painter.setPen(Qt.NoPen)
@@ -319,6 +310,17 @@ class DiffEditor(QPlainTextEdit):
                     painter.drawPolygon(QPolygonF([
                         QPointF(num_w + 2, top + 2), QPointF(num_w + 2, top + h - 2),
                         QPointF(self._gutter.width() - 2, cy)]))
+                elif idx in self._ignored_rows:
+                    first, last = self._ignored_rows[idx]
+                    x = num_w + 3
+                    y1 = top + 2 if first else top
+                    y2 = top + h - 2 if last else bottom
+                    painter.setPen(gutter_fg)
+                    painter.drawLine(QPointF(x, y1), QPointF(x, y2))
+                    if first:
+                        painter.drawLine(QPointF(x, y1), QPointF(x + 3, y1))
+                    if last:
+                        painter.drawLine(QPointF(x, y2), QPointF(x + 3, y2))
             block = block.next()
             top = bottom
             bottom = top + self.blockBoundingRect(block).height()
@@ -980,8 +982,8 @@ class DiffPane(QStackedWidget):
         Unticking `Unimportant` should not leave a wall of red and green in the
         code claiming to be changes; but taking those lines away costs the
         reviewer the context the surviving hunks are read in, and a regenerated
-        file is mostly banner churn. So they are greyed, not removed: still
-        readable, no diff colour, and gone from the minimap and from F7/F8.
+        file is mostly banner churn. A gutter bracket marks their position and
+        the minimap and F7/F8 skip them.
 
         A TICKED category is the opposite case: Comment and Unimportant hunks
         then keep their own diff colour, same as a real change, and F7/F8
@@ -1149,25 +1151,28 @@ class DiffPane(QStackedWidget):
         self._render_header()
         # configure before the text lands: setPlainText runs a full highlight
         # pass of its own, so this way the file is coloured once, not twice
-        modes = [r.mode for r in rows]
         lang = language_for(rel)
-        self._hl_old.configure(lang, modes, repaint=False)
-        self._hl_new.configure(lang, modes, repaint=False)
+        self._hl_old.configure(lang, repaint=False)
+        self._hl_new.configure(lang, repaint=False)
         self._set_text(self.old_edit, '\n'.join(r.old_txt or '' for r in rows))
         self._set_text(self.new_edit, '\n'.join(r.new_txt or '' for r in rows))
-        # gutter tint follows the code cell beside it -- a real change gets
-        # the del/add wash, a muted (folded-off) row gets the same flat grey
-        # its code cell has, so the number column never stops short of a row
-        # that is coloured right up to it. Not moved: it already reads as its
-        # own thing in blue, and the gutter number was never part of that.
+        hunks = (result or {}).get('hunks') or []
+        starts = hunk_row_starts(hunks)
+        ignored_ranges = []
+        for start, hunk in zip(starts, hunks):
+            if rows[start].mode == MUTED:
+                old_start, old_end = hunk['old_range']
+                new_start, new_end = hunk['new_range']
+                span = max(old_end - old_start, new_end - new_start)
+                ignored_ranges.append((start, start + span))
         self.old_edit.set_numbers(
             [str(r.old_no) if r.old_no else '' for r in rows],
-            [_gutter_tint(r.mode, 'gutter-del-bg') if r.old_txt is not None else ''
+            ['gutter-del-bg' if r.mode == 'real' and r.old_txt is not None else ''
              for r in rows])
         self.new_edit.set_numbers(
             [str(r.new_no) if r.new_no else '' for r in rows],
-            [_gutter_tint(r.mode, 'gutter-add-bg') if r.new_txt is not None else ''
-             for r in rows])
+            ['gutter-add-bg' if r.mode == 'real' and r.new_txt is not None else ''
+             for r in rows], ignored_ranges=ignored_ranges)
         # back to the two-pane layout: the old editor drives again (its
         # scrollbar mirror carries the new pane), whatever a previous
         # one-sided file left the map pointing at
@@ -1177,7 +1182,7 @@ class DiffPane(QStackedWidget):
         self.minimap.set_rows(rows)
 
         for i, r in enumerate(rows):
-            if r.mode == 'ctx':
+            if r.mode in ('ctx', MUTED):
                 continue
             # old side
             if r.old_txt is None:
@@ -1189,9 +1194,7 @@ class DiffPane(QStackedWidget):
                 self._block_bg(self.new_edit, i, theme.c('filler-bg'))
             else:
                 self._block_bg(self.new_edit, i, self._bg(r.mode, 'new'))
-            # inline highlight only when both sides present, and never on a
-            # muted row: there is no _SEG_BG entry for it, so this stays quiet
-            if r.mode != MUTED and r.old_txt is not None and r.new_txt is not None:
+            if r.old_txt is not None and r.new_txt is not None:
                 (o_lo, o_hi), (n_lo, n_hi) = char_span(r.old_txt, r.new_txt)
                 self._seg_bg(self.old_edit, i, o_lo, o_hi, self._seg(r.mode, 'old'))
                 self._seg_bg(self.new_edit, i, n_lo, n_hi, self._seg(r.mode, 'new'))
@@ -1206,8 +1209,6 @@ class DiffPane(QStackedWidget):
         # on it anyway. It carries no Unit (None in _stop_units), so
         # current_unit() reports nothing to sign off there -- noise stays off
         # the review record on purpose (review.REVIEWABLE), navigable or not.
-        hunks = (result or {}).get('hunks') or []
-        starts = hunk_row_starts(hunks)
         stops = [(starts[u.index], u) for u in self._units
                  if u.index is not None and u.index < len(starts)]
         shown_noise = {'comment', 'minor'} - set(self._muted)
@@ -1251,11 +1252,9 @@ class DiffPane(QStackedWidget):
         edit = self.old_edit if side == 'old' else self.new_edit
         other = self.new_edit if side == 'old' else self.old_edit
         bg = theme.c('del-bg' if side == 'old' else 'add-bg')
-        # a whole added/deleted file is all one mode, so there are no muted
-        # rows to grey out -- the language is the only thing to pass on
         lang = language_for(rel)
-        self._hl_old.configure(lang, (), repaint=False)
-        self._hl_new.configure(lang, (), repaint=False)
+        self._hl_old.configure(lang, repaint=False)
+        self._hl_new.configure(lang, repaint=False)
         self._set_text(edit, '\n'.join(lines))
         gutter_tint = 'gutter-del-bg' if side == 'old' else 'gutter-add-bg'
         edit.set_numbers([str(i + 1) for i in range(len(lines))],
@@ -1352,6 +1351,10 @@ class DiffPane(QStackedWidget):
         F7/F8 gutter arrow, on both panes."""
         rows = self.rows
         if not rows or row >= len(rows):
+            return
+        if rows[row].mode == MUTED:
+            self.old_edit.set_current_rows(())
+            self.new_edit.set_current_rows(())
             return
         start = end = row
         while start > 0 and rows[start - 1].mode == rows[row].mode != 'ctx':

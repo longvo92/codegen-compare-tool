@@ -805,8 +805,7 @@ def _row(o_no, o_txt, n_no, n_txt, mode, language=None,
          o_state=syntax.PLAIN, n_state=syntax.PLAIN, hideable=True):
     # comment/minor rows are muted grey, not a diff colour, when revealed --
     # so there is no changed SPAN to point at inside them, and no syntax
-    # colour either: the code channel goes quiet along with the diff channel,
-    # same as the Qt pane's muted rows (qtviewer/highlight.py).
+    # colour either: the code channel goes quiet along with the diff channel.
     colour = language is not None and mode not in _MODE_TR
     o_spans = syntax.spans(o_txt, language, o_state)[0] if colour and o_txt is not None else ()
     n_spans = syntax.spans(n_txt, language, n_state)[0] if colour and n_txt is not None else ()
