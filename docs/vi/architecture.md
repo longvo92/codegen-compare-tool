@@ -21,7 +21,7 @@ Path tương đối với `compare_tool/`.
 | `view_model.py`, `funcname.py` | Label, aligned row, mute và object caption dùng chung |
 | `report.py`, `serialize.py` | HTML offline, model Overview dùng chung, JSON và SARIF |
 | `review.py` | Review identity, note và sign-off |
-| `gitsource.py`, `zipsource.py` | Git snapshot read-only và giải nén ZIP an toàn vào temp |
+| `gitsource.py`, `gitgraph.py`, `zipsource.py` | Lịch sử Git, lane của graph, snapshot read-only và giải nén ZIP an toàn |
 | `theme.py`, `resources.py` | Color role dùng chung và packaged asset tùy chọn |
 | `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt |
 
@@ -108,6 +108,8 @@ Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/liter
 `compare_tool/config.py` quản lý YAML settings có version, dùng chung cho viewer và CLI `--config` khi được chỉ định. `qtviewer/settings.py` chuyển QSettings cũ một lần rồi lưu YAML của người dùng. PyYAML là dependency tùy chọn của comparison core và được bundle trong bản đóng gói. `qtviewer/i18n.py` gắn nội dung GUI với catalog tiếng Việt. Thông báo có cấu trúc giữ chuỗi English cho CLI/report và cung cấp template cùng tham số để viewer dịch. Đổi ngôn ngữ và hiển thị dùng lại kết quả hiện có, không chạy lại worker.
 
 Help nhúng nội dung hướng dẫn song ngữ và About. `resources.doc_text` đọc changelog từ checkout, tài nguyên trong EXE hoặc dữ liệu package bên trong zipapp để Release notes hoạt động offline.
+
+Git picker tải lịch sử theo trang từ các tip đã resolve và vẽ lane theo parent SHA. Cửa sổ chuẩn bị hai nguồn trên worker rồi chuyển các thư mục cho luồng scan chung. Snapshot hoàn tất được cache theo repository, commit và thư mục cho đến khi đóng cửa sổ.
 
 Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Export dùng raw scan.
 

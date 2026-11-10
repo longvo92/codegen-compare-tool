@@ -117,7 +117,11 @@ python -m compare_tool
 python -m compare_tool --viewer baseline current
 ```
 
-Select folders or ZIPs, or use **Git compare** to compare a commit with the current checkout. Git compare leaves the working tree unchanged. Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
+Select folders or ZIPs, or open **Git compare…** and choose a folder in a repository. Ctrl-click two commits, right-click and choose **Compare selected**. An ancestor becomes BASELINE. On diverging branches, Git compare orders by committer time and breaks ties by SHA. Use **Swap baseline/current** to reverse the direction.
+
+The graph starts at HEAD and shows merge paths, branch labels and tags. **Find next** searches the history. **Go to revision** accepts a SHA, branch, tag or a revision such as `HEAD~3`. Right-click one commit and choose **Compare with working tree** to include local uncommitted changes on the CURRENT side. Git snapshots are read-only.
+
+Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
 
 Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
 

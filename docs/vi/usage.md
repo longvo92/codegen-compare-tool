@@ -116,7 +116,11 @@ python -m compare_tool
 python -m compare_tool --viewer baseline current
 ```
 
-Chọn folder hoặc ZIP, hoặc dùng **Git compare** để so sánh commit với checkout hiện tại. Git compare không thay đổi working tree. Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
+Chọn thư mục hoặc ZIP, hoặc mở **So sánh với Git…** và chọn một thư mục trong repository. Giữ Ctrl để chọn hai commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**. Commit tổ tiên là BASELINE. Nếu hai nhánh rẽ, tool xếp theo thời gian commit và dùng SHA khi trùng thời gian. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều.
+
+Graph bắt đầu từ HEAD và hiển thị đường merge, branch và tag. **Tìm tiếp** tìm trong lịch sử. **Đi tới revision** nhận SHA, branch, tag hoặc revision như `HEAD~3`. Bấm chuột phải vào một commit và chọn **So sánh với working tree** để CURRENT bao gồm thay đổi chưa commit. Git snapshot chỉ dùng để đọc.
+
+Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
 
 Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer dùng theme trong tab Report.
 

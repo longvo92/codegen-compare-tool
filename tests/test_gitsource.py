@@ -7,12 +7,15 @@ which never had that folder is a loud error rather than an empty directory,
 and that the resulting pair walks through the ordinary scanner untouched.
 """
 
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from compare_tool import gitsource
+from compare_tool.gitgraph import Lanes
 from compare_tool.gitsource import GitError
 from compare_tool.scanner import scan
 
@@ -29,6 +32,106 @@ def _git_available():
     except (OSError, subprocess.SubprocessError):
         return False
     return True
+
+
+def _graph_fixture(root):
+    """Two side branches merge into main. Another branch stays outside HEAD."""
+    _git(root, 'init', '-qb', 'main')
+    _git(root, 'config', 'user.name', 'Demo Engineer')
+    _git(root, 'config', 'user.email', 'demo@example.com')
+
+    def commit(subject, day):
+        stamp = '2025-01-{:02d}T12:00:00+00:00'.format(day)
+        env = dict(os.environ, GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+        subprocess.run(['git', '-C', str(root), 'commit', '-qm', subject], check=True, env=env)
+        return gitsource.resolve(root, 'HEAD')
+
+    gen = root / 'gen'
+    gen.mkdir()
+    (gen / 'model.c').write_text('int limit = 1;\n', encoding='utf-8')
+    _git(root, 'add', 'gen')
+    base = commit('Initial generation', 20)
+    _git(root, 'tag', 'v1.0')
+    branches = {}
+    for branch, day in [('feature-a', 10), ('feature-b', 10), ('unmerged', 15)]:
+        _git(root, 'checkout', '-qb', branch, base.sha)
+        (gen / (branch + '.c')).write_text('int value = 1;\n', encoding='utf-8')
+        _git(root, 'add', 'gen')
+        branches[branch] = commit('Generate ' + branch, day)
+    _git(root, 'checkout', '-q', 'main')
+    (gen / 'model.c').write_text('int limit = 2;\n', encoding='utf-8')
+    _git(root, 'add', 'gen')
+    main = commit('Raise generated limit', 5)
+    _git(root, 'merge', '-q', '--no-ff', '-m', 'Merge two generation branches', 'feature-a', 'feature-b')
+    _git(root, 'tag', '-am', 'Release 2', 'v2.0')
+    return dict(branches, base=base, main=main, head=gitsource.resolve(root, 'HEAD'))
+
+
+@unittest.skipUnless(_git_available(), 'git is not installed')
+class TestCommitGraph(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
+        cls.root = Path(cls.tmp.name) / 'repo'
+        cls.root.mkdir()
+        cls.graph = _graph_fixture(cls.root)
+
+    def test_merge_parents_tags_and_pages_match_unbounded_history(self):
+        graph = self.graph
+        head = graph['head'].sha
+        refs = gitsource.decorations(self.root, head)
+        all_rows = gitsource.history(self.root, (head,), limit=None, refs=refs)
+        pages = (gitsource.history(self.root, (head,), limit=2, refs=refs)
+                 + gitsource.history(self.root, (head,), offset=2, limit=3, refs=refs))
+        self.assertEqual(pages, all_rows)
+        self.assertEqual(all_rows[0].parents,
+                         tuple(graph[name].sha for name in ('main', 'feature-a', 'feature-b')))
+        self.assertIn('refs/tags/v2.0', all_rows[0].refs)
+        self.assertIn('refs/tags/v1.0', all_rows[-1].refs)
+        self.assertNotIn(graph['unmerged'].sha, [row.sha for row in all_rows])
+        lanes = Lanes()
+        rendered = [lanes.append(commit) for commit in pages]
+        self.assertEqual(len(set(rendered[0].outgoing)), 3)
+        self.assertEqual(lanes.pending, [])
+        for i, row in enumerate(rendered[:-1]):
+            expected = set(row.incoming) - {row.node} | set(row.outgoing)
+            self.assertEqual(set(rendered[i + 1].incoming), expected)
+
+    def test_ancestry_precedes_clock_and_diverged_pairs_use_time_then_sha(self):
+        graph = self.graph
+        base, main = graph['base'], graph['main']
+        self.assertGreater(base.timestamp, main.timestamp)
+        self.assertEqual(gitsource.order_pair(self.root, main, base), (base, main, 'ancestry'))
+        a, b = graph['feature-a'], graph['feature-b']
+        earlier, later = sorted((a, b), key=lambda c: c.sha)
+        self.assertEqual(gitsource.order_pair(self.root, later, earlier), (earlier, later, 'sha'))
+        other = graph['unmerged']
+        self.assertEqual(gitsource.order_pair(self.root, other, a), (a, other, 'time'))
+
+    def test_shallow_boundary_and_retry_after_partial_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = Path(tmp) / 'clone'
+            _git(tmp, 'clone', '-q', '--depth=1', self.root.as_uri(), str(clone))
+            head = self.graph['head'].sha
+            shallow = gitsource.shallow_commits(clone)
+            history = gitsource.history(clone, (head,), shallow=shallow)
+            self.assertEqual(len(history), 1)
+            self.assertTrue(Lanes().append(history[0]).shallow)
+            dest = Path(tmp) / 'exports'
+
+            def interrupted(path, **_kwargs):
+                folder = Path(path) / 'gen'
+                folder.mkdir()
+                (folder / 'model.c').write_text('partial', encoding='utf-8')
+                raise OSError('extraction interrupted')
+
+            with patch('tarfile.TarFile.extractall', side_effect=interrupted):
+                with self.assertRaisesRegex(GitError, 'extraction interrupted'):
+                    gitsource.export(clone, head, 'gen', dest)
+            snapshot = gitsource.export(clone, head, 'gen', dest)
+            self.assertEqual((snapshot / 'model.c').read_text(), 'int limit = 2;\n')
+            self.assertNotEqual(snapshot, gitsource.export(self.root, head, 'gen', dest))
 
 
 @unittest.skipUnless(_git_available(), 'git is not installed')
