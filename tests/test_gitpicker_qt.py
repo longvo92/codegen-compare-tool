@@ -52,7 +52,9 @@ class TestGitPicker(unittest.TestCase):
         self.wait(lambda: dlg.worker is None)
         return dlg
 
-    def click(self, dlg, commit, modifier=Qt.NoModifier):
+    def click(self, dlg, commit, modifier=None):
+        if modifier is None:
+            modifier = Qt.NoModifier
         row = next(i for i, c in enumerate(dlg.model.commits) if c.sha == commit.sha)
         index = dlg.model.index(row, 1)
         dlg.table.scrollTo(index)
@@ -136,14 +138,19 @@ class TestGitPicker(unittest.TestCase):
 
     def test_search_and_revision_keep_graph_and_expand_only_on_request(self):
         dlg = self.dialog()
-        dlg.find.setText('v1.0')
-        dlg._find_next()
-        self.assertEqual(dlg.model.commits[dlg.table.currentIndex().row()].sha,
-                         self.graph['base'].sha)
-        self.assertEqual(len(dlg.tips), 1)
-        dlg.rev.setText('unmerged')
-        dlg._go_to_revision()
-        self.wait(lambda: dlg.worker is None)
+        with patch('compare_tool.qtviewer.gitpicker.QFileDialog.getExistingDirectory',
+                   return_value='') as browse:
+            dlg.find.setFocus()
+            dlg.find.setText('v1.0')
+            QTest.keyClick(dlg.find, Qt.Key_Return)
+            self.assertEqual(dlg.model.commits[dlg.table.currentIndex().row()].sha,
+                             self.graph['base'].sha)
+            self.assertEqual(len(dlg.tips), 1)
+            dlg.rev.setFocus()
+            dlg.rev.setText('unmerged')
+            QTest.keyClick(dlg.rev, Qt.Key_Return)
+            self.wait(lambda: dlg.worker is None)
+        browse.assert_not_called()
         self.assertIn('additional revisions', dlg.where.text())
         self.assertEqual({c.sha for c in dlg._selected()},
                          {self.graph['head'].sha, self.graph['unmerged'].sha})

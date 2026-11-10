@@ -213,6 +213,7 @@ class CommitPicker(QDialog):
 
         self.folder_row = _PathRow('Folder', self.folder, self._browse, texts=tr)
         self.folder_row.edit.setReadOnly(True)
+        self.folder_row.browse_button.setAutoDefault(False)
         self.where = QLabel()
         self.where.setTextFormat(Qt.PlainText)
         self.find = QLineEdit()
