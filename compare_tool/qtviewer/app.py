@@ -900,13 +900,8 @@ class MainWindow(QMainWindow):
 
     # --- scan lifecycle ---
 
-    # switching a category off changes how its lines are PAINTED -- greyed
-    # out, and dropped from the minimap and from F7/F8 -- and nothing else.
-    # Leaving a wall of red and green in the code after saying those do not
-    # count was the worst of both; taking the lines away instead cost the
-    # context the remaining changes have to be read in. The verdict is not
-    # part of it: a file the reviewer greyed out still differs, and the tree
-    # has to keep saying so.
+    # Switching a category off keeps its lines as context with a gutter marker.
+    # The minimap and F7/F8 skip its hunks. The tree still shows the raw verdict.
     _MUTE_MODE = {'comment-only': 'comment', 'ignorable-only': 'minor'}
 
     def _muted_statuses(self):
@@ -988,8 +983,7 @@ class MainWindow(QMainWindow):
         bookkeeping on results already in memory -- no second walk of the disk,
         so a toggle is instant and the folders are read exactly once.
 
-        The results themselves are the raw scan: a toggle decides what is
-        greyed, never what a file's verdict is."""
+        The results retain the raw scan's verdicts."""
         if not self._raw_results:
             return
         keep = self._selected_rel()
@@ -1308,7 +1302,7 @@ class MainWindow(QMainWindow):
     # comment-only / ignorable-only are noise verdicts, but they are walkable
     # while their checkbox is ticked, so a reviewer can step through
     # everything. _is_nav drops them again the moment the box is unticked:
-    # those rows are greyed and off the minimap, so there is nothing in such a
+    # those rows are off the minimap, so there is nothing in such a
     # file for F7/F8 to stop on, and stepping into it would dead-end.
     _NAV_STATUS = ('error', 'real-change', 'added', 'deleted',
                    'comment-only', 'ignorable-only')
@@ -1337,7 +1331,7 @@ class MainWindow(QMainWindow):
         r = self.results.get(rel)
         if not r:
             return False
-        # a greyed-out category has no stops left in it
+        # An ignored category has no stops left in it.
         if r['status'] in self._muted_statuses():
             return False
         return r['status'] in self._NAV_STATUS

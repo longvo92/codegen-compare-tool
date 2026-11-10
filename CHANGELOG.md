@@ -6,6 +6,7 @@ All notable changes to this project are documented here. Versions follow
 ## [Unreleased]
 
 - Compare any two selected Git commits from a history graph with merge paths, branch labels and tags. The context menu also supports comparing a commit with the working tree.
+- Mark ignored Compare hunks with a subtle gutter bracket while keeping their normal background and syntax colours.
 
 ## [2.3.0] — 2026-11-09
 

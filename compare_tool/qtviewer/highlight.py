@@ -79,62 +79,32 @@ def inline_html(text, language):
     return ''.join(out)
 
 
-def _muted_format():
-    """One flat grey for a whole muted line.
-
-    A row the compare rules no longer report is still on screen, and syntax
-    colour on it would undo the point of playing it down -- so the code channel
-    goes quiet too, not just the diff background."""
-    fmt = QTextCharFormat()
-    fmt.setForeground(QColor(theme.c('muted-fg')))
-    return fmt
-
-
 class CodeHighlighter(QSyntaxHighlighter):
-    """Colours one editor's document, playing down rows that do not count.
-
-    ``modes`` is the row-mode list the pane is showing, in block order. Its job
-    is to spot ``muted`` rows -- the noise categories the reviewer has switched
-    off -- and paint those in one flat grey instead of syntax colours. The line
-    is still there and still readable; it just stops competing with the change
-    beside it.
-
-    The block state is still computed from the real text of a muted row, so a
-    `/* ... */` running across one keeps the lines below it correctly coloured.
-    """
+    """Colour an editor's document while tracking multiline syntax."""
 
     def __init__(self, document):
         super().__init__(document)
         self._fmt = _formats()
-        self._muted = _muted_format()
         self._language = None
-        self._modes = ()
 
-    def configure(self, language, modes=(), repaint=True):
-        """Set the language (None = plain) and the row modes.
+    def configure(self, language, repaint=True):
+        """Set the language (None = plain).
 
         ``repaint=False`` when the caller is about to replace the document's
         text anyway: that replacement runs a full highlight pass by itself, and
         asking for one first would paint the outgoing file twice.
         """
         self._language = language
-        self._modes = tuple(modes)
         if repaint:
             self.rehighlight()
 
     def apply_theme(self):
         """Re-read the palette after a theme switch and repaint."""
         self._fmt = _formats()
-        self._muted = _muted_format()
         self.rehighlight()
 
     def highlightBlock(self, text):
         n = self.currentBlock().blockNumber()
-        muted = n < len(self._modes) and self._modes[n] == 'muted'
-        if muted and text:
-            # the grey has to win even with no language: a muted plain-text row
-            # must not keep the editor's normal foreground
-            self.setFormat(0, len(text), self._muted)
         if self._language is None or n >= MAX_LINES:
             return
         prev = self.previousBlockState()
@@ -143,9 +113,8 @@ class CodeHighlighter(QSyntaxHighlighter):
         # clean rather than carrying a stale block open
         state = prev if prev in syntax.STATES else syntax.PLAIN
         spans, state = syntax.spans(text, self._language, state)
-        if not muted:
-            for start, end, kind in spans:
-                fmt = self._fmt.get(kind)
-                if fmt is not None:
-                    self.setFormat(start, end - start, fmt)
+        for start, end, kind in spans:
+            fmt = self._fmt.get(kind)
+            if fmt is not None:
+                self.setFormat(start, end - start, fmt)
         self.setCurrentBlockState(state)
