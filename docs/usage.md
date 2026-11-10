@@ -121,6 +121,8 @@ Select folders or ZIPs, or use **Git compare** to compare a commit with the curr
 
 Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
 
+When **Comment** or **Unimportant** is off, those lines keep their normal background and syntax colours. A small grey bracket in the CURRENT gutter marks each ignored block. The minimap and F7/F8 skip these blocks.
+
 | Verdict | Meaning |
 |---|---|
 | Modified | Real changes |

@@ -817,14 +817,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class TestMutedCategories(unittest.TestCase):
-    """Switching a noise category off greys its lines instead of removing them.
-
-    Two claims have to hold together. The lines stay -- they are the context
-    the surviving changes are read in, and a regenerated file is mostly banner
-    churn, so dropping them left the real hunks floating. And they stop
-    counting as changes everywhere that answers "where should I look next":
-    the minimap and F7/F8.
-    """
+    """Ignored lines remain as context and are skipped in change navigation."""
 
     REL = 'a2l/NoiseDemo.a2l'  # one comment hunk and one real one
 
@@ -835,9 +828,9 @@ class TestMutedCategories(unittest.TestCase):
         self.pane = DiffPane()
         self.addCleanup(self.pane.deleteLater)
 
-    def _show(self, muted=()):
+    def _show(self, muted=(), rel=REL):
         self.pane.set_muted_modes(muted)
-        self.pane.show_file(self.REL, self.results[self.REL],
+        self.pane.show_file(rel, self.results[rel],
                             str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
@@ -867,24 +860,104 @@ class TestMutedCategories(unittest.TestCase):
                                  [(1, 1, comment_mode), (2, None, 'real'), (3, 2, comment_mode)])
                 self.assertIn("'<S21>/Gain'", self.pane.rows[2].new_txt)
 
-    def test_the_comment_rows_lose_their_diff_colour(self):
+    def test_ignored_rows_have_no_diff_background_on_either_side(self):
         from compare_tool import theme
-        from compare_tool.view_model import MUTED
-        rows = self._show()
-        i = next(k for k, r in enumerate(rows) if r.mode == 'comment')
-        doc = self.pane.old_edit.document()
-        before = doc.findBlockByNumber(i).blockFormat().background().color().name()
-        self.assertEqual(before, theme.c('del-bg-dim'))
-        rows = self._show(('comment',))
-        self.assertEqual(rows[i].mode, MUTED)
-        doc = self.pane.old_edit.document()
-        after = doc.findBlockByNumber(i).blockFormat().background().color().name()
-        self.assertEqual(after, theme.c('muted-bg'))
 
-    def test_a_muted_row_carries_no_inline_highlight(self):
-        i = next(k for k, r in enumerate(self._show()) if r.mode == 'comment')
-        self._show(('comment',))
-        self.assertEqual(_backgrounds(self.pane.old_edit)[i], ['block'])
+        for mode, rel in [('comment', self.REL), ('minor', 'arxml/NoiseDemo_component.arxml')]:
+            with self.subTest(mode=mode):
+                rows = self._show(rel=rel)
+                i = next(k for k, r in enumerate(rows) if r.mode == mode)
+                doc = self.pane.old_edit.document()
+                before = doc.findBlockByNumber(i).blockFormat().background().color().name()
+                self.assertEqual(before, theme.c('del-bg-dim'))
+                self.assertEqual(self._show((mode,), rel)[i].mode, 'muted')
+                self.assertIn(i, self.pane.new_edit._ignored_rows)
+                for editor in (self.pane.old_edit, self.pane.new_edit):
+                    self.assertEqual(_backgrounds(editor)[i], [])
+                    self.assertEqual(editor._tints[i], '')
+                self._show(rel=rel)
+                after = doc.findBlockByNumber(i).blockFormat().background().color().name()
+                self.assertEqual(after, before)
+                self.assertFalse(self.pane.new_edit._ignored_rows)
+
+    def test_ignored_gutter_brackets_render_with_normal_syntax_and_padding(self):
+        from compare_tool import theme
+
+        self.addCleanup(theme.set_current, theme.current())
+        self.pane.resize(1100, 450)
+        self.pane.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.pane.show()
+        self.addCleanup(self.pane.close)
+        editor = self.pane.new_edit
+
+        def gutter_pixel(edit, row, dx, dy):
+            gutter = edit._gutter
+            pixmap = gutter.grab()
+            ratio = pixmap.devicePixelRatio()
+            block = edit.document().findBlockByNumber(row)
+            top = edit.blockBoundingGeometry(block).translated(edit.contentOffset()).top()
+            x = gutter.width() - edit._ARROW_W + 3 + dx
+            return pixmap.toImage().pixelColor(int(x * ratio), int((top + dy) * ratio)).name()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new = Path(tmp, 'old'), Path(tmp, 'new')
+            old.mkdir()
+            new.mkdir()
+            rel = 'model.c'
+            prefix = '/*\n' + ' * context\n' * 32
+            suffix = 'int tail;\n' * 40
+            (old / rel).write_text(prefix + ' * old first\n * old second\n */\n'
+                                   'int before;\n// deleted line\nint after;\nint x = 1;\n'
+                                   + suffix, encoding='utf-8')
+            (new / rel).write_text(prefix + ' * new first\n * new second\n */\n'
+                                   'int before;\nint after;\nint x = 2;\n'
+                                   + suffix, encoding='utf-8')
+            result = scan(old, new)[rel]
+            first, second, deleted, real = 33, 34, 37, 39
+            self.pane.set_muted_modes(('comment',))
+            self.pane.show_file(rel, result, str(old), str(new))
+            for name in (theme.LIGHT, theme.DARK):
+                with self.subTest(theme=name):
+                    theme.set_current(name)
+                    self.pane.apply_theme()
+                    self.pane.old_edit.verticalScrollBar().setValue(first - 2)
+                    self.app.processEvents()
+                    fg, bg = theme.c('gutter-fg'), theme.c('gutter-bg')
+                    self.assertEqual(gutter_pixel(editor, first, 2, 2), fg)
+                    self.assertEqual(gutter_pixel(editor, second, 0, 0), fg)
+                    self.assertEqual(gutter_pixel(editor, second, 2, 2), bg)
+                    self.assertEqual(gutter_pixel(editor, deleted, 2, 2), fg)
+                    self.assertEqual(gutter_pixel(self.pane.old_edit, first, 2, 2), bg)
+                    self.assertEqual(editor._nos[deleted], '')
+                    self.assertEqual(_backgrounds(editor)[deleted], [])
+                    self.assertEqual(self.pane._stops, [real])
+                    for side in (self.pane.old_edit, editor):
+                        for row in (first, second, second + 1):
+                            block = side.document().findBlockByNumber(row)
+                            self.assertIn(theme.c('syn-comment'),
+                                          [run.format.foreground().color().name()
+                                           for run in block.layout().formats()])
+
+            self.pane.open_find()
+            self.pane._find_edit.setText('new second')
+            self.assertEqual(self.pane._hits, [second])
+            self.assertTrue(editor.extraSelections())
+            self.assertFalse(editor._cur_rows)
+
+            # Adjacent ignored hunks get separate caps rather than one long bracket.
+            hunk = result['hunks'][0]
+            split = [dict(hunk, old_range=[row, row + 1], new_range=[row, row + 1])
+                     for row in (first, second)]
+            self.pane.show_file(rel, dict(result, hunks=split + result['hunks'][1:]),
+                                str(old), str(new))
+            self.pane.old_edit.verticalScrollBar().setValue(first - 2)
+            self.app.processEvents()
+            self.assertEqual(gutter_pixel(editor, second, 0, 0), bg)
+            self.assertEqual(gutter_pixel(editor, second, 2, 2), fg)
+
+        other = 'SpeedCtrl_autosar_rtw/SpeedCtrl_data.c'
+        self.pane.show_file(other, self.results[other], str(DEMO / 'old'), str(DEMO / 'new'))
+        self.assertFalse(editor._ignored_rows)
 
     def test_the_minimap_stops_marking_them_as_changes(self):
         self._show()
