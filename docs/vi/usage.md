@@ -124,7 +124,7 @@ Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report exp
 
 Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer dùng theme trong tab Report.
 
-**Xuất report**, **Comment** và **Unimportant** nằm ở hàng dưới hai nút mở nguồn. Khi tắt **Comment** hoặc **Unimportant**, các dòng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
+**Xuất report**, **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**. Khi tắt **Comment** hoặc **Unimportant**, các dòng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
 
 | Verdict | Ý nghĩa |
 |---|---|

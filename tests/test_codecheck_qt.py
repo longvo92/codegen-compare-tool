@@ -546,15 +546,20 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
             self.assertEqual(self.page.details.toPlainText(), before)
             self.assertEqual(self.page.status.text(), 'FAIL')
 
-    def test_modes_stay_above_compare_toolbar_and_have_no_review_controls(self):
+    def test_compare_actions_stay_below_the_file_tree_and_inside_compare(self):
         from PySide6.QtGui import QAction
         self.win.modes.setCurrentIndex(0)
         self.app.processEvents()
         tabs_bottom = self.win.modes.tabBar().mapTo(self.win, QPoint(0, self.win.modes.tabBar().height())).y()
         source_top = self.win.source_toolbar.mapTo(self.win, QPoint(0, 0)).y()
+        tree_bottom = self.win.tree.mapTo(self.win, QPoint(0, self.win.tree.height())).y()
         toolbar_top = self.win.compare_toolbar.mapTo(self.win, QPoint(0, 0)).y()
         self.assertLessEqual(tabs_bottom, source_top)
-        self.assertLessEqual(source_top + self.win.source_toolbar.height(), toolbar_top)
+        self.assertLessEqual(tree_bottom, toolbar_top)
+        self.assertTrue(self.win.sec_files.isAncestorOf(self.win.compare_toolbar))
+        self.assertEqual(self.win.source_toolbar.actions(), [self.win.act_open, self.win.act_git])
+        self.assertEqual(self.win.compare_toolbar.actions(),
+                         [self.win.act_export, self.win.show_comment, self.win.show_unimportant])
         self.assertTrue(self.win.source_toolbar.isVisible())
         self.assertTrue(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.help_button.isVisible())

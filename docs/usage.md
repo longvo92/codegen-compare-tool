@@ -125,7 +125,7 @@ Filters and muting affect the view only; verdicts, counts and exported reports r
 
 Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
 
-The row below **Open folders** and **Git compare** contains **Export report**, **Comment**, and **Unimportant**. When **Comment** or **Unimportant** is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
+Below the folder tree in **Files**, use **Export report**, **Comment**, or **Unimportant**. When **Comment** or **Unimportant** is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
 
 | Verdict | Meaning |
 |---|---|

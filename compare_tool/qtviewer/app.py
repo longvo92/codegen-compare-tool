@@ -297,7 +297,7 @@ class MainWindow(QMainWindow):
             self.banner.setText(self._banner_message)
             self.banner.show()
 
-        self._build_toolbar()
+        self._build_toolbar(tree_box)
         self._update_title()
         self.modes.currentChanged.connect(self._switch_workspace)
         self._style_widgets()
@@ -580,21 +580,23 @@ class MainWindow(QMainWindow):
                     self.act_last, self.act_export):
             self.addAction(act)
 
-    def _build_toolbar(self):
+    def _build_toolbar(self, tree_box):
         self.source_toolbar = QToolBar('Compare sources', self.compare_page)
-        self.compare_toolbar = QToolBar('Compare', self.compare_page)
+        self.compare_toolbar = QToolBar('Compare', tree_box)
         tb = QToolBar('Application', self.modes)
         for toolbar in (self.source_toolbar, self.compare_toolbar, tb):
             toolbar.setMovable(False)
             toolbar.setIconSize(QSize(20, 20))
             toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
-        layout = self.compare_page.layout()
-        layout.insertWidget(0, self.source_toolbar)
-        layout.insertWidget(1, self.compare_toolbar)
+        self.compare_page.layout().insertWidget(0, self.source_toolbar)
+        tree_box.layout().addWidget(self.compare_toolbar)
         self.source_toolbar.addAction(self.act_open)
         self.source_toolbar.addAction(self.act_git)
-        self.compare_toolbar.addWidget(self._tool_button(self.act_export, primary=True))
+        self.compare_toolbar.addAction(self.act_export)
+        report_button = self.compare_toolbar.widgetForAction(self.act_export)
+        report_button.setObjectName('primary')
+        report_button.setCursor(Qt.PointingHandCursor)
         self.compare_toolbar.addAction(self.show_comment)
         self.compare_toolbar.addAction(self.show_unimportant)
         self._compare_toolbar_actions = self.source_toolbar.actions() + self.compare_toolbar.actions()
@@ -642,17 +644,6 @@ class MainWindow(QMainWindow):
         self.show_unimportant.setChecked(self._prefs.unimportant)
         self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
         self.diff.repaint_file()
-
-    @staticmethod
-    def _tool_button(action, primary=False):
-        b = QToolButton()
-        b.setDefaultAction(action)  # icon, text, tooltip and enabled state
-        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        b.setIconSize(QSize(20, 20))
-        b.setCursor(Qt.PointingHandCursor)
-        if primary:
-            b.setObjectName('primary')
-        return b
 
     @staticmethod
     def _nav_button(action):
