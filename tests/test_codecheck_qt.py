@@ -557,9 +557,10 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertLessEqual(tabs_bottom, source_top)
         self.assertLessEqual(tree_bottom, toolbar_top)
         self.assertTrue(self.win.sec_files.isAncestorOf(self.win.compare_toolbar))
-        self.assertEqual(self.win.source_toolbar.actions(), [self.win.act_open, self.win.act_git])
+        self.assertEqual(self.win.source_toolbar.actions(),
+                         [self.win.act_open, self.win.act_git, self.win.act_export])
         self.assertEqual(self.win.compare_toolbar.actions(),
-                         [self.win.act_export, self.win.show_comment, self.win.show_unimportant])
+                         [self.win.show_comment, self.win.show_unimportant])
         self.assertTrue(self.win.source_toolbar.isVisible())
         self.assertTrue(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.help_button.isVisible())
