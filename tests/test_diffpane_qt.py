@@ -700,12 +700,22 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
                          'ignorable-only')
         self.assertTrue(self.win._is_nav('arxml/NoiseDemo_implementation.arxml'))
 
-    def test_unticking_a_rule_takes_its_files_out_of_the_walk(self):
-        rel = 'NoiseDemo_autosar_rtw/ert_main.c'
-        self.assertTrue(self.win._is_nav(rel))
-        self.win._apply_preferences(self.win._prefs._replace(comment=False))
-        self._settle_ui()
-        self.assertFalse(self.win._is_nav(rel))
+    def test_compare_toolbar_checkboxes_take_their_files_out_of_the_walk(self):
+        for box, rel in ((self.win.show_comment, 'NoiseDemo_autosar_rtw/ert_main.c'),
+                         (self.win.show_unimportant, 'arxml/NoiseDemo_implementation.arxml')):
+            self.assertTrue(self.win.compare_toolbar.isAncestorOf(box))
+            self.assertTrue(self.win._is_nav(rel))
+            self.win._reselect(rel)
+            worker = self.win.worker
+            box.click()
+            self._settle_ui()
+            self.assertFalse(self.win._is_nav(rel))
+            self.assertEqual(self.win._selected_rel(), rel)
+            self.assertIs(self.win.worker, worker)
+            self.assertTrue(self.win.diff.new_edit._ignored_rows)
+            box.click()
+            self.assertTrue(self.win._is_nav(rel))
+            self.assertFalse(self.win.diff.new_edit._ignored_rows)
 
     def test_unticking_a_rule_never_re_judges_the_file(self):
         # greying a category is a reading aid, not a verdict: calling a file

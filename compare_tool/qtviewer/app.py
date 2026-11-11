@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
-from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog,
                                QHeaderView, QLabel, QLineEdit,
                                QMainWindow, QMenu, QMessageBox,
                                QProgressBar, QSplitter, QStyle, QToolBar,
@@ -38,7 +38,8 @@ from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .i18n import Texts
 from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
-                       YamlSettings, preference_store, save_code_check_defaults, save_preferences)
+                       YamlSettings, preference_store, save_code_check_defaults,
+                       save_compare_visibility, save_preferences)
 from .icons import ACCENT, app_icon, icon, std_icon
 from .gitpicker import pick_commit, ref_label
 from .pickers import pick_folders
@@ -436,8 +437,7 @@ class MainWindow(QMainWindow):
             self._update_tree_labels()
         self._set_theme(prefs.theme)
         if before.comment != prefs.comment or before.unimportant != prefs.unimportant:
-            self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
-            self.diff.repaint_file()
+            self._update_compare_visibility()
         if before.hide_identical != prefs.hide_identical:
             self._refresh_tree_keep_selection()
 
@@ -583,6 +583,17 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_open)
         tb.addAction(self.act_git)
         tb.addWidget(self._tool_button(self.act_export, primary=True))
+        tb.addSeparator()
+        self.show_comment = QCheckBox()
+        self.show_unimportant = QCheckBox()
+        for box, category, checked in (
+                (self.show_comment, 'Comment', self._prefs.comment),
+                (self.show_unimportant, 'Unimportant', self._prefs.unimportant)):
+            self._text.bind(box.setText, 'Show ' + category + ' differences')
+            self._text.bind(box.setToolTip, 'Mute ' + category + ' differences and skip them in F7/F8 when unchecked.')
+            box.setChecked(checked)
+            box.clicked.connect(self._change_compare_visibility)
+            tb.addWidget(box)
         self._compare_toolbar_actions = list(tb.actions())
         tb = QToolBar('Application', self.modes)
         tb.setObjectName('global')
@@ -608,6 +619,20 @@ class MainWindow(QMainWindow):
         menu.addAction(self.act_about)
         self.help_button.setMenu(menu)
         tb.addWidget(self.help_button)
+
+    def _change_compare_visibility(self):
+        self._prefs = self._prefs._replace(comment=self.show_comment.isChecked(),
+                                          unimportant=self.show_unimportant.isChecked())
+        self._update_compare_visibility()
+        if not save_compare_visibility(self._settings, self._prefs):
+            self.statusBar().showMessage(
+                self._text('Settings could not be saved for the next launch.'), 5000)
+
+    def _update_compare_visibility(self):
+        self.show_comment.setChecked(self._prefs.comment)
+        self.show_unimportant.setChecked(self._prefs.unimportant)
+        self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
+        self.diff.repaint_file()
 
     @staticmethod
     def _tool_button(action, primary=False):

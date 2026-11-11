@@ -32,8 +32,8 @@ Compare a BASELINE with CURRENT and review their differences.
 3. Select a file to read its differences. Use **F7** / **F8** for the previous
    or next change across files, and **Ctrl+F** to search the open file.
 4. Filter files by path or open **Settings** to enable **Hide identical**.
-   Untick **Show Comment differences** or **Show Unimportant differences** to
-   mute those differences; verdicts and exports stay unchanged.
+   Untick **Show Comment differences** or **Show Unimportant differences**
+   on the Compare toolbar to mute those differences and skip them with F7/F8.
    Select a **Quick changes** entry to jump to an AUTOSAR or A2L change.
 5. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report.
 
@@ -122,7 +122,7 @@ GUIDE_VI = """
    tiếp theo giữa các file. Dùng **Ctrl+F** để tìm trong file đang mở.
 4. Lọc theo đường dẫn hoặc bật **Ẩn file Identical** trong **Cài đặt**.
    Bỏ chọn **Hiện khác biệt Comment** hoặc **Hiện khác biệt Unimportant**
-   để làm mờ các khác biệt đó. Verdict và report vẫn giữ đủ dữ liệu.
+   trên thanh công cụ So sánh để làm mờ và bỏ qua các khác biệt đó khi dùng F7/F8.
    Chọn một mục trong **Thay đổi chính** để đến thay đổi AUTOSAR hoặc A2L.
 5. Chọn **Xuất report…** (**Ctrl+E**) để lưu HTML report đầy đủ, đọc offline.
 

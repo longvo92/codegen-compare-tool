@@ -135,7 +135,26 @@ def load_preferences(store):
 
 
 def save_preferences(store, prefs):
-    for key, value in prefs._asdict().items():
+    return _save_values(store, prefs._asdict())
+
+
+def save_compare_visibility(store, prefs):
+    """Persist the Compare toolbar choices without saving launch overrides."""
+    values = {'comment': prefs.comment, 'unimportant': prefs.unimportant}
+    if isinstance(store, YamlSettings):
+        try:
+            config = app_config.load(store.path) if store.path.exists() else app_config.defaults()
+            config['display'].update(values)
+            store.save(config)
+        except (OSError, UnicodeError, ValueError):
+            return False
+        store.config['display'].update(values)
+        return True
+    return _save_values(store, values)
+
+
+def _save_values(store, values):
+    for key, value in values.items():
         store.setValue(key, value)
     try:
         store.sync()
@@ -172,6 +191,7 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self._config = deepcopy(config or app_config.defaults())
+        self._config['display'].update(comment=prefs.comment, unimportant=prefs.unimportant)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
         general = QWidget()
@@ -198,16 +218,10 @@ class SettingsDialog(QDialog):
 
         display = QGroupBox(tr('Compare display'))
         options = QVBoxLayout(display)
-        self.comment = QCheckBox(tr('Show Comment differences'))
-        self.comment.setToolTip(tr('Mute Comment differences and skip them in F7/F8 when unchecked.'))
-        self.unimportant = QCheckBox(tr('Show Unimportant differences'))
-        self.unimportant.setToolTip(tr('Mute Unimportant differences and skip them in F7/F8 when unchecked.'))
         self.hide_identical = QCheckBox(tr('Hide identical'))
         self.hide_identical.setToolTip(tr('Hide only Identical files in the tree.'))
-        for check, value in ((self.comment, prefs.comment), (self.unimportant, prefs.unimportant),
-                             (self.hide_identical, prefs.hide_identical)):
-            check.setChecked(value)
-            options.addWidget(check)
+        self.hide_identical.setChecked(prefs.hide_identical)
+        options.addWidget(self.hide_identical)
         general_layout.addWidget(display)
 
         policy = QGroupBox(tr('Code Check policy'))
@@ -288,8 +302,9 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.buttons)
 
     def preferences(self):
+        display = self._config['display']
         return Preferences(self.language.currentData(), self.theme.currentData(),
-                           self.comment.isChecked(), self.unimportant.isChecked(),
+                           display['comment'], display['unimportant'],
                            self.hide_identical.isChecked())
 
     def policy_path(self):
@@ -313,8 +328,7 @@ class SettingsDialog(QDialog):
     def config(self):
         value = deepcopy(self._config)
         value['appearance'].update(language=self.language.currentData(), theme=self.theme.currentData())
-        value['display'].update(comment=self.comment.isChecked(), unimportant=self.unimportant.isChecked(),
-                                hide_identical=self.hide_identical.isChecked())
+        value['display']['hide_identical'] = self.hide_identical.isChecked()
         value['compare'].update(exclude=[x.strip() for x in self.compare_exclude.toPlainText().splitlines() if x.strip()],
                                 arxml_only=self.arxml_only.isChecked(), skip_var_renames=self.skip_renames.isChecked(),
                                 check_consistency=self.check_consistency.isChecked(), exit_zero=self.exit_zero.isChecked(),
@@ -328,8 +342,7 @@ class SettingsDialog(QDialog):
         self._config = value
         self.language.setCurrentIndex(self.language.findData(value['appearance']['language']))
         self.theme.setCurrentIndex(self.theme.findData(value['appearance']['theme']))
-        for key in ('comment', 'unimportant', 'hide_identical'):
-            getattr(self, key).setChecked(value['display'][key])
+        self.hide_identical.setChecked(value['display']['hide_identical'])
         self.compare_exclude.setPlainText('\n'.join(value['compare']['exclude']))
         for key, widget in (('arxml_only', self.arxml_only), ('skip_var_renames', self.skip_renames),
                             ('check_consistency', self.check_consistency), ('exit_zero', self.exit_zero)):
