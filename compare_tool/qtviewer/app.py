@@ -581,25 +581,25 @@ class MainWindow(QMainWindow):
             self.addAction(act)
 
     def _build_toolbar(self):
-        tb = QToolBar('Compare', self.compare_page)
-        self.compare_toolbar = tb
-        self.compare_page.layout().insertWidget(0, tb)
-        tb.setObjectName('main')
-        tb.setMovable(False)
-        tb.setIconSize(QSize(20, 20))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        tb.addAction(self.act_open)
-        tb.addAction(self.act_git)
-        tb.addWidget(self._tool_button(self.act_export, primary=True))
-        tb.addSeparator()
-        tb.addAction(self.show_comment)
-        tb.addAction(self.show_unimportant)
-        self._compare_toolbar_actions = list(tb.actions())
+        self.source_toolbar = QToolBar('Compare sources', self.compare_page)
+        self.compare_toolbar = QToolBar('Compare', self.compare_page)
         tb = QToolBar('Application', self.modes)
+        for toolbar in (self.source_toolbar, self.compare_toolbar, tb):
+            toolbar.setMovable(False)
+            toolbar.setIconSize(QSize(20, 20))
+            toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+
+        layout = self.compare_page.layout()
+        layout.insertWidget(0, self.source_toolbar)
+        layout.insertWidget(1, self.compare_toolbar)
+        self.source_toolbar.addAction(self.act_open)
+        self.source_toolbar.addAction(self.act_git)
+        self.compare_toolbar.addWidget(self._tool_button(self.act_export, primary=True))
+        self.compare_toolbar.addAction(self.show_comment)
+        self.compare_toolbar.addAction(self.show_unimportant)
+        self._compare_toolbar_actions = self.source_toolbar.actions() + self.compare_toolbar.actions()
+
         tb.setObjectName('global')
-        tb.setMovable(False)
-        tb.setIconSize(QSize(20, 20))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.modes.setCornerWidget(tb, Qt.TopRightCorner)
         tb.addAction(self.act_settings)
         # the three help pages behind one menu on the right: they are read once
