@@ -61,8 +61,6 @@ VI = {
     'Light': 'Sáng',
     'Dark': 'Tối',
     'Compare display': 'Hiển thị kết quả so sánh',
-    'Show Comment differences': 'Hiện khác biệt Comment',
-    'Show Unimportant differences': 'Hiện khác biệt Unimportant',
     'Hide identical': 'Ẩn file Identical',
     'Hide only Identical files in the tree.': 'Chỉ ẩn các file Identical trong cây.',
     'Mute Comment differences and skip them in F7/F8 when unchecked.':

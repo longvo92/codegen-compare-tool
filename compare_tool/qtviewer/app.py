@@ -38,8 +38,9 @@ from .dialogs import show_about, show_release_notes, show_user_guide
 from .diffpane import DiffPane
 from .i18n import Texts
 from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
-                       YamlSettings, preference_store, save_code_check_defaults, save_preferences)
-from .icons import ACCENT, app_icon, icon, std_icon
+                       YamlSettings, preference_store, save_code_check_defaults,
+                       save_compare_visibility, save_preferences)
+from .icons import ACCENT, TINT, app_icon, icon, std_icon
 from .gitpicker import pick_commit, ref_label
 from .pickers import pick_folders
 from .section import NO_MAX, Section
@@ -296,7 +297,7 @@ class MainWindow(QMainWindow):
             self.banner.setText(self._banner_message)
             self.banner.show()
 
-        self._build_toolbar()
+        self._build_toolbar(tree_box)
         self._update_title()
         self.modes.currentChanged.connect(self._switch_workspace)
         self._style_widgets()
@@ -436,8 +437,7 @@ class MainWindow(QMainWindow):
             self._update_tree_labels()
         self._set_theme(prefs.theme)
         if before.comment != prefs.comment or before.unimportant != prefs.unimportant:
-            self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
-            self.diff.repaint_file()
+            self._update_compare_visibility()
         if before.hide_identical != prefs.hide_identical:
             self._refresh_tree_keep_selection()
 
@@ -477,7 +477,8 @@ class MainWindow(QMainWindow):
         """Re-tint every shipped glyph for the current chrome."""
         self.act_open.setIcon(std_icon(self, QStyle.SP_DirOpenIcon))
         for act, glyph, role in self._icon_actions:
-            act.setIcon(icon(glyph, role) if role else icon(glyph))
+            checked_role = 'chrome-checked-fg' if act.isCheckable() else None
+            act.setIcon(icon(glyph, role or TINT, checked_role=checked_role))
         self.help_button.setIcon(icon('report'))
 
     # --- actions, toolbar, bottom action bar ---
@@ -505,6 +506,13 @@ class MainWindow(QMainWindow):
                         'Compare Git commits or compare a commit with the working tree')
         self.act_git.triggered.connect(self._pick_commit)
         self._icon_actions.append((self.act_git, 'git-commit', None))
+
+        self.show_comment = self._compare_toggle(
+            'Comment', 'review-comment', self._prefs.comment,
+            'Mute Comment differences and skip them in F7/F8 when unchecked.')
+        self.show_unimportant = self._compare_toggle(
+            'Unimportant', 'circle-minus', self._prefs.unimportant,
+            'Mute Unimportant differences and skip them in F7/F8 when unchecked.')
 
         # First/Last stay inside the open file -- they mean "this file's ends".
         # Previous/Next run off them into the next file with something to
@@ -572,23 +580,28 @@ class MainWindow(QMainWindow):
                     self.act_last, self.act_export):
             self.addAction(act)
 
-    def _build_toolbar(self):
-        tb = QToolBar('Compare', self.compare_page)
-        self.compare_toolbar = tb
-        self.compare_page.layout().insertWidget(0, tb)
-        tb.setObjectName('main')
-        tb.setMovable(False)
-        tb.setIconSize(QSize(20, 20))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        tb.addAction(self.act_open)
-        tb.addAction(self.act_git)
-        tb.addWidget(self._tool_button(self.act_export, primary=True))
-        self._compare_toolbar_actions = list(tb.actions())
+    def _build_toolbar(self, tree_box):
+        self.source_toolbar = QToolBar('Compare sources', self.compare_page)
+        self.compare_toolbar = QToolBar('Compare', tree_box)
         tb = QToolBar('Application', self.modes)
+        for toolbar in (self.source_toolbar, self.compare_toolbar, tb):
+            toolbar.setMovable(False)
+            toolbar.setIconSize(QSize(20, 20))
+            toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+
+        self.compare_page.layout().insertWidget(0, self.source_toolbar)
+        tree_box.layout().addWidget(self.compare_toolbar)
+        self.source_toolbar.addAction(self.act_open)
+        self.source_toolbar.addAction(self.act_git)
+        self.source_toolbar.addAction(self.act_export)
+        report_button = self.source_toolbar.widgetForAction(self.act_export)
+        report_button.setObjectName('primary')
+        report_button.setCursor(Qt.PointingHandCursor)
+        self.compare_toolbar.addAction(self.show_comment)
+        self.compare_toolbar.addAction(self.show_unimportant)
+        self._compare_toolbar_actions = self.source_toolbar.actions() + self.compare_toolbar.actions()
+
         tb.setObjectName('global')
-        tb.setMovable(False)
-        tb.setIconSize(QSize(20, 20))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.modes.setCornerWidget(tb, Qt.TopRightCorner)
         tb.addAction(self.act_settings)
         # the three help pages behind one menu on the right: they are read once
@@ -609,16 +622,28 @@ class MainWindow(QMainWindow):
         self.help_button.setMenu(menu)
         tb.addWidget(self.help_button)
 
-    @staticmethod
-    def _tool_button(action, primary=False):
-        b = QToolButton()
-        b.setDefaultAction(action)  # icon, text, tooltip and enabled state
-        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        b.setIconSize(QSize(20, 20))
-        b.setCursor(Qt.PointingHandCursor)
-        if primary:
-            b.setObjectName('primary')
-        return b
+    def _compare_toggle(self, label, glyph, checked, tooltip):
+        action = QAction(icon(glyph, checked_role='chrome-checked-fg'), label, self)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        self._text.bind(action.setToolTip, tooltip)
+        action.triggered.connect(self._change_compare_visibility)
+        self._icon_actions.append((action, glyph, None))
+        return action
+
+    def _change_compare_visibility(self):
+        self._prefs = self._prefs._replace(comment=self.show_comment.isChecked(),
+                                          unimportant=self.show_unimportant.isChecked())
+        self._update_compare_visibility()
+        if not save_compare_visibility(self._settings, self._prefs):
+            self.statusBar().showMessage(
+                self._text('Settings could not be saved for the next launch.'), 5000)
+
+    def _update_compare_visibility(self):
+        self.show_comment.setChecked(self._prefs.comment)
+        self.show_unimportant.setChecked(self._prefs.unimportant)
+        self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
+        self.diff.repaint_file()
 
     @staticmethod
     def _nav_button(action):

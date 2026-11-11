@@ -34,13 +34,15 @@ def _tinted(pm, color):
     return out
 
 
-def icon(name, role=TINT, size=20):
+def icon(name, role=TINT, size=20, *, checked_role=None):
     """Tinted :class:`QIcon` for a shipped glyph; empty when it is missing.
 
     ``role`` is a theme role, resolved now -- so the same call made again after
-    a theme switch returns a glyph tinted for the new chrome."""
+    a theme switch returns a glyph tinted for the new chrome. Checkable buttons
+    can supply a separate tint for their active background."""
     color = theme.c(role)
-    key = (name, color, size)
+    checked_color = theme.c(checked_role) if checked_role else None
+    key = (name, color, size, checked_color)
     if key in _cache:
         return _cache[key]
     path = icon_file(name)
@@ -49,6 +51,8 @@ def icon(name, role=TINT, size=20):
         pm = QIcon(str(path)).pixmap(size, size)
         if not pm.isNull():
             ico = QIcon(_tinted(pm, color))
+            if checked_color:
+                ico.addPixmap(_tinted(pm, checked_color), QIcon.Normal, QIcon.On)
     _cache[key] = ico
     return ico
 

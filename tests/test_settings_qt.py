@@ -63,8 +63,6 @@ class TestSettings(unittest.TestCase):
             dlg = QApplication.activeModalWidget()
             dlg.language.setCurrentIndex(dlg.language.findData('vi'))
             dlg.theme.setCurrentIndex(dlg.theme.findData(theme.DARK))
-            dlg.comment.setChecked(False)
-            dlg.unimportant.setChecked(False)
             dlg.hide_identical.setChecked(True)
             if policy is not None:
                 dlg.policy.setText(policy)
@@ -85,7 +83,9 @@ class TestSettings(unittest.TestCase):
         self.edit_dialog(win, QDialogButtonBox.Save)
         self.assertEqual(win.act_settings.text(), 'Cài đặt')
         self.assertEqual(win.modes.tabText(0), 'So sánh')
-        self.assertEqual(win._prefs, Preferences('vi', theme.DARK, False, False, True))
+        self.assertEqual(win.show_comment.text(), 'Comment')
+        self.assertEqual(win.show_unimportant.text(), 'Unimportant')
+        self.assertEqual(win._prefs, Preferences('vi', theme.DARK, True, True, True))
         self.assertEqual(win._theme, theme.DARK)
         win.close()
 
@@ -154,6 +154,13 @@ class TestSettings(unittest.TestCase):
         win = MainWindow(*launch.call_args.args, **launch.call_args.kwargs, settings=YamlSettings(path))
         self.addCleanup(win.close)
         self.assertEqual(app_config.load(path), app_config.defaults())
+        win.show_comment.trigger()
+        win.show_unimportant.trigger()
+        saved = app_config.load(path)
+        self.assertFalse(saved['display']['comment'])
+        self.assertFalse(saved['display']['unimportant'])
+        self.assertEqual(saved['compare'], app_config.defaults()['compare'])
+        self.assertEqual(load_preferences(YamlSettings(path)), win._prefs)
         win._raw_results = {'kept.h': {'status': 'identical'}}
         win.act_export.setEnabled(True)
         self.edit_dialog(win, QDialogButtonBox.Save)
@@ -161,6 +168,10 @@ class TestSettings(unittest.TestCase):
         self.assertTrue(win.skip_var_renames)
         self.assertEqual([rule.name for rule in win.user_rules], ['stamp'])
         self.assertEqual(app_config.load(path)['compare']['exclude'], ['*.c'])
+        self.assertFalse(win.show_comment.isChecked())
+        self.assertFalse(win.show_unimportant.isChecked())
+        self.assertEqual(app_config.load(path)['display'],
+                         {'comment': False, 'unimportant': False, 'hide_identical': True})
         self.assertTrue(win.act_export.isEnabled())
 
         def change_scope(dialog):
