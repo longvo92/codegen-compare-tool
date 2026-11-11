@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-11-11
+
 - Compare any two selected Git commits from a history graph with merge paths, branch labels and tags. The context menu also supports comparing a commit with the working tree.
 - Mark ignored Compare hunks with a subtle gutter bracket while keeping their normal background and syntax colours.
 - Move the Comment and Unimportant visibility controls below the folder tree in Compare.
