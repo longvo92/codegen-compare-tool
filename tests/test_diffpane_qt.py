@@ -69,6 +69,44 @@ def _backgrounds(editor):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
+class TestLargeFileSyntaxColours(unittest.TestCase):
+    def test_both_panes_keep_syntax_and_diff_colours_past_line_20000(self):
+        from compare_tool import theme
+        from compare_tool.qtviewer.diffpane import DiffPane
+
+        app = _app()
+        pane = DiffPane()
+        pane.resize(1000, 400)
+        pane.show()
+        self.addCleanup(pane.close)
+        with tempfile.TemporaryDirectory() as tmp:
+            old, new = Path(tmp) / 'old', Path(tmp) / 'new'
+            prefix = ('int filler;\n' * 19999
+                      + '/* Start of comment\nint still_in_comment;\n*/\n')
+            for root, value in ((old, 1), (new, 2)):
+                root.mkdir()
+                (root / 'Large.c').write_text(prefix + 'int value = {};'.format(value),
+                                              encoding='utf-8')
+            result = scan(old, new)['Large.c']
+            pane.show_file('Large.c', result, str(old), str(new))
+            app.processEvents()
+
+            for editor in (pane.old_edit, pane.new_edit):
+                doc = editor.document()
+                comment = doc.findBlockByNumber(20000)
+                self.assertEqual(
+                    [(run.start, run.length, run.format.foreground().color().name())
+                     for run in comment.layout().formats()],
+                    [(0, len(comment.text()), theme.c('syn-comment'))],
+                )
+                changed = doc.lastBlock()
+                colours = {run.format.foreground().color().name()
+                           for run in changed.layout().formats()}
+                self.assertEqual(colours, {theme.c('syn-type'), theme.c('syn-number')})
+                self.assertNotEqual(changed.blockFormat().background().style(), Qt.NoBrush)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
 class TestCaretDoesNotPaint(unittest.TestCase):
     """Clicking inside a coloured span must not colour the next file.
 

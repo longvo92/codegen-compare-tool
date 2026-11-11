@@ -33,10 +33,6 @@ _PALETTE = {
     syntax.ATTR:    ('syn-attr', False),
 }
 
-# above this the pane stays plain: rehighlighting runs on the GUI thread, and a
-# generated file of this size is scrolled, not read line by line
-MAX_LINES = 20000
-
 
 def _formats():
     out = {}
@@ -104,8 +100,7 @@ class CodeHighlighter(QSyntaxHighlighter):
         self.rehighlight()
 
     def highlightBlock(self, text):
-        n = self.currentBlock().blockNumber()
-        if self._language is None or n >= MAX_LINES:
+        if self._language is None:
             return
         prev = self.previousBlockState()
         # -1 is Qt's "no state yet"; anything outside the syntax vocabulary
