@@ -16,7 +16,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
-from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog,
+from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
                                QHeaderView, QLabel, QLineEdit,
                                QMainWindow, QMenu, QMessageBox,
                                QProgressBar, QSplitter, QStyle, QToolBar,
@@ -40,7 +40,7 @@ from .i18n import Texts
 from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
                        YamlSettings, preference_store, save_code_check_defaults,
                        save_compare_visibility, save_preferences)
-from .icons import ACCENT, app_icon, icon, std_icon
+from .icons import ACCENT, TINT, app_icon, icon, std_icon
 from .gitpicker import pick_commit, ref_label
 from .pickers import pick_folders
 from .section import NO_MAX, Section
@@ -477,7 +477,8 @@ class MainWindow(QMainWindow):
         """Re-tint every shipped glyph for the current chrome."""
         self.act_open.setIcon(std_icon(self, QStyle.SP_DirOpenIcon))
         for act, glyph, role in self._icon_actions:
-            act.setIcon(icon(glyph, role) if role else icon(glyph))
+            checked_role = 'chrome-checked-fg' if act.isCheckable() else None
+            act.setIcon(icon(glyph, role or TINT, checked_role=checked_role))
         self.help_button.setIcon(icon('report'))
 
     # --- actions, toolbar, bottom action bar ---
@@ -505,6 +506,13 @@ class MainWindow(QMainWindow):
                         'Compare Git commits or compare a commit with the working tree')
         self.act_git.triggered.connect(self._pick_commit)
         self._icon_actions.append((self.act_git, 'git-commit', None))
+
+        self.show_comment = self._compare_toggle(
+            'Comment', 'review-comment', self._prefs.comment,
+            'Mute Comment differences and skip them in F7/F8 when unchecked.')
+        self.show_unimportant = self._compare_toggle(
+            'Unimportant', 'circle-minus', self._prefs.unimportant,
+            'Mute Unimportant differences and skip them in F7/F8 when unchecked.')
 
         # First/Last stay inside the open file -- they mean "this file's ends".
         # Previous/Next run off them into the next file with something to
@@ -584,16 +592,8 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_git)
         tb.addWidget(self._tool_button(self.act_export, primary=True))
         tb.addSeparator()
-        self.show_comment = QCheckBox()
-        self.show_unimportant = QCheckBox()
-        for box, category, checked in (
-                (self.show_comment, 'Comment', self._prefs.comment),
-                (self.show_unimportant, 'Unimportant', self._prefs.unimportant)):
-            self._text.bind(box.setText, 'Show ' + category + ' differences')
-            self._text.bind(box.setToolTip, 'Mute ' + category + ' differences and skip them in F7/F8 when unchecked.')
-            box.setChecked(checked)
-            box.clicked.connect(self._change_compare_visibility)
-            tb.addWidget(box)
+        tb.addAction(self.show_comment)
+        tb.addAction(self.show_unimportant)
         self._compare_toolbar_actions = list(tb.actions())
         tb = QToolBar('Application', self.modes)
         tb.setObjectName('global')
@@ -619,6 +619,15 @@ class MainWindow(QMainWindow):
         menu.addAction(self.act_about)
         self.help_button.setMenu(menu)
         tb.addWidget(self.help_button)
+
+    def _compare_toggle(self, label, glyph, checked, tooltip):
+        action = QAction(icon(glyph, checked_role='chrome-checked-fg'), label, self)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        self._text.bind(action.setToolTip, tooltip)
+        action.triggered.connect(self._change_compare_visibility)
+        self._icon_actions.append((action, glyph, None))
+        return action
 
     def _change_compare_visibility(self):
         self._prefs = self._prefs._replace(comment=self.show_comment.isChecked(),

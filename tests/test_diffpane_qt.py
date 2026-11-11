@@ -700,20 +700,22 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
                          'ignorable-only')
         self.assertTrue(self.win._is_nav('arxml/NoiseDemo_implementation.arxml'))
 
-    def test_compare_toolbar_checkboxes_take_their_files_out_of_the_walk(self):
-        for box, rel in ((self.win.show_comment, 'NoiseDemo_autosar_rtw/ert_main.c'),
-                         (self.win.show_unimportant, 'arxml/NoiseDemo_implementation.arxml')):
-            self.assertTrue(self.win.compare_toolbar.isAncestorOf(box))
+    def test_compare_toolbar_toggles_take_their_files_out_of_the_walk(self):
+        for action, rel in ((self.win.show_comment, 'NoiseDemo_autosar_rtw/ert_main.c'),
+                            (self.win.show_unimportant, 'arxml/NoiseDemo_implementation.arxml')):
+            button = self.win.compare_toolbar.widgetForAction(action)
+            self.assertIsNotNone(button)
+            self.assertFalse(action.icon().isNull())
             self.assertTrue(self.win._is_nav(rel))
             self.win._reselect(rel)
             worker = self.win.worker
-            box.click()
+            button.click()
             self._settle_ui()
             self.assertFalse(self.win._is_nav(rel))
             self.assertEqual(self.win._selected_rel(), rel)
             self.assertIs(self.win.worker, worker)
             self.assertTrue(self.win.diff.new_edit._ignored_rows)
-            box.click()
+            button.click()
             self.assertTrue(self.win._is_nav(rel))
             self.assertFalse(self.win.diff.new_edit._ignored_rows)
 
