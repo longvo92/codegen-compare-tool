@@ -135,6 +135,103 @@ class TestCommitGraph(unittest.TestCase):
 
 
 @unittest.skipUnless(_git_available(), 'git is not installed')
+class TestFolderHistory(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.graph = _graph_fixture(self.root)
+
+    def commit(self, path, contents, subject):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents, encoding='utf-8')
+        _git(self.root, 'add', '--all')
+        _git(self.root, 'commit', '-qm', subject)
+        return gitsource.resolve_sha(self.root, 'HEAD')
+
+    def history(self, sub='gen'):
+        head = gitsource.resolve_sha(self.root, 'HEAD')
+        return gitsource.folder_history(self.root, (head,), sub)
+
+    def test_first_parent_default_and_graph_skip_outside_commits(self):
+        skipped = self.commit('README.md', 'outside', 'Outside gen')
+        changed = self.commit('gen/nested/x.c', 'int x;', 'Nested change')
+        head = self.commit('gen-copy/model.c', 'int y;', 'Sibling folder change')
+        history = self.history()
+        self.assertNotIn(skipped, history.positions)
+        self.assertNotIn(head, history.positions)
+        self.assertEqual(gitsource.latest_folder_change(self.root, head, 'gen'), changed)
+        self.assertEqual(history.commits[0].parents, (skipped,))
+        self.assertEqual(history.parents[changed], (self.graph['head'].sha,))
+        self.assertEqual(set(history.positions), {changed, *(self.graph[name].sha for name in
+                         ('head', 'main', 'base', 'feature-a', 'feature-b'))})
+        lanes = Lanes()
+        for commit in history.commits:
+            lanes.append(commit, history.parents[commit.sha])
+        self.assertEqual(lanes.pending, [])
+
+    def test_merges_use_original_first_parent_and_reconnect_hidden_merge(self):
+        main = self.graph['head'].sha
+        _git(self.root, 'checkout', '-qb', 'discarded')
+        side = self.commit('gen/side.c', 'int side;', 'Discarded folder change')
+        _git(self.root, 'checkout', '-q', 'main')
+        _git(self.root, 'merge', '-qs', 'ours', '--no-ff', '-m', 'Keep folder as-is', 'discarded')
+        merge = gitsource.resolve_sha(self.root, 'HEAD')
+        self.assertEqual(self.history().commits[0].sha, side)
+        self.assertEqual(gitsource.latest_folder_change(self.root, merge, 'gen'), main)
+        changed = self.commit('gen/model.c', 'int limit = 99;', 'Change after hidden merge')
+        history = self.history()
+        self.assertNotIn(merge, history.positions)
+        self.assertIn(side, history.positions)
+        self.assertEqual(history.parents[changed], (main, side))
+        self.assertEqual(history.parents[main], self.graph['head'].parents)
+
+    def test_merge_importing_entire_folder_change_is_visible(self):
+        _git(self.root, 'checkout', '-qb', 'new-generation')
+        side = self.commit('gen/model.c', 'int limit = 55;', 'Generate on side')
+        _git(self.root, 'checkout', '-q', 'main')
+        self.commit('README.md', 'outside', 'Outside gen')
+        _git(self.root, 'merge', '-q', '--no-ff', '-m', 'Import generation', 'new-generation')
+        merge = gitsource.resolve_sha(self.root, 'HEAD')
+        history = self.history()
+        self.assertIn(merge, history.positions)
+        self.assertIn(side, history.positions)
+        self.assertEqual(gitsource.latest_folder_change(self.root, merge, 'gen'), merge)
+
+    def test_literal_path_deletion_and_rename(self):
+        folder = 'code [1]'
+        first = self.commit(folder + '/x.c', 'int x;', 'Create literal folder')
+        self.commit('code 1/x.c', 'int y;', 'Change matching wildcard')
+        _git(self.root, 'mv', folder, 'renamed')
+        _git(self.root, 'commit', '-qm', 'Rename folder')
+        renamed = gitsource.resolve_sha(self.root, 'HEAD')
+        self.assertEqual(tuple(self.history(folder).positions), (renamed, first))
+        self.assertEqual(tuple(self.history('renamed').positions), (renamed,))
+        self.assertEqual(self.history('unknown').commits, ())
+        with self.assertRaises(GitError):
+            gitsource.export(self.root, renamed, folder, self.root / 'exports')
+
+    def test_shallow_boundary_is_not_assumed_to_be_a_folder_change(self):
+        head = self.commit('README.md', 'outside', 'Outside gen')
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = Path(tmp) / 'clone'
+            _git(tmp, 'clone', '-q', '--depth=1', self.root.as_uri(), str(clone))
+            shallow = gitsource.shallow_commits(clone)
+            self.assertIn(head, shallow)
+            self.assertEqual(gitsource.folder_history(clone, (head,), 'gen',
+                                                      shallow=shallow).commits, ())
+            self.assertIsNone(gitsource.latest_folder_change(clone, head, 'gen', shallow))
+            _git(clone, 'fetch', '-q', '--depth=3', 'origin')
+            shallow = gitsource.shallow_commits(clone)
+            self.assertEqual(gitsource.latest_folder_change(clone, head, 'gen', shallow),
+                             self.graph['head'].sha)
+            history = gitsource.folder_history(clone, (head,), 'gen', shallow=shallow)
+            self.assertEqual(tuple(history.positions), (self.graph['head'].sha,))
+            self.assertEqual(history.parents[self.graph['head'].sha], ())
+
+
+@unittest.skipUnless(_git_available(), 'git is not installed')
 class _RepoCase(unittest.TestCase):
     """A three-commit repository: gen/ appears in c1, changes in c2, and c3
     touches only a file outside it."""

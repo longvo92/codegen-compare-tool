@@ -33,12 +33,14 @@ class Lanes:
         self.width = max(self.width, lane + 1)
         return lane
 
-    def append(self, commit):
+    def append(self, commit, parents=None):
+        if parents is None:
+            parents = commit.parents
         incoming = tuple(i for i, sha in enumerate(self.pending) if sha is not None)
         node = self._add(commit.sha)
         self.pending[node] = None
         outgoing = tuple(self._add(parent, node if index == 0 else None)
-                         for index, parent in enumerate(commit.parents))
+                         for index, parent in enumerate(parents))
         while self.pending and self.pending[-1] is None:
             self.pending.pop()
         return GraphRow(incoming, node, outgoing, commit.shallow)

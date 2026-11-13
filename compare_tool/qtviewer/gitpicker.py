@@ -26,6 +26,17 @@ _GRAPH, _SUBJECT, _DATE, _AUTHOR = range(4)
 _ROOT_INDEX = QModelIndex()
 
 
+def _page_end(row):
+    return (row // _PAGE + 1) * _PAGE
+
+
+def _folder_row(history, sha):
+    try:
+        return history.positions[sha]
+    except KeyError:
+        raise gitsource.GitError('Revision is missing from the filtered history.') from None
+
+
 class GitComparison(NamedTuple):
     folder: str
     root: Path
@@ -58,13 +69,13 @@ class _HistoryModel(QAbstractTableModel):
         self.lanes = Lanes()
         self.endResetModel()
 
-    def append(self, commits):
+    def append(self, commits, parents):
         if not commits:
             return
         start = len(self.commits)
         self.beginInsertRows(QModelIndex(), start, start + len(commits) - 1)
         self.commits.extend(commits)
-        self.rows.extend(self.lanes.append(commit) for commit in commits)
+        self.rows.extend(self.lanes.append(commit, parents.get(commit.sha)) for commit in commits)
         self.endInsertRows()
 
     def rowCount(self, parent=_ROOT_INDEX):
@@ -197,9 +208,11 @@ class CommitPicker(QDialog):
         self.chosen = None
         self.root = None
         self.sub = ''
+        self.head = None
         self.tips = ()
         self.refs = {}
         self.shallow = ()
+        self.folder_history = None
         self.more = False
         self.worker = None
         self._reload_pending = False
@@ -291,6 +304,7 @@ class CommitPicker(QDialog):
     def _job(self, task, complete, status=None):
         if status:
             self._message(self._text(status))
+        self._job_status = status
         self.worker = TaskWorker(task, self)
         self.worker.finished.connect(self._job_finished)
         self._complete = complete
@@ -312,7 +326,8 @@ class CommitPicker(QDialog):
             self._compare_pending = False
             self._message(worker.error, error=True)
             return
-        self._message()
+        if self._job_status:
+            self._message()
         self._complete(worker.result)
         self.worker = None
         if self._pair and self._compare_pending:
@@ -345,6 +360,7 @@ class CommitPicker(QDialog):
     def _reload(self):
         self.root = None
         self.more = False
+        self.folder_history = None
         self.model.clear()
         self.where.clear()
         self._selection_changed()
@@ -357,36 +373,66 @@ class CommitPicker(QDialog):
         def load():
             root = gitsource.repo_root(folder, strict=True)
             sub = gitsource.rel_in_repo(root, folder)
-            head = gitsource.resolve(root, 'HEAD').sha
+            head = gitsource.head_sha(root)
+            tips = (head,) if head else ()
             refs = gitsource.decorations(root, head)
             shallow = gitsource.shallow_commits(root)
-            commits = gitsource.history(root, (head,), limit=_PAGE, refs=refs, shallow=shallow)
-            return root, sub, (head,), refs, shallow, commits
+            filtered = gitsource.FolderHistory((), {}, {}) if sub else None
+            commits, more, selected = [], False, None
+            if head and sub:
+                filtered = gitsource.folder_history(root, tips, sub, refs=refs, shallow=shallow)
+                latest = gitsource.latest_folder_change(root, head, sub, shallow)
+                if latest is not None:
+                    selected = _folder_row(filtered, latest)
+                end = _page_end(selected if selected is not None else 0)
+                commits, more = filtered.commits[:end], len(filtered.commits) > end
+            elif head:
+                commits = gitsource.history(root, tips, limit=_PAGE, refs=refs, shallow=shallow)
+                more = len(commits) == _PAGE
+                selected = 0 if commits else None
+            return root, sub, head, tips, refs, shallow, filtered, commits, more, selected
 
         self._job(load, self._loaded, 'Loading Git history…')
 
     def _loaded(self, result):
-        self.root, self.sub, self.tips, self.refs, self.shallow, commits = result
-        self._append(commits, len(commits) == _PAGE)
+        (self.root, self.sub, self.head, self.tips, self.refs, self.shallow,
+         self.folder_history, commits, more, selected) = result
+        self._append(commits, more)
         self._show_scope()
-        if commits:
-            self.table.selectRow(0)
+        if selected is not None:
+            self._reveal(selected, select=True)
+        elif not self.head:
+            self._message(self._text('HEAD has no commits.'))
+        elif not commits:
+            self._message(self._text('No commits changed this folder in the available history.'))
+        else:
+            self._message(self._text('No folder change could be verified on the first-parent history of HEAD.'))
 
     def _show_scope(self):
-        scope = self._text('HEAD history')
-        if len(self.tips) > 1:
+        scope = self._text('Folder history from HEAD' if self.sub else 'HEAD history')
+        if self.head is None:
+            scope = self._text('Selected revision history' if self.tips else 'Unborn HEAD')
+        elif len(self.tips) > 1:
             scope = self._text('HEAD and {} additional revisions', len(self.tips) - 1)
-        self.where.setText('{}  ·  {}  ·  {}'.format(
-            self.root.name, self.sub or self._text('whole repository'), scope))
+        parts = [self.root.name, self.sub or self._text('whole repository'), scope]
+        if self.shallow:
+            parts.append(self._text('Shallow history'))
+        self.where.setText('  ·  '.join(parts))
 
     def _append(self, commits, more):
-        self.model.append(commits)
+        parents = self.folder_history.parents if self.folder_history else {}
+        self.more = False
+        self.model.append(commits, parents)
         self.more = more
         self.table.setColumnWidth(_GRAPH, max(62, self.model.lanes.width * _STEP + 14))
 
     def _scrolled(self, value):
         maximum = self.table.verticalScrollBar().maximum()
         if self.root is None or not self.more or self.worker or maximum - value > 8:
+            return
+        if self.folder_history is not None:
+            end = len(self.model.commits) + _PAGE
+            self._append_folder_rows(end)
             return
         load = self._page_loader()
         self._job(load, lambda commits: self._append(commits, len(commits) == _PAGE))
@@ -401,6 +447,11 @@ class CommitPicker(QDialog):
 
         return load
 
+    def _append_folder_rows(self, end):
+        start = len(self.model.commits)
+        commits = self.folder_history.commits
+        self._append(commits[start:end], len(commits) > end)
+
     def _find_next(self):
         needle = self.find.text().strip().casefold()
         if not needle or self.worker or self.root is None:
@@ -414,6 +465,9 @@ class CommitPicker(QDialog):
         if not self.more:
             self._found(wrap)
             return
+        if self.folder_history is not None:
+            self._find_in_folder_tail(needle, wrap)
+            return
         load = self._page_loader()
         offset = len(self.model.commits)
 
@@ -423,10 +477,25 @@ class CommitPicker(QDialog):
             if row is None:
                 # An unsuccessful search should not expand the whole graph.
                 return [], bool(commits), wrap
-            end = (row // _PAGE + 1) * _PAGE
+            end = _page_end(row)
             return commits[:end], len(commits) > end, offset + row
 
         self._job(search, self._searched, 'Searching Git history…')
+
+    def _find_in_folder_tail(self, needle, wrap):
+        commits = self.folder_history.commits
+        offset = len(self.model.commits)
+
+        def search():
+            return next((i for i in range(offset, len(commits))
+                         if _matches(commits[i], needle)), None)
+
+        def complete(row):
+            if row is not None:
+                self._append_folder_rows(_page_end(row))
+            self._found(wrap if row is None else row)
+
+        self._job(search, complete, 'Searching Git history…')
 
     def _searched(self, result):
         commits, more, index = result
@@ -452,6 +521,9 @@ class CommitPicker(QDialog):
         text = self.rev.text().strip()
         if not text or self.worker or self.root is None:
             return
+        if self.sub:
+            self._go_to_folder_revision(text)
+            return
         root, tips = self.root, self.tips
         visible = {c.sha for c in self.model.commits}
         selected = {c.sha for c in self._selected()}
@@ -459,7 +531,7 @@ class CommitPicker(QDialog):
         refs, shallow = self.refs, self.shallow
 
         def locate():
-            sha = gitsource.resolve(root, text).sha
+            sha = gitsource.resolve_sha(root, text)
             if sha in visible:
                 return sha, tips, [], None
             reachable = any(gitsource.is_ancestor(root, sha, tip) for tip in tips)
@@ -468,10 +540,51 @@ class CommitPicker(QDialog):
             commits = (tail_loader(None) if reachable else
                        gitsource.history(root, new_tips, limit=None, refs=refs, shallow=shallow))
             last = max((i for i, c in enumerate(commits) if c.sha in wanted), default=0)
-            end = (last // _PAGE + 1) * _PAGE
+            end = _page_end(last)
             return sha, new_tips, commits[:end], len(commits) > end
 
         self._job(locate, self._located, 'Finding revision…')
+
+    def _go_to_folder_revision(self, text):
+        root, sub, tips = self.root, self.sub, self.tips
+        refs, shallow = self.refs, self.shallow
+        filtered = self.folder_history
+
+        def locate():
+            requested = gitsource.resolve_sha(root, text)
+            if requested in filtered.positions:
+                return requested, requested, tips, filtered
+            reachable = any(gitsource.is_ancestor(root, requested, tip) for tip in tips)
+            new_tips = tips if reachable else (*tips, requested)
+            history = (filtered if reachable else
+                       gitsource.folder_history(root, new_tips, sub, refs=refs, shallow=shallow))
+            target = requested if requested in history.positions else (
+                gitsource.latest_folder_change(root, requested, sub, shallow))
+            if target is not None:
+                _folder_row(history, target)
+            return requested, target, new_tips, history
+
+        self._job(locate, self._folder_revision_located, 'Finding revision…')
+
+    def _folder_revision_located(self, result):
+        requested, target, tips, history = result
+        if target is None:
+            self._message(self._text('No folder changes found in the history of {}.', requested[:12]))
+            return
+        selected = {c.sha for c in self._selected()}
+        row = history.positions[target]
+        if tips != self.tips:
+            self.tips, self.folder_history = tips, history
+            self.model.clear()
+            self._show_scope()
+            last = max([row] + [history.positions[sha] for sha in selected if sha in history.positions])
+            self._append_folder_rows(_page_end(last))
+        elif row >= len(self.model.commits):
+            self._append_folder_rows(_page_end(row))
+        self._select_revision(target, selected)
+        if target != requested:
+            self._message(self._text('{} did not change this folder. Selected {}.',
+                                     requested[:12], target[:12]))
 
     def _located(self, result):
         sha, tips, commits, more = result
@@ -482,6 +595,9 @@ class CommitPicker(QDialog):
             self._show_scope()
         if more is not None:
             self._append(commits, more)
+        self._select_revision(sha, selected)
+
+    def _select_revision(self, sha, selected):
         rows = {c.sha: i for i, c in enumerate(self.model.commits)}
         if sha not in rows:
             self._message(self._text('Revision is missing from the loaded history.'), error=True)

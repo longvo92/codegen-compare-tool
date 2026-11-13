@@ -8,7 +8,9 @@ from pathlib import Path
 from threading import Event
 from unittest.mock import Mock, patch
 
-from test_gitsource import _git_available, _graph_fixture
+from test_gitsource import _git, _git_available, _graph_fixture
+
+from compare_tool import gitsource
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
@@ -35,6 +37,18 @@ class TestGitPicker(unittest.TestCase):
         cls.root.mkdir()
         cls.graph = _graph_fixture(cls.root)
         cls.folder = str(cls.root / 'gen')
+        outside = cls.root / 'docs'
+        outside.mkdir()
+        (outside / 'README.md').write_text('Outside the selected folder\n', encoding='utf-8')
+        _git(cls.root, 'add', 'docs')
+        _git(cls.root, 'commit', '-qm', 'Only change docs')
+        _git(cls.root, 'tag', 'docs-only')
+        cls.actual_head = gitsource.resolve_sha(cls.root, 'HEAD')
+        _git(cls.root, 'checkout', '-q', 'unmerged')
+        _git(cls.root, 'commit', '--allow-empty', '-qm', 'No folder changes on unmerged tip')
+        _git(cls.root, 'tag', 'unmerged-tip')
+        _git(cls.root, 'checkout', '-q', 'main')
+        (cls.root / 'untracked').mkdir()
 
     def wait(self, ready):
         deadline = time.monotonic() + 15
@@ -147,19 +161,20 @@ class TestGitPicker(unittest.TestCase):
                              self.graph['base'].sha)
             self.assertEqual(len(dlg.tips), 1)
             dlg.rev.setFocus()
-            dlg.rev.setText('unmerged')
+            dlg.rev.setText('unmerged-tip')
             QTest.keyClick(dlg.rev, Qt.Key_Return)
             self.wait(lambda: dlg.worker is None)
         browse.assert_not_called()
         self.assertIn('additional revisions', dlg.where.text())
         self.assertEqual({c.sha for c in dlg._selected()},
                          {self.graph['head'].sha, self.graph['unmerged'].sha})
+        self.assertIn(self.graph['unmerged'].sha[:12], dlg.notice.text())
+        self.assertNotIn('No folder changes on unmerged tip',
+                         {c.subject for c in dlg.model.commits})
 
     def test_folder_change_discards_history_already_in_flight(self):
-        from compare_tool import gitsource
-
         entered, release = Event(), Event()
-        actual_history = gitsource.history
+        actual_history = gitsource.folder_history
 
         def wait_for_folder(*args, **kwargs):
             if not entered.is_set():
@@ -167,7 +182,7 @@ class TestGitPicker(unittest.TestCase):
                 release.wait(10)
             return actual_history(*args, **kwargs)
 
-        with patch.object(gitsource, 'history', side_effect=wait_for_folder):
+        with patch.object(gitsource, 'folder_history', side_effect=wait_for_folder):
             dlg = CommitPicker(None, self.folder)
             self.addCleanup(dlg.close)
             try:
@@ -179,6 +194,63 @@ class TestGitPicker(unittest.TestCase):
             self.wait(lambda: dlg.worker is None)
         self.assertEqual(dlg.sub, '')
         self.assertIn('whole repository', dlg.where.text())
+        self.assertEqual([c.sha for c in dlg._selected()], [self.actual_head])
+
+    def test_default_and_go_to_revision_use_folder_history(self):
+        dlg = self.dialog()
+        latest = self.graph['head'].sha
+        self.assertEqual([c.sha for c in dlg._selected()], [latest])
+        self.assertNotIn(self.actual_head, {c.sha for c in dlg.model.commits})
+        dlg.find.setText('Only change docs')
+        dlg._find_next()
+        self.assertIn('No matching commit', dlg.notice.text())
+
+        dlg.rev.setText('docs-only')
+        dlg._go_to_revision()
+        self.wait(lambda: dlg.worker is None)
+        self.assertEqual(dlg.tips, (self.actual_head,))
+        self.assertEqual([c.sha for c in dlg._selected()], [latest])
+        self.assertIn(latest[:12], dlg.notice.text())
+
+        dlg.rev.setText('v1.0')
+        dlg._go_to_revision()
+        self.wait(lambda: dlg.worker is None)
+        self.assertEqual({c.sha for c in dlg._selected()}, {latest, self.graph['base'].sha})
+        self.assertIn('Ordered by ancestry', dlg.preview.text())
+
+    def test_folder_switch_and_empty_history(self):
+        dlg = self.dialog()
+        dlg.folder = str(self.root / 'docs')
+        dlg._reload()
+        self.wait(lambda: dlg.worker is None)
+        self.assertEqual([c.sha for c in dlg._selected()], [self.actual_head])
+        self.assertEqual(dlg.model.rowCount(), 1)
+
+        dlg.rev.setText('v1.0')
+        dlg._go_to_revision()
+        self.wait(lambda: dlg.worker is None)
+        self.assertEqual([c.sha for c in dlg._selected()], [self.actual_head])
+        self.assertIn('No folder changes found', dlg.notice.text())
+
+        dlg.folder = str(self.root / 'untracked')
+        dlg._reload()
+        self.wait(lambda: dlg.worker is None)
+        self.assertEqual(dlg.model.rowCount(), 0)
+        self.assertFalse(dlg._selected())
+        self.assertIn('No commits changed this folder', dlg.notice.text())
+
+    def test_unborn_head_displays_empty_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _git(root, 'init', '-q')
+            (root / 'gen').mkdir()
+            dlg = CommitPicker(None, str(root / 'gen'))
+            try:
+                self.wait(lambda: dlg.worker is None)
+                self.assertEqual(dlg.model.rowCount(), 0)
+                self.assertIn('HEAD has no commits', dlg.notice.text())
+            finally:
+                dlg.close()
 
     def test_next_page_keeps_existing_rows_and_lanes(self):
         with patch('compare_tool.qtviewer.gitpicker._PAGE', 2):
@@ -189,6 +261,14 @@ class TestGitPicker(unittest.TestCase):
             self.wait(lambda: dlg.worker is None)
             self.assertEqual(dlg.model.rows[:2], before)
             self.assertEqual(len({c.sha for c in dlg.model.commits}), 4)
+            dlg.find.setText('Initial generation')
+            dlg._find_next()
+            self.wait(lambda: dlg.worker is None)
+            self.assertEqual(dlg.model.commits[dlg.table.currentIndex().row()].sha,
+                             self.graph['base'].sha)
+            self.assertEqual(len({c.sha for c in dlg.model.commits}), 5)
+            self.assertFalse(dlg.more)
+            self.assertFalse(dlg.model.lanes.pending)
 
     def test_second_export_failure_keeps_previous_sources(self):
         win = MainWindow(settings=Mock(value=lambda _key, default: default))

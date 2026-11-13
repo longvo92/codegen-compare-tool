@@ -114,9 +114,11 @@ Help embeds its bilingual guide and About content. `resources.doc_text` reads th
 
 `main.viewer_requested` selects the front end. `run_compare` removes stale target HTML before scanning; write failures preserve terminal results and exit 2. Full report rendering returns HTML plus diagnostics internally; the string-returning builder remains available. Source rendering failures retain partial HTML with a global incomplete banner and force CLI exit 2, including JSON exit metadata; GUI export reports the incomplete output. Raw scan verdicts/counts remain unchanged. `--no-report` skips HTML and leaves existing reports untouched. `summary_lines` and `diagnostic_lines` consume the raw scan without changing results.
 
-The Qt Git picker loads topological history in pages from resolved tips and
-renders lanes from parent SHAs. It returns an ordered comparison request. The
-window prepares both sources on a worker, then passes their directories to the
+The Qt Git picker pages topological history from resolved tips. For a subfolder,
+the worker builds a literal path-scoped DAG once per set of tips. Merges are
+checked against their original first parent. Lanes use projected edges across
+hidden rows, and commit metadata retains the original parent SHAs. The window
+prepares both selected sources on a worker, then passes their directories to the
 ordinary scan. Completed Git snapshots are cached by repository, commit and
 folder and kept until the window closes.
 

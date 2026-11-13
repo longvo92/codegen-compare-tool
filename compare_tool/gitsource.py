@@ -21,6 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
+
 class Commit(NamedTuple):
     sha: str
     short: str
@@ -31,6 +32,13 @@ class Commit(NamedTuple):
     timestamp: int = 0
     refs: tuple[str, ...] = ()
     shallow: bool = False
+
+
+class FolderHistory(NamedTuple):
+    commits: tuple[Commit, ...]
+    parents: dict[str, tuple[str, ...]]
+    positions: dict[str, int]
+
 
 _LOG_FORMAT = '%H%x1f%h%x1f%ad%x1f%an%x1f%s'
 _FIELD = '\x1f'
@@ -50,14 +58,14 @@ class GitError(Exception):
     """
 
 
-def _run(root, args, timeout=30, capture_to=None, boolean=False):
+def _run(root, args, timeout=30, capture_to=None, boolean=False, stdin=None):
     """Run one git command in `root`. stdout is text, unless `capture_to` is
     an open binary file (used for the archive tarball, which must not go
     through a decoder)."""
     cmd = ['git', '-C', str(root)] + list(args)
     try:
         p = subprocess.run(
-            cmd, stdout=(capture_to or subprocess.PIPE), stderr=subprocess.PIPE,
+            cmd, input=stdin, stdout=(capture_to or subprocess.PIPE), stderr=subprocess.PIPE,
             timeout=timeout, creationflags=_NO_WINDOW)
     # `from None`: GitError already carries the sentence the user needs, and
     # chaining the original would print a second traceback under it
@@ -126,13 +134,32 @@ def log(root, sub='', limit=100):
     return commits
 
 
-def resolve(root, rev):
-    """Resolve a SHA, branch, tag or revision expression to one commit."""
+def resolve_sha(root, rev):
+    """Resolve a SHA, branch, tag or revision expression to a full commit ID."""
     rev = (rev or '').strip()
     if not rev:
         raise GitError('no revision given')
-    sha = _run(root, ['rev-parse', '--verify', '--end-of-options', rev + '^{commit}']).strip()
-    return history(root, (sha,), limit=1)[0]
+    return _run(root, ['rev-parse', '--verify', '--end-of-options', rev + '^{commit}']).strip()
+
+
+def resolve(root, rev):
+    """Resolve a SHA, branch, tag or revision expression to one commit."""
+    return history(root, (resolve_sha(root, rev),), limit=1)[0]
+
+
+def head_sha(root):
+    """Return HEAD's SHA, or None for an unborn branch."""
+    try:
+        return resolve_sha(root, 'HEAD')
+    except GitError:
+        try:
+            ref = _run(root, ['symbolic-ref', '--quiet', 'HEAD']).strip()
+        except GitError:
+            # Preserve the HEAD resolution error in a detached checkout.
+            ref = ''
+        if not ref or _run(root, ['show-ref', '--verify', '--quiet', ref], boolean=True):
+            raise
+        return None
 
 
 def decorations(root, head):
@@ -140,7 +167,7 @@ def decorations(root, head):
     out = _run(root, ['for-each-ref', '--format=%(objectname)%09%(objecttype)%09'
                       '%(refname)%09%(*objectname)%09%(*objecttype)',
                       'refs/heads', 'refs/remotes', 'refs/tags'])
-    refs = {head: ['HEAD']}
+    refs = {head: ['HEAD']} if head else {}
     for line in out.splitlines():
         sha, kind, name, peeled, peeled_kind = line.split('\t')
         if kind == 'tag' and peeled_kind == 'tag':
@@ -170,7 +197,10 @@ def history(root, tips, *, offset=0, limit=200, refs=None, shallow=()):
     if limit is not None:
         args += ['-n', str(limit)]
     args += [*tips, '--']
-    out = _run(root, args, timeout=60)
+    return _parse_history(_run(root, args, timeout=60), refs, shallow)
+
+
+def _parse_history(out, refs, shallow):
     fields = out[:-1].split('\0') if out else []
     if out and (not out.endswith('\0') or len(fields) % 7):
         raise GitError('Git returned incomplete commit metadata')
@@ -181,6 +211,81 @@ def history(root, tips, *, offset=0, limit=200, refs=None, shallow=()):
         commits.append(Commit(sha, short, when, author, subject, tuple(parents.split()),
                               int(timestamp), refs.get(sha, ()), sha in shallow))
     return commits
+
+
+def latest_folder_change(root, tip, sub, shallow=()):
+    """Find the latest folder change on the tip's first-parent chain."""
+    sha = _run(root, ['--literal-pathspecs', 'rev-list', '--first-parent', '-n', '1',
+                      tip, '--', sub + '/'], timeout=60).strip()
+    return sha if sha and sha not in shallow else None
+
+
+def _changed_merges(root, commits, sub):
+    """Return the merges with a folder diff against their original first parent."""
+    pairs = {c.sha: c.parents[0] for c in commits if len(c.parents) > 1 and not c.shallow}
+    if not pairs:
+        return set()
+    stdin = ''.join('{} {}\n'.format(sha, parent) for sha, parent in pairs.items())
+    out = _run(root, ['--literal-pathspecs', 'diff-tree', '--stdin', '-r',
+                      '--no-renames', '--ignore-submodules=none', '--name-status', '-z',
+                      '--', sub + '/'], timeout=60, stdin=stdin.encode('ascii'))
+    if out and not out.endswith('\0'):
+        raise GitError('Git returned incomplete folder merge diff')
+    fields = out[:-1].split('\0') if out else []
+    changed = set()
+    i = 0
+    while i < len(fields):
+        sha = fields[i]
+        if sha not in pairs or sha in changed:
+            raise GitError('Git returned invalid folder merge metadata')
+        changed.add(sha)
+        i += 1
+        start = i
+        # Without rename detection each name-status record is a status and
+        # one path. A path can itself look like a commit ID.
+        while i < len(fields) and fields[i] not in pairs:
+            if i + 1 == len(fields) or fields[i] not in ('A', 'D', 'M', 'T') or not fields[i + 1]:
+                raise GitError('Git returned invalid folder merge diff')
+            i += 2
+        if i == start:
+            raise GitError('Git returned incomplete folder merge diff')
+    return changed
+
+
+def folder_history(root, tips, sub, *, refs=None, shallow=()) -> FolderHistory:
+    """Build the visible commit DAG for a literal repository-relative folder."""
+    out = _run(root, ['--literal-pathspecs', 'rev-list', '--topo-order',
+                      '--full-history', '--parents', *tips, '--', sub + '/'], timeout=60)
+    graph = {sha: tuple(parents) for sha, *parents in map(str.split, out.splitlines())}
+    if not graph:
+        return FolderHistory((), {}, {})
+    # The path walk rewrites parents for the graph. Fetch original parents
+    # separately to test merges against the actual first parent.
+    stdin = ('\n'.join(graph) + '\n').encode('ascii')
+    out = _run(root, ['log', '--no-walk=unsorted', '--no-show-signature', '--no-notes',
+                      '--no-color', '-z', '--format=' + _HISTORY_FORMAT, '--stdin', '--'],
+               timeout=60, stdin=stdin)
+    by_sha = {c.sha: c for c in _parse_history(out, refs, shallow)}
+    if by_sha.keys() != graph.keys():
+        raise GitError('Git returned incomplete folder history')
+    changed_merges = _changed_merges(root, by_sha.values(), sub)
+    commits = tuple(by_sha[sha] for sha in graph if sha not in shallow
+                    and (len(by_sha[sha].parents) < 2 or sha in changed_merges))
+    positions = {c.sha: i for i, c in enumerate(commits)}
+    # Resolve skipped nodes from the bottom up in child-before-parent order.
+    ancestors: dict[str, tuple[str, ...]] = {}
+    visible_parents = {}
+    for sha in reversed(graph):
+        if any(parent not in ancestors for parent in graph[sha]):
+            raise GitError('Git returned invalid folder history edges')
+        parents = tuple(dict.fromkeys(ancestor for parent in graph[sha]
+                                      for ancestor in ancestors[parent]))
+        if sha in positions:
+            visible_parents[sha] = parents
+            ancestors[sha] = (sha,)
+        else:
+            ancestors[sha] = parents
+    return FolderHistory(commits, visible_parents, positions)
 
 
 def is_ancestor(root, first, second):
