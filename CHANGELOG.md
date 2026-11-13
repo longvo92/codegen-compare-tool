@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Fix Code Check selection errors when rerunning a check with a finding selected.
+
 ## [2.4.0] — 2026-11-11
 
 - Compare any two selected Git commits from a history graph with merge paths, branch labels and tags. The context menu also supports comparing a commit with the working tree.
