@@ -345,7 +345,6 @@ class CodeCheckPage(QWidget):
         self.context = context
         self._recheck_baseline = baseline
         self.assessment = None
-        self.fix_group.hide()
         source, config_path, exclude = context.source, context.policy, context.exclude
         self._run_policy_path = config_path
         self._run_config = str(Path(config_path).resolve()) if config_path else (
@@ -353,12 +352,16 @@ class CodeCheckPage(QWidget):
         self._result_path = source
         self.result_source.setText(self._text('Results for: {}', source))
         self.result_source.show()
+        # A tree reset can emit selection changes before Qt clears the current
+        # item. Detach the old rows before replacing their backing results.
+        with QSignalBlocker(self.findings), QSignalBlocker(self.severity), QSignalBlocker(self.search):
+            self.findings.clear()
+            self.severity.setCurrentIndex(0)
+            self.search.clear()
         self.check = None
         self.root = None
         self._rows = []
-        self.severity.setCurrentIndex(0)
-        self.search.clear()
-        self.findings.clear()
+        self._refresh_fix()
         self.details.clear()
         self._clear_source()
         self.coverage.clear()
@@ -420,7 +423,6 @@ class CodeCheckPage(QWidget):
         self.severity.setEnabled(True)
         self.search.setEnabled(True)
         self._filter_rows()
-        self._refresh_fix()
 
     def _set_summary(self, message):
         self._summary_text = message
@@ -499,11 +501,11 @@ class CodeCheckPage(QWidget):
                 call.api if call else ' / '.join(str(finding[k]) for k in ('port', 'data_element') if k in finding)]
 
     def _filter_rows(self):
-        self.findings.clear()
         self.details.clear()
         self._clear_source()
         wanted = self.severity.currentData()
         query = self.search.text().casefold().strip()
+        items = []
         for index, (severity, finding) in enumerate(self._rows):
             columns = self._columns(severity, finding)
             if wanted and severity != wanted:
@@ -515,12 +517,16 @@ class CodeCheckPage(QWidget):
             for col, value in enumerate(columns):
                 item.setToolTip(col, value)
             item.setForeground(0, QBrush(QColor(theme.c(_RESULT_ROLES[severity]))))
-            self.findings.addTopLevelItem(item)
-        count = self.findings.topLevelItemCount()
+            items.append(item)
+        with QSignalBlocker(self.findings):
+            self.findings.clear()
+            self.findings.addTopLevelItems(items)
+            if items:
+                self.findings.setCurrentItem(items[0])
+        count = len(items)
         self._set_count(Message('{} of {} results shown', count, len(self._rows))
                         if self._rows else ('No findings or coverage items.' if self.check else 'No results yet'))
-        if count:
-            self.findings.setCurrentItem(self.findings.topLevelItem(0))
+        self._select_finding()
 
     def _show_details(self, severity, finding):
         tr = self._text
@@ -632,6 +638,7 @@ class CodeCheckPage(QWidget):
         relevant = bool(finding and item.text(0) == 'FAIL' and candidate(finding))
         self.fix_group.setVisible(relevant)
         if not relevant:
+            self.preview_fix.setEnabled(False)
             return
         allowed = self._repair_is_available()
         self.fix_master.parentWidget().setEnabled(allowed)

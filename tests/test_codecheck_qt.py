@@ -258,6 +258,39 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertIn('Config: Built-in defaults', self.page.coverage.toPlainText())
         self.assertIn(str(self.root.resolve()), self.page.result_source.text())
 
+    def test_rerun_clears_selection_before_discarding_results(self):
+        self.code.write_text('void Ctrl_Step(void) { Rte_Read_Speed_Missing(); Rte_Send_Event_Value(); }',
+                             encoding='utf-8')
+        self.run_check()
+        tree = self.page.findings
+        self.assertGreater(tree.topLevelItemCount(), 1)
+        self.assertIn('Rte_Read_Speed_Missing', tree.currentItem().text(5))
+        self.assertTrue(self.page.fix_group.isVisible())
+
+        self.code.write_text('void Ctrl_Step(void) { Rte_Read_Speed_Value(); }',
+                             encoding='utf-8')
+        errors = io.StringIO()
+
+        # Exercise a selection notification before Qt clears the current item.
+        clear = tree.clear
+
+        def clear_with_selection_notification():
+            tree.itemSelectionChanged.emit()
+            clear()
+
+        with mock.patch.object(tree, 'clear', side_effect=clear_with_selection_notification), \
+                contextlib.redirect_stderr(errors):
+            self.run_check()
+
+        self.assertNotIn('Traceback', errors.getvalue())
+        self.assertEqual(self.page.status.text(), 'PASS')
+        self.assertIsNone(tree.currentItem())
+        self.assertFalse(self.page.fix_group.isVisible())
+        self.assertFalse(self.page.preview_fix.isEnabled())
+        self.assertEqual(self.page.details.toPlainText(), '')
+        self.assertEqual(self.page.source_preview.toPlainText(), '')
+        self.assertEqual(self.page.search.text(), '')
+
     def test_unsupported_calls_show_ignored_rows_and_source(self):
         xml = self.root / 'Ctrl.arxml'
         with_access = xml.read_text(encoding='utf-8')
