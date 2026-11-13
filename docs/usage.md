@@ -117,9 +117,11 @@ python -m compare_tool
 python -m compare_tool --viewer baseline current
 ```
 
-Select folders or ZIPs, or open **Git compare…** and choose a folder in a repository. Ctrl-click two commits, right-click and choose **Compare selected**. An ancestor becomes BASELINE. On diverging branches, Git compare orders by committer time and breaks ties by SHA. Use **Swap baseline/current** to reverse the direction.
+Select folders or ZIPs, or open **Git compare…** and choose a folder in a repository. The picker preselects the latest change to that folder on HEAD's first-parent history. Ctrl-click a second commit, right-click and choose **Compare selected**. An ancestor becomes BASELINE. On diverging branches, Git compare orders by committer time and breaks ties by SHA. Use **Swap baseline/current** to reverse the direction.
 
-The graph starts at HEAD and shows merge paths, branch labels and tags. **Find next** searches the history. **Go to revision** accepts a SHA, branch, tag or a revision such as `HEAD~3`. Right-click one commit and choose **Compare with working tree** to include local uncommitted changes on the CURRENT side. Git snapshots are read-only.
+The graph shows commits that changed the selected path, including changes on merged branches. A merge appears if it changed the folder relative to its first parent. Select the repository root to browse its full HEAD history. **Find next** searches the filtered history, including pages still to load. **Go to revision** accepts a SHA, branch, tag or a revision such as `HEAD~3`. When that commit is outside the folder filter, the picker selects the latest folder change on its first-parent history and shows the resolved SHA.
+
+Right-click one commit and choose **Compare with working tree** to include local uncommitted changes on the CURRENT side. Git snapshots are read-only. Folder history follows the chosen path across time. A revision that deleted the folder can appear in the graph, and snapshot export requires the folder to exist at the chosen commit. In a shallow clone, the picker marks the history as limited and omits folder changes it cannot verify at the shallow boundary.
 
 Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
 

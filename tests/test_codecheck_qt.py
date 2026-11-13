@@ -624,32 +624,30 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
 
     def test_source_uses_compare_syntax_colours_in_both_themes(self):
         from compare_tool import theme
-        code = '/* multiline comment\n' + 'still inside comment\n' * 40 + \
-               '*/\nvoid Ctrl_Step(void) { Rte_Write_Speed_Value(); }'
+        comment_row = 20000
+        finding_row = comment_row + 2
+        code = ('int filler;\n' * (comment_row - 1) + '/* multiline comment\n'
+                'still inside comment\n*/\n'
+                'void Ctrl_Step(void) { Rte_Write_Speed_Value(); }')
         self.code.write_text(code, encoding='utf-8')
         self.run_check()
 
-        def colours(editor):
-            blocks = []
-            block = editor.document().firstBlock()
-            while block.isValid():
-                blocks.append([(f.start, f.length, f.format.foreground().color().name())
-                               for f in block.layout().formats()])
-                block = block.next()
-            return blocks
+        def colours(editor, row):
+            block = editor.document().findBlockByNumber(row)
+            return [(f.start, f.length, f.format.foreground().color().name())
+                    for f in block.layout().formats()]
 
         for name in ('light', 'dark'):
             self.win._set_theme(name)
             reference = self.win.diff.new_edit
             self.win.diff._hl_new.configure('c', repaint=False)
             reference.setPlainText(code)
-            self.win.diff._hl_new.rehighlight()
-            self.page.source_highlighter.rehighlight()
-            self.assertEqual(colours(self.page.source_preview), colours(reference))
-            self.assertIn(theme.c('syn-comment'), [colour for _, _, colour in colours(reference)[35]])
-            self.assertIn(theme.c('syn-type'), [colour for _, _, colour in colours(reference)[-1]])
-            self.assertEqual(self.page.source_preview._cur_rows, {42})
-            self.assertEqual(self.page.source_preview.textCursor().blockNumber(), 42)
+            for row, role in ((comment_row, 'syn-comment'), (finding_row, 'syn-type')):
+                actual = colours(self.page.source_preview, row)
+                self.assertEqual(actual, colours(reference, row))
+                self.assertIn(theme.c(role), [colour for _, _, colour in actual])
+            self.assertEqual(self.page.source_preview._cur_rows, {finding_row})
+            self.assertEqual(self.page.source_preview.textCursor().blockNumber(), finding_row)
 
     def test_arxml_source_is_highlighted_and_filtering_clears_markers(self):
         from compare_tool import theme

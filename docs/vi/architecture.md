@@ -109,7 +109,7 @@ Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/liter
 
 Help nhúng nội dung hướng dẫn song ngữ và About. `resources.doc_text` đọc changelog từ checkout, tài nguyên trong EXE hoặc dữ liệu package bên trong zipapp để Release notes hoạt động offline.
 
-Git picker tải lịch sử theo trang từ các tip đã resolve và vẽ lane theo parent SHA. Cửa sổ chuẩn bị hai nguồn trên worker rồi chuyển các thư mục cho luồng scan chung. Snapshot hoàn tất được cache theo repository, commit và thư mục cho đến khi đóng cửa sổ.
+Git picker phân trang lịch sử theo thứ tự topology từ các tip đã resolve. Với thư mục con, worker dựng DAG theo đúng đường dẫn một lần cho mỗi tập tip. Merge được kiểm tra theo first parent gốc. Lane nối qua các commit bị ẩn, còn metadata giữ parent SHA gốc. Cửa sổ chuẩn bị hai nguồn trên worker rồi chuyển các thư mục cho luồng scan chung. Snapshot hoàn tất được cache theo repository, commit và thư mục cho đến khi đóng cửa sổ.
 
 Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Export dùng raw scan.
 
