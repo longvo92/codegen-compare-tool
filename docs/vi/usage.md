@@ -116,9 +116,11 @@ python -m compare_tool
 python -m compare_tool --viewer baseline current
 ```
 
-Chọn thư mục hoặc ZIP, hoặc mở **So sánh với Git…** và chọn một thư mục trong repository. Giữ Ctrl để chọn hai commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**. Commit tổ tiên là BASELINE. Nếu hai nhánh rẽ, tool xếp theo thời gian commit và dùng SHA khi trùng thời gian. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều.
+Chọn thư mục hoặc ZIP, hoặc mở **So sánh với Git…** và chọn một thư mục trong repository. Tool chọn sẵn commit gần nhất thay đổi thư mục trên lịch sử first-parent từ HEAD. Giữ Ctrl để chọn thêm một commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**. Commit tổ tiên là BASELINE. Nếu hai nhánh rẽ, tool xếp theo thời gian commit và dùng SHA khi trùng thời gian. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều.
 
-Graph bắt đầu từ HEAD và hiển thị đường merge, branch và tag. **Tìm tiếp** tìm trong lịch sử. **Đi tới revision** nhận SHA, branch, tag hoặc revision như `HEAD~3`. Bấm chuột phải vào một commit và chọn **So sánh với working tree** để CURRENT bao gồm thay đổi chưa commit. Git snapshot chỉ dùng để đọc.
+Graph hiển thị các commit đã thay đổi đường dẫn được chọn, kể cả thay đổi trên các nhánh đã merge. Merge xuất hiện khi thư mục thay đổi so với first parent. Chọn root của repository để xem toàn bộ lịch sử từ HEAD. **Tìm tiếp** tìm trong lịch sử đã lọc, kể cả các trang chưa hiển thị. **Đi tới revision** nhận SHA, branch, tag hoặc revision như `HEAD~3`. Khi commit nằm ngoài bộ lọc, tool chọn thay đổi gần nhất của thư mục trên lịch sử first-parent từ revision đó và báo SHA được chọn.
+
+Bấm chuột phải vào một commit và chọn **So sánh với working tree** để CURRENT bao gồm thay đổi chưa commit. Git snapshot chỉ dùng để đọc. Lịch sử bám theo đường dẫn đã chọn. Commit xóa thư mục có thể xuất hiện trong graph, còn việc xuất snapshot yêu cầu thư mục tồn tại ở commit được chọn. Với shallow clone, tool báo lịch sử bị giới hạn và bỏ qua các thay đổi ở commit biên khi không đủ dữ liệu để xác nhận.
 
 Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
 

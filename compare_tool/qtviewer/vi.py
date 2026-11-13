@@ -206,7 +206,20 @@ VI = {
     'Go to revision': 'Đi tới revision',
     'Loading Git history…': 'Đang tải lịch sử Git…',
     'HEAD history': 'Lịch sử từ HEAD',
+    'Folder history from HEAD': 'Lịch sử thư mục từ HEAD',
     'HEAD and {} additional revisions': 'HEAD và {} revision bổ sung',
+    'Selected revision history': 'Lịch sử revision đã chọn',
+    'Unborn HEAD': 'HEAD chưa có commit',
+    'HEAD has no commits.': 'HEAD chưa có commit.',
+    'Shallow history': 'Lịch sử giới hạn do shallow clone',
+    'No commits changed this folder in the available history.':
+        'Không có commit nào thay đổi thư mục này trong lịch sử hiện có.',
+    'No folder change could be verified on the first-parent history of HEAD.':
+        'Không xác nhận được thay đổi của thư mục trên lịch sử first-parent từ HEAD.',
+    'No folder changes found in the history of {}.':
+        'Không tìm thấy thay đổi của thư mục trong lịch sử của {}.',
+    '{} did not change this folder. Selected {}.':
+        'Commit {} không thay đổi thư mục này. Đã chọn {}.',
     'Searching Git history…': 'Đang tìm trong lịch sử Git…',
     'No matching commit.': 'Không tìm thấy commit phù hợp.',
     'Finding revision…': 'Đang tìm revision…',

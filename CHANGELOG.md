@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Filter Git Compare history by the selected folder and preselect its latest change from HEAD.
 - Keep syntax colours throughout large files in Compare and the Code Check source preview.
 
 ## [2.4.0] — 2026-11-11
