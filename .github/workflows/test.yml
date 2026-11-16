@@ -89,6 +89,7 @@ jobs:
     runs-on: ${{ matrix.runner || matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen  # viewer tests build widgets, never a window
+      PYTHONFAULTHANDLER: "1"  # a Qt segfault prints the Python stack of every thread
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

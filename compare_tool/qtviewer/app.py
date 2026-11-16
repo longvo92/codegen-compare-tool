@@ -246,7 +246,10 @@ class MainWindow(QMainWindow):
         # Review mode is on; the store loads with every comparison either way
         self.review_panel = ReviewPanel(self._text, self.diff)
         self.review_panel.setVisible(False)
-        self.review_panel.saved.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        # a bound method, not a lambda over self: a closure would tie the
+        # window into a reference cycle that only the cyclic GC can free --
+        # possibly on a worker thread, where deleting Qt widgets crashes
+        self.review_panel.saved.connect(self._show_review_status)
         diff_col = QWidget()
         dc = QVBoxLayout(diff_col)
         dc.setContentsMargins(0, 0, 0, 0)
@@ -681,6 +684,9 @@ class MainWindow(QMainWindow):
             return
         self.act_review_mode.setChecked(True)
         self.review_panel.toggle_file()
+
+    def _show_review_status(self, text):
+        self.statusBar().showMessage(text, 6000)
 
     def _review_path(self):
         """The review file beside the CURRENT folder (a Git snapshot's report
