@@ -644,7 +644,9 @@ def _git_source(ap, arg, rev, temp_box, side):
     """``old_dir``/``new_dir`` read from a Git revision. Returns
     ``(root, label)``; every Git or path failure is a usage error (exit 2),
     never an empty tree."""
-    path = Path(arg).resolve()
+    # abspath first: before Python 3.10, Windows resolve() leaves a missing
+    # relative path relative, and a folder deleted from the work tree is missing
+    path = Path(os.path.abspath(arg)).resolve()
     probe = path
     while not probe.is_dir() and probe != probe.parent:
         probe = probe.parent  # the folder may be gone from the working tree
