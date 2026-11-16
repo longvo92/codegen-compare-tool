@@ -37,32 +37,6 @@ def status_color(status):
 PRIO = {'error': 6, 'real-change': 5, 'ignorable-only': 4, 'comment-only': 3,
         'added': 2, 'deleted': 2, 'identical': 1}
 
-# review progress -> theme role, for the tree column that only exists in review
-# mode. Same three colours as the status chip on the status bar: green is a
-# finished state, amber is in flight, grey is nothing yet.
-REVIEW_COLOR = {'done': 'review-done', 'partial': 'review-partial',
-                'none': 'review-none'}
-
-
-def review_color(state):
-    """The current theme's colour for a review-progress state."""
-    return theme.c(REVIEW_COLOR[state])
-
-
-def review_state(reviewed, total):
-    """``'done'`` / ``'partial'`` / ``'none'`` for a file or folder, or None
-    when there is nothing to sign off at all.
-
-    ``done`` is a claim -- "every change here has been read" -- so it needs
-    every unit signed off, and a file with no reviewable unit makes no claim
-    rather than a free green: noise-only, identical and NOT-compared paths
-    have nothing anyone could have reviewed."""
-    if total <= 0:
-        return None
-    if reviewed >= total:
-        return 'done'
-    return 'partial' if reviewed else 'none'
-
 # a directory node's .rel is None; a file node carries its relative path.
 # `move` is '' unless the file was paired across a rename or move -- see
 # status_label / move_tooltip for what the two surfaces do with it.

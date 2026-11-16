@@ -19,8 +19,8 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from . import (APP_NAME, __version__, consistency, gitsource, review, serialize, theme,
-               userrules, zipsource)
+from . import (APP_NAME, __version__, consistency, gitsource, serialize, theme, userrules,
+               zipsource)
 from .diff_engine import RULES, ruleset_for
 from .fileio import write_text_atomic
 from .fix_suggestions import assess_fix, finding_key, suggestion
@@ -61,7 +61,7 @@ def default_report_name(arxml_only):
 
 
 def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
-                progress=None, reviews=None, theme_name=theme.DEFAULT,
+                progress=None, theme_name=theme.DEFAULT,
                 old_label=None, new_label=None, max_diff_lines=0, user_rules=(),
                 skip_var_renames=False, diagnostics=None):
     """Scan two trees and optionally write the HTML report.
@@ -97,7 +97,7 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     # that died)
     try:
         problems = write_report(results, old_root, new_root, out,
-                                arxml_only=arxml_only, reviews=reviews,
+                                arxml_only=arxml_only,
                                 theme_name=theme_name, old_label=old_label,
                                 new_label=new_label, max_diff_lines=max_diff_lines)
     except OSError as e:
@@ -507,13 +507,6 @@ def _parser():
     compare.add_argument('--exclude', metavar='PATTERN', action='append',
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
-    output.add_argument('--review', metavar='REVIEW.json', default=None,
-                    help='existing review notes/sign-offs file (legacy name: '
-                         'codegen-review.json). Its notes are rendered next to '
-                         'the changes they belong to and the report gains a '
-                         'Reviewed badge that hides the changes already signed '
-                         'off. Not loaded unless named: a report must not pick '
-                         'up someone else\'s sign-off by accident')
     compare.add_argument('--rules', metavar='RULES.json', default=None,
                     help='extra noise patterns as a JSON file, applied ON TOP '
                          'of the built-in Embedded Coder rules (they are never '
@@ -541,7 +534,7 @@ def _parser():
                          'macro/enum constants and variable swaps still count '
                          'as real. Everything folded is labelled Assumed rename '
                          'and the report and the terminal both carry a warning; '
-                         'do not sign a review off on a run that used this')
+                         'do not approve a delivery on a run that used this')
     check.add_argument('--check-consistency', action='store_true',
                     help='enable the CLI-only CURRENT-tree RTE/ARXML '
                          'consistency check; disabled by default and not '
@@ -792,7 +785,7 @@ def _run_current(ap, args, zip_temp):
         'old_dir/new_dir': args.old_dir or args.new_dir,
         '--qt/--viewer': args.qt, '--report': args.report,
         '--arxml-only': args.arxml_only, '--baseline-name': args.baseline_name,
-        '--review': args.review, '--rules': args.rules,
+        '--rules': args.rules,
         '--skip-var-renames': args.skip_var_renames,
         '--max-diff-lines': args.max_diff_lines,
         '--baseline-rev/--current-rev': args.baseline_rev or args.current_rev,
@@ -961,19 +954,6 @@ def _run(ap, args, zip_temp):
         if not p.is_dir():
             ap.error('{} is not a directory: {}'.format(name, p))
 
-    reviews = None
-    if args.review and args.no_report:
-        print('note: --review has no effect with --no-report', file=sys.stderr)
-    if args.review and not args.no_report:
-        reviews = review.ReviewStore.load(args.review)
-        if reviews.error:
-            # loud, not fatal: an unread review file leaves every change
-            # counting as not reviewed, so the report still shows everything
-            print('!! review file NOT read: {} -- {}'.format(
-                reviews.path, reviews.error), file=sys.stderr)
-        if args.arxml_only:
-            print('note: --review has no effect with --arxml-only (that report '
-                  'lists files, not individual changes)', file=sys.stderr)
     if args.skip_var_renames and args.arxml_only:
         print('note: --skip-var-renames has no effect with --arxml-only (it '
               'only ever folds C/C++ bindings)', file=sys.stderr)
@@ -1003,7 +983,7 @@ def _run(ap, args, zip_temp):
         results, counts = run_compare(old_root, new_root, out, args.arxml_only,
                                       exclude=args.exclude,
                                       progress=None if args.no_report else progress,
-                                      reviews=reviews, theme_name=args.theme or theme.DEFAULT,
+                                      theme_name=args.theme or theme.DEFAULT,
                                       old_label=args.baseline_name or old_zip,
                                       new_label=args.current_name or new_zip,
                                       max_diff_lines=args.max_diff_lines,

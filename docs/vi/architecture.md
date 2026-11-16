@@ -21,10 +21,9 @@ Path tương đối với `compare_tool/`.
 | `view_model.py`, `funcname.py` | Label, aligned row, mute và object caption dùng chung |
 | `report.py`, `serialize.py` | HTML offline (`write_report` là đường export duy nhất cho CLI và viewer), model Overview dùng chung, JSON và SARIF |
 | `fileio.py` | Ghi output nguyên tử (temp file + replace, line ending LF) |
-| `review.py` | Review identity, note và sign-off |
 | `gitsource.py`, `gitgraph.py`, `zipsource.py` | Lịch sử Git, lane của graph, snapshot read-only và giải nén ZIP an toàn |
 | `theme.py`, `resources.py` | Color role dùng chung và packaged asset tùy chọn |
-| `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt. `qtviewer/review_panel.py` là panel Review note/sign-off |
+| `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt. |
 
 ## Xử lý ARXML
 
@@ -48,7 +47,7 @@ quan đến Master phải được quét lại.
 3. Move pairing và semantic rollup bổ sung raw result.
 4. CLI, HTML, JSON/SARIF và viewer dùng result này.
 
-Git dùng `git archive`, không đổi HEAD, index hoặc working file. ZIP extraction từ chối archive không đọc được/rỗng, path traversal, archive trên 4 GiB sau giải nén và member trên 1 MiB có tỉ lệ nén trên 1000, rồi dọn temp directory. HTML, JSON, SARIF và file review đi qua `fileio`, nên ghi lỗi không để lại file dở.
+Git dùng `git archive`, không đổi HEAD, index hoặc working file. ZIP extraction từ chối archive không đọc được/rỗng, path traversal, archive trên 4 GiB sau giải nén và member trên 1 MiB có tỉ lệ nén trên 1000, rồi dọn temp directory. File HTML, JSON và SARIF đi qua `fileio`, nên ghi lỗi không để lại file dở.
 
 ## Comparison contract
 
@@ -106,7 +105,7 @@ Lexical C dùng chung `c_source.py`: xử lý nối dòng trước comment/liter
 | AUTOSAR label | `view_model.SWC_DISPLAY` |
 | Model grouping và count | `report.model_overview` |
 | Function/object caption | `funcname.enclosing` |
-| Color role / review identity | `theme.py` / `review.py` |
+| Color role | `theme.py` |
 
 `compare_tool/config.py` quản lý YAML settings có version, dùng chung cho viewer và CLI `--config` khi được chỉ định. `qtviewer/settings.py` chuyển QSettings cũ một lần rồi lưu YAML của người dùng. PyYAML là dependency tùy chọn của comparison core và được bundle trong bản đóng gói. `qtviewer/i18n.py` gắn nội dung GUI với catalog tiếng Việt. Thông báo có cấu trúc giữ chuỗi English cho CLI/report và cung cấp template cùng tham số để viewer dịch. Đổi ngôn ngữ và hiển thị dùng lại kết quả hiện có, không chạy lại worker.
 
@@ -114,7 +113,7 @@ Help nhúng nội dung hướng dẫn song ngữ và About. `resources.doc_text`
 
 Git picker phân trang lịch sử theo thứ tự topology từ các tip đã resolve. Với thư mục con, worker dựng DAG theo đúng đường dẫn một lần cho mỗi tập tip. Merge được kiểm tra theo first parent gốc. Lane nối qua các commit bị ẩn, còn metadata giữ parent SHA gốc. Cửa sổ chuẩn bị hai nguồn trên worker rồi chuyển các thư mục cho luồng scan chung. Snapshot hoàn tất được cache theo repository, commit và thư mục cho đến khi đóng cửa sổ.
 
-Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Khi tạo worker đầu tiên, cyclic garbage collection chuyển sang timer trên GUI thread (`worker.gui_thread_gc`): cycle chứa object Qt không bao giờ được giải phóng trên worker thread. Tránh closure giữ window trong signal connection; review panel nhận unit hiện tại thay vì tham chiếu diff pane. Export dùng raw scan. Review note và sign-off dùng identity của `review.py`; `qtviewer/review_panel.py` chỉnh chúng trong viewer và lưu `codegen-review.json` nguyên tử cạnh CURRENT, còn `report.write_report` nhúng chúng vào HTML export như CLI `--review`.
+Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Khi tạo worker đầu tiên, cyclic garbage collection chuyển sang timer trên GUI thread (`worker.gui_thread_gc`): cycle chứa object Qt không bao giờ được giải phóng trên worker thread. Tránh closure giữ window trong signal connection. Export dùng raw scan.
 
 `main.viewer_requested` chọn front end. `run_compare` xóa target HTML cũ trước scan; lỗi ghi vẫn giữ terminal result và trả 2. `--no-report` bỏ qua HTML, không đụng report cũ. `summary_lines` và `diagnostic_lines` dùng raw scan, không đổi kết quả.
 

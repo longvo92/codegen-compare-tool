@@ -151,11 +151,6 @@ tr.gap td { text-align: center; color: var(--gap-fg); background: var(--panel-2)
    caption on the diff, not as a diff row. */
 .fnhdr { font-family: Consolas, monospace; font-size: 11px; color: var(--fg-muted);
          padding: 3px 8px 1px; }
-/* groups inside one scope share the first group's caption (see _groups_html).
-   Which caption comes first depends on the Reviewed badge folding signed-off
-   groups away: .dup repeats the one above while every group shows, .dup-unrev
-   while reviewed groups are hidden. */
-body:not(.hide-rev) .fnhdr.dup, body.hide-rev .fnhdr.dup-unrev { display: none; }
 tr.mvnote td { text-align: center; color: var(--mv-fg); background: var(--panel-2);
                font-size: 11px; }
 /* Unimportant rows hide per ROW, not per group: a group used to be wrapped
@@ -256,21 +251,6 @@ details.model[open] > summary::before { transform: rotate(90deg); }
 details.model > summary:hover { background: var(--panel-2); }
 details.model > .mbody { padding: 0 12px 10px; }
 summary .mcounts { font-size: 12px; font-weight: normal; }
-.b-rev { background: var(--tag-rev-bg); color: var(--tag-rev-fg); }
-.rvnote { background: var(--note-bg); border-left: 3px solid var(--note-border);
-          border-radius: 4px; padding: 6px 10px; margin: 8px 0 2px; font-size: 12px;
-          color: var(--note-fg); white-space: pre-wrap; }
-.rvnote .rvtag { color: var(--note-tag); font-weight: 700; margin-right: 8px; }
-.rvnote .rvwhere { color: var(--note-where); margin-right: 8px;
-                   font-family: Consolas, monospace; }
-.rvnote.pending { background: var(--note-pending-bg);
-                  border-left-color: var(--note-pending-border); color: var(--note-pending-fg); }
-.rvnote.pending .rvtag { color: var(--note-pending-tag); }
-.rvcheck { color: var(--note-check); }
-/* the Reviewed badge hides what has already been signed off, so the next pass
-   shows only what is left. It starts SHOWN: the report is the record, and a
-   record that opens with real changes already hidden is not one. */
-body.hide-rev .grp-rev, body.hide-rev details.file.file-rev { display: none; }
 """
 
 # the switch itself, plus the script behind it. A saved preference wins over

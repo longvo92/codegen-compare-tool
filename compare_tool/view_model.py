@@ -199,8 +199,8 @@ def hunk_row_starts(hunks):
     Derived from the same walk ``aligned_rows`` does, so the two cannot drift:
     an equal region advances both sides by the same count, and a hunk occupies
     ``max(old span, new span)`` rows. Line contents are irrelevant to the
-    arithmetic, hence not taken. The viewer uses it to map a hunk -- the unit a
-    review note is attached to -- onto the row it must scroll to."""
+    arithmetic, hence not taken. The viewer uses it to map a hunk onto the row
+    it must scroll to."""
     starts = []
     row = oi = 0
     for h in hunks:

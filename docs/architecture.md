@@ -21,10 +21,9 @@ Paths are relative to `compare_tool/`.
 | `view_model.py`, `funcname.py` | Shared labels, aligned rows, muting and object captions |
 | `report.py`, `serialize.py` | Offline HTML (`write_report` is the single export path for CLI and viewer), shared model Overview, JSON and SARIF |
 | `fileio.py` | Atomic output writes (temp file + replace, LF line endings) |
-| `review.py` | Review identity, notes and sign-offs |
 | `gitsource.py`, `gitgraph.py`, `zipsource.py` | Git history, graph lanes, read-only snapshots and safe temporary ZIP extraction |
 | `theme.py`, `resources.py` | Shared color roles and optional packaged assets |
-| `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package. `qtviewer/review_panel.py` is the Review note/sign-off panel |
+| `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package. |
 
 ## ARXML Handler
 
@@ -49,7 +48,7 @@ from its repair flow. Other overlapping results must be rescanned.
 3. Move pairing and semantic rollups enrich the raw result.
 4. CLI, HTML, JSON/SARIF and viewer consume that result.
 
-Git uses `git archive` without changing HEAD, index or working files. ZIP extraction rejects unreadable/empty archives, path traversal, archives above 4 GiB uncompressed and members over 1 MiB with a compression ratio above 1000, then cleans temporary directories. HTML, JSON, SARIF and review files go through `fileio`, so a failed write never leaves a partial file.
+Git uses `git archive` without changing HEAD, index or working files. ZIP extraction rejects unreadable/empty archives, path traversal, archives above 4 GiB uncompressed and members over 1 MiB with a compression ratio above 1000, then cleans temporary directories. HTML, JSON and SARIF files go through `fileio`, so a failed write never leaves a partial file.
 
 ## Comparison contracts
 
@@ -107,9 +106,9 @@ The shared `c_source.py` lexical view handles C line splicing before comments/li
 | AUTOSAR labels | `view_model.SWC_DISPLAY` |
 | Model grouping and counts | `report.model_overview` |
 | Function/object captions | `funcname.enclosing` |
-| Color roles / review identity | `theme.py` / `review.py` |
+| Color roles | `theme.py` |
 
-Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Creating any worker hands cyclic garbage collection to a GUI-thread timer (`worker.gui_thread_gc`): a cycle holding Qt objects must never be freed on a worker thread. Avoid closures over windows in signal connections; the review panel receives the current unit instead of referencing the diff pane. Exports use the raw scan. Review notes and sign-offs are keyed by `review.py` identity; `qtviewer/review_panel.py` edits them in the viewer and saves `codegen-review.json` atomically beside CURRENT, and `report.write_report` embeds them in the exported HTML like CLI `--review`.
+Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Creating any worker hands cyclic garbage collection to a GUI-thread timer (`worker.gui_thread_gc`): a cycle holding Qt objects must never be freed on a worker thread. Avoid closures over windows in signal connections. Exports use the raw scan.
 
 `compare_tool/config.py` owns the versioned YAML settings shared by viewer and opt-in CLI `--config`. `qtviewer/settings.py` migrates legacy QSettings once and edits the user's YAML file; `qtviewer/policy_editor.py` edits the embedded checker policy as structured fields. PyYAML is optional for the comparison core and bundled for packaged config use. `qtviewer/i18n.py` binds GUI text to a Vietnamese catalog. Structured messages keep their English string value for CLI and reports and expose templates and values for translation in the viewer. Language and display changes render existing results without running either worker again.
 

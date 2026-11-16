@@ -60,7 +60,6 @@ python -m compare_tool --check-current current
 | HTML report | Share results offline or as a CI artifact |
 | `--no-report` | Review summaries and diagnostics in the terminal |
 | `--check-current PATH` | Check CURRENT RTE/ARXML consistency before delivery |
-| Review sign-off | Add notes and sign off real changes in the viewer; saved to `codegen-review.json` |
 | `--json` / `--sarif` | Export comparison results and CURRENT findings for pipelines |
 | `--baseline-rev` / `--current-rev` | Compare Git revisions from the CLI |
 

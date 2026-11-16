@@ -152,21 +152,15 @@ def _scoped_c(scopes):
 
 class TestFunctionCaption(unittest.TestCase):
     """The ``ƒ scope`` caption is printed where the scope changes, not over
-    every group: consecutive groups inside one function share the first one's.
-    The Reviewed badge can fold that first group away, so a repeat is marked
-    per badge state instead of being dropped."""
+    every group: consecutive groups inside one function share the first one's."""
 
     OLD = _scoped_c([('step_a', 1, 2), ('step_b', 3, 4)])
 
     @staticmethod
-    def _render(old, new, rel, language, signed_off=()):
+    def _render(old, new, rel, language):
         r = compare_pair(old, new, rel)
         real = [h for h in r['hunks'] if h['kind'] == 'real']
-        # signed_off: indices into the real hunks
-        notes = {tuple(real[k]['old_range']) + tuple(real[k]['new_range']):
-                 ('ok', True, '') for k in signed_off}
-        out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'], notes,
-                           language)
+        out = _groups_html(old.split('\n'), new.split('\n'), r['hunks'], language)
         return real, out, _CAPTION_RE.findall(out)
 
     def test_groups_inside_one_function_name_it_once(self):
@@ -182,20 +176,9 @@ class TestFunctionCaption(unittest.TestCase):
         self.assertEqual(out.count('<div class="grp'), 3)
         self.assertEqual(caps, [('fnhdr', 'step_a'), ('fnhdr', 'step_b')])
 
-    def test_a_signed_off_first_group_leaves_the_name_to_the_next(self):
-        # hiding reviewed groups takes the first caption with them, so the
-        # second keeps its own -- hidden by the CSS only while every group shows
-        new = _scoped_c([('step_a', 10, 20), ('step_b', 3, 4)])
-        _real, out, caps = self._render(self.OLD, new, 'f.c', 'c', signed_off=(0,))
-        self.assertIn('<div class="grp grp-rev">', out)
-        self.assertEqual(caps, [('fnhdr', 'step_a'), ('fnhdr dup', 'step_a')])
-        self.assertIn('body:not(.hide-rev) .fnhdr.dup, '
-                      'body.hide-rev .fnhdr.dup-unrev { display: none; }', _CSS)
-
-    def test_a_scope_resumed_below_a_signed_off_one_is_marked_for_that_state(self):
-        # Pkg / Comp, its nested Comp / Port (signed off), then Comp again.
-        # With every group shown the third caption follows Port, a different
-        # scope; with Port folded away it would repeat the first
+    def test_a_scope_resumed_below_a_nested_one_is_named_again(self):
+        # Pkg / Comp, its nested Comp / Port, then Comp again: the third
+        # caption follows Port, a different scope, so it is printed
         def pad(tag):
             return ['<{}{}/>'.format(tag, k) for k in range(8)]
 
@@ -207,11 +190,10 @@ class TestFunctionCaption(unittest.TestCase):
                 + ['<B v="{}"/>'.format(v)] + pad('R') + ['</PORT>'] + pad('S')
                 + ['<C v="{}"/>'.format(v), '</COMP>', '</AR-PACKAGE>', ''])
 
-        real, _out, caps = self._render(arxml(1), arxml(2), 'f.arxml', 'arxml',
-                                        signed_off=(1,))
+        real, _out, caps = self._render(arxml(1), arxml(2), 'f.arxml', 'arxml')
         self.assertEqual(len(real), 3)
         self.assertEqual(caps, [('fnhdr', 'Pkg / Comp'), ('fnhdr', 'Comp / Port'),
-                                ('fnhdr dup-unrev', 'Pkg / Comp')])
+                                ('fnhdr', 'Pkg / Comp')])
 
 
 class TestUnimportantToggle(unittest.TestCase):
@@ -1068,7 +1050,7 @@ class TestModelGroupHidesWhenEmpty(unittest.TestCase):
                                  DEMO / 'old', DEMO / 'new')
 
     def test_every_css_file_toggle_is_in_the_mv_table(self):
-        # body.hide-X .sec-Y  and  body.hide-rev details.file.file-rev
+        # body.hide-X .sec-Y
         pairs = set(re.findall(r'body\.hide-(\w+)\s+(?:details\.file)?\.'
                                r'((?:sec|file)-\w+)', _CSS))
         self.assertTrue(pairs)

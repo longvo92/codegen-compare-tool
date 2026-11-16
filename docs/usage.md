@@ -40,7 +40,6 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 | `--current-name NAME` | Set the CURRENT display label; same behavior as `--baseline-name`. |
 | `--theme dark\|light` | Override the initial theme. The viewer uses its saved theme or Light on first launch. CLI HTML defaults to Dark. |
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
-| `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. See [Review and sign-off](#review-and-sign-off). |
 | `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Enabled consistency failures still return `1`, and input, scan or output errors return `2`. |
 | `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` | Turn off the corresponding YAML setting for this run. |
 
@@ -92,10 +91,10 @@ Review only the AUTOSAR/calibration surface:
 python -m compare_tool baseline current --arxml-only --report autosar.html
 ```
 
-Include custom rules and an existing review file in a capped HTML report:
+Include custom rules in a capped HTML report:
 
 ```bash
-python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
+python -m compare_tool baseline current --report report.html --rules rules.json --max-diff-lines 4000
 ```
 
 Compare the last two commits of a generated folder without checking anything out:
@@ -112,7 +111,7 @@ python -m compare_tool baseline current --no-report --check-consistency --exit-z
 
 ## Portable settings
 
-The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Code Check's scope fields are edited in its workspace; use **Save scope as default** before exporting to include current scope changes. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths, results and review notes are not included. Start from [this example](../examples/app-settings.yaml) if editing by hand.
+The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Code Check's scope fields are edited in its workspace; use **Save scope as default** before exporting to include current scope changes. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths and results are not included. Start from [this example](../examples/app-settings.yaml) if editing by hand.
 
 CLI uses its existing defaults unless `--config settings.yaml` is supplied. Explicit flags override the file. `--export-config output.yaml` writes resolved settings without scanning. Use `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` or `--clear-exclude` to override enabled settings. Python installations need the `config` extra for YAML; EXE and zipapp bundle it.
 
@@ -133,12 +132,6 @@ Right-click one commit and choose **Compare with working tree** to include local
 
 Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
 
-### Review and sign-off
-
-Turn on **Review** in the Compare toolbar to show a note box under the diff with a **Reviewed** tick and a **Whole file** / **Clear file** button. `Ctrl+R` signs off the current change and `Ctrl+Shift+R` the whole file. Notes save automatically to `codegen-review.json` beside the CURRENT folder (for Git compare, beside the selected folder's parent).
-
-Only real and moved changes, plus whole-file units for added, deleted and binary files, can be signed off; noise cannot. A sign-off is tied to the change content, so a change regenerated differently comes back unreviewed. An unreadable review file disables editing and is never overwritten. Exported HTML includes the notes, as with CLI `--review`.
-
 Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
 
 Use **Export report** on the top toolbar. The **Comment** and **Unimportant** buttons sit below the folder tree in **Files**. When either button is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
@@ -156,7 +149,6 @@ Use **Export report** on the top toolbar. The **Comment** and **Unimportant** bu
 | `F7` / `F8` | Previous / next change across files |
 | `Ctrl+Home` / `Ctrl+End` | First / last change in the file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Find, next / previous match |
-| `Ctrl+R` / `Ctrl+Shift+R` | Sign off this change / the whole file (Review mode) |
 | `Ctrl+E` | Export HTML |
 | `F1` | Open the offline guide |
 
@@ -415,11 +407,11 @@ python -m compare_tool baseline.zip current.zip --report report.html --json resu
 
 Publish the requested files as CI artifacts. Add `--check-consistency` and a policy/config when needed; JSON/SARIF then also carry the CURRENT findings. To compare commits instead of folders, use `--baseline-rev` / `--current-rev`.
 
-JSON, SARIF, HTML and review files are written atomically with LF line endings; a missing output folder is an error (exit 2). ZIP inputs above 4 GiB uncompressed, or with a member over 1 MiB compressed more than 1000:1, are rejected with exit 2.
+JSON, SARIF and HTML files are written atomically with LF line endings; a missing output folder is an error (exit 2). ZIP inputs above 4 GiB uncompressed, or with a member over 1 MiB compressed more than 1000:1, are rejected with exit 2.
 
 ### Pipeline migration
 
-No flag was renamed or removed and exit codes keep their meaning. Check these when upgrading a script:
+`--review` was removed: scripts that pass it now fail with exit 2, so drop the flag and its file argument. Other flags are unchanged and exit codes keep their meaning. Check these when upgrading a script:
 
 - `--check-current --json` / `--sarif` used to exit 2; it now writes the files.
 - Comparison JSON gains `kind`, `settings` and, with `--check-consistency`, `current_check` (schema stays 1). SARIF with `--check-consistency` gains `current/<RULE>` results, so result counts can rise.
