@@ -60,9 +60,11 @@ python -m compare_tool --check-current current
 | HTML report | Share results offline or as a CI artifact |
 | `--no-report` | Review summaries and diagnostics in the terminal |
 | `--check-current PATH` | Check CURRENT RTE/ARXML consistency before delivery |
-| `--json` / `--sarif` | Export comparison results for pipelines |
+| Review sign-off | Add notes and sign off real changes in the viewer; saved to `codegen-review.json` |
+| `--json` / `--sarif` | Export comparison results and CURRENT findings for pipelines |
+| `--baseline-rev` / `--current-rev` | Compare Git revisions from the CLI |
 
-CURRENT consistency findings appear in Code Check or the terminal; JSON/SARIF exports contain comparison results and old/new advisories.
+CURRENT consistency findings appear in Code Check and the terminal. With `--check-current` or `--check-consistency`, JSON/SARIF also carry them; see [Pipeline migration](docs/usage.md#pipeline-migration) when upgrading a script.
 
 ## Review the results
 

@@ -206,8 +206,7 @@ class TestNoReport(unittest.TestCase):
             self._file(side, 'same.c', 'int value = 1;\n')
         before = sorted(self.root.rglob('*'))
         with mock.patch('compare_tool.main.default_report_name', return_value=str(stale)), \
-                mock.patch('compare_tool.main.render_report') as report, \
-                mock.patch('compare_tool.main.build_arxml_report') as arxml_report:
+                mock.patch('compare_tool.main.write_report') as report:
             code, output, errors = self._run()
         self.assertEqual(code, 0)
         self.assertEqual(errors, '')
@@ -220,7 +219,6 @@ class TestNoReport(unittest.TestCase):
         self.assertEqual(stale.read_text(encoding='utf-8'), 'existing report')
         self.assertEqual(sorted(self.root.rglob('*')), before)
         report.assert_not_called()
-        arxml_report.assert_not_called()
 
     def test_file_summary_includes_non_identical_verdicts_without_hunk_details(self):
         pairs = {
@@ -527,6 +525,149 @@ class TestTkinterPanelIsGone(unittest.TestCase):
         self.assertFalse(quiet(viewer_requested, ['--diagnostics']))
         with self.assertRaises(SystemExit):
             quiet(main, ['old', 'new', '--diagnostics'])
+
+
+DEMO_NEW = Path(__file__).parent / 'fixtures' / 'demo' / 'new'
+
+
+def _run_cli(*argv):
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        try:
+            code = main(list(argv))
+        except SystemExit as exc:  # argparse usage error
+            code = exc.code
+    return code, out.getvalue(), err.getvalue()
+
+
+def _terminal_counts(text):
+    return {tag: sum(1 for line in text.splitlines()
+                     if line.startswith('  !! [{}]'.format(tag)))
+            for tag in ('FAIL', 'WARN', 'UNCHECKED')}
+
+
+class TestCurrentMachineOutputAgreement(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.json = self.tmp / 'out.json'
+        self.sarif = self.tmp / 'out.sarif'
+
+    def _check_current(self, root=DEMO_NEW):
+        return _run_cli('--check-current', str(root), '--json', str(self.json),
+                        '--sarif', str(self.sarif))
+
+    def test_check_current_accepts_json_and_sarif(self):
+        code, out, _ = self._check_current()
+        self.assertEqual(code, 1)
+        doc = json.loads(self.json.read_text(encoding='utf-8'))
+        self.assertEqual(doc['kind'], 'current-check')
+        self.assertEqual(doc['schema'], 1)
+        self.assertEqual(doc['exit_code'], code)
+        self.assertEqual(doc['current_check']['exit_code'], code)
+        self.assertEqual(doc['current_check']['status'], 'FAIL')
+        self.assertTrue(doc['settings']['check_consistency'])
+        self.assertIn('JSON written', out)
+        self.assertIn('SARIF written', out)
+
+    def test_terminal_counts_equal_json_counts_and_sarif_results(self):
+        _, out, _ = self._check_current()
+        block = json.loads(self.json.read_text(encoding='utf-8'))['current_check']
+        terminal = _terminal_counts(out)
+        self.assertEqual(terminal['FAIL'], 3)
+        by_severity = {}
+        for item in block['findings']:
+            by_severity[item['severity']] = by_severity.get(item['severity'], 0) + 1
+        self.assertEqual(terminal['FAIL'], by_severity.get('fail', 0))
+        self.assertEqual(terminal['WARN'], by_severity.get('warn', 0))
+        self.assertEqual(terminal['UNCHECKED'], len(block['unchecked']))
+        self.assertEqual(terminal['UNCHECKED'], block['coverage']['unchecked'])
+        results = json.loads(self.sarif.read_text(encoding='utf-8'))['runs'][0]['results']
+        self.assertEqual(len(results), len(block['findings']) + len(block['unchecked']))
+        for result in results:
+            self.assertEqual(result['ruleId'], 'current/NO_MATCHING_PORT_DATAELEMENT')
+            self.assertEqual(result['level'], 'error')
+            self.assertIsInstance(
+                result['locations'][0]['physicalLocation']['region']['startLine'], int)
+
+    def test_missing_current_exits_2_and_writes_no_json(self):
+        code, _, _ = _run_cli('--check-current', str(self.tmp / 'nope'),
+                              '--json', str(self.json), '--sarif', str(self.sarif))
+        self.assertEqual(code, 2)
+        self.assertFalse(self.json.exists())
+        self.assertFalse(self.sarif.exists())
+
+    def test_empty_current_is_not_reported_clean(self):
+        empty = self.tmp / 'empty'
+        empty.mkdir()
+        code, _, _ = self._check_current(empty)
+        self.assertEqual(code, 2)
+        doc = json.loads(self.json.read_text(encoding='utf-8'))
+        self.assertEqual(doc['exit_code'], 2)
+        self.assertNotEqual(doc['current_check']['status'], 'PASS')
+
+    def test_unwritable_json_path_exits_2(self):
+        directory = self.tmp / 'adir'
+        directory.mkdir()
+        code, _, err = _run_cli('--check-current', str(DEMO_NEW), '--json', str(directory))
+        self.assertEqual(code, 2)
+        self.assertIn('MACHINE OUTPUT NOT WRITTEN', err)
+
+    def test_comparison_unwritable_json_path_exits_2(self):
+        directory = self.tmp / 'adir'
+        directory.mkdir()
+        old = self.tmp / 'o'
+        new = self.tmp / 'n'
+        for d in (old, new):
+            d.mkdir()
+            (d / 'm.c').write_text('int x;\n', encoding='utf-8')
+        code, _, _ = _run_cli(str(old), str(new), '--no-report', '--json', str(directory))
+        self.assertEqual(code, 2)
+
+
+class TestComparisonMachineOutputSettings(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.json = self.tmp / 'out.json'
+        self.sarif = self.tmp / 'out.sarif'
+
+    def test_compare_json_has_kind_and_settings(self):
+        code, _, _ = _run_cli(str(DEMO_NEW), str(DEMO_NEW), '--no-report',
+                              '--json', str(self.json), '--exclude', '*.a2l',
+                              '--arxml-only', '--exit-zero')
+        doc = json.loads(self.json.read_text(encoding='utf-8'))
+        self.assertEqual(doc['kind'], 'compare')
+        self.assertEqual(doc['exit_code'], code)
+        settings = doc['settings']
+        for key in ('arxml_only', 'exclude', 'custom_rules', 'skip_var_renames',
+                    'check_consistency', 'consistency_config',
+                    'ignore_access_port_regex', 'exit_zero', 'config'):
+            self.assertIn(key, settings)
+        self.assertTrue(settings['arxml_only'])
+        self.assertTrue(settings['exit_zero'])
+        self.assertEqual(settings['exclude'], ['*.a2l'])
+        self.assertEqual(settings['custom_rules'], [])
+        self.assertFalse(settings['check_consistency'])
+        self.assertNotIn('current_check', doc)
+        self.assertIn('summary', doc)
+        self.assertIn('files', doc)
+
+    def test_check_consistency_adds_current_check_to_json_and_sarif(self):
+        code, out, _ = _run_cli(str(DEMO_NEW), str(DEMO_NEW), '--no-report',
+                                '--check-consistency', '--json', str(self.json),
+                                '--sarif', str(self.sarif))
+        self.assertEqual(code, 1)
+        doc = json.loads(self.json.read_text(encoding='utf-8'))
+        self.assertEqual(doc['kind'], 'compare')
+        self.assertEqual(doc['exit_code'], code)
+        self.assertTrue(doc['settings']['check_consistency'])
+        self.assertEqual(len(doc['current_check']['findings']), _terminal_counts(out)['FAIL'])
+        rules = {r['ruleId'] for r in
+                 json.loads(self.sarif.read_text(encoding='utf-8'))['runs'][0]['results']}
+        self.assertIn('current/NO_MATCHING_PORT_DATAELEMENT', rules)
 
 
 if __name__ == '__main__':

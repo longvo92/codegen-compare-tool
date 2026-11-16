@@ -3,11 +3,11 @@
 import os
 import re
 import sys
-import tempfile
 from copy import deepcopy
 from pathlib import Path
 
 from . import consistency, theme
+from .fileio import write_text_atomic
 
 
 def defaults():
@@ -137,18 +137,8 @@ def load(path):
 def save(path, config):
     yaml = _yaml()
     value = validate(deepcopy(config))
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix='.settings-', suffix='.yaml', dir=str(target.parent))
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as stream:
-            yaml.safe_dump(value, stream, allow_unicode=True, sort_keys=False)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp_name, target)
-    finally:
-        if os.path.exists(temp_name):
-            os.unlink(temp_name)
+    write_text_atomic(path, yaml.safe_dump(value, allow_unicode=True, sort_keys=False),
+                      parents=True)
 
 
 def compile_rules(config):

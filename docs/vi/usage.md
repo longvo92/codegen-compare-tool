@@ -33,13 +33,14 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 |---|---|
 | `--report OUT.html` | Path HTML output. Mặc định: `compare_report.html`, hoặc `arxml_update.html` khi dùng `--arxml-only`. Report mở offline. |
 | `--no-report` | In summary model/SWC, semantic changes, warning, cấu hình thực tế và diagnostics từng file; không in source hunk hay tạo HTML. Cần đủ hai input; giữ nguyên HTML đã có. |
-| `--json OUT.json` | Xuất thêm comparison result có schema version, gồm file verdict, hunk, semantic data, old/new advisory và exit code. Mặc định không tạo JSON. |
-| `--sarif OUT.sarif` | Xuất thêm SARIF 2.1.0 finding cho file Modified, Added, Deleted và error. Mặc định không tạo SARIF. |
+| `--json OUT.json` | Xuất thêm result có schema version (`kind`, `settings`, file verdict, hunk, semantic data, old/new advisory, exit code). Với `--check-consistency` hoặc `--check-current` có thêm block `current_check`. Mặc định không tạo JSON. |
+| `--sarif OUT.sarif` | Xuất thêm SARIF 2.1.0 finding cho file Modified, Added, Deleted và error; khi có consistency check thì thêm result `current/<RULE>`. Mặc định không tạo SARIF. |
+| `--baseline-rev REV`, `--current-rev REV` | Đọc `old_dir` / `new_dir` từ một Git revision (SHA, branch, tag hoặc `HEAD~1`) thay vì từ ổ đĩa. Chỉ đọc; HEAD, index và working tree không đổi. Chỉ có trên CLI. |
 | `--baseline-name NAME` | Đặt label hiển thị BASELINE, ví dụ `"build 4821"`; không đổi input path. Mặc định: label lấy từ input. |
 | `--current-name NAME` | Đặt label hiển thị CURRENT; cùng cách hoạt động với `--baseline-name`. |
 | `--theme dark\|light` | Ghi đè theme khi mở. Viewer dùng theme đã lưu hoặc Light ở lần mở đầu. HTML xuất từ CLI mặc định dùng Dark. |
 | `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
-| `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. |
+| `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. Xem [Review và sign-off](#review-và-sign-off). |
 | `--exit-zero` | Trả `0` khi có file difference để CI thu report. Consistency failure đã bật vẫn trả `1`, còn lỗi input, scan hoặc output trả `2`. |
 
 #### CURRENT consistency
@@ -49,7 +50,7 @@ Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong
 | Flag | Công dụng và mặc định |
 |---|---|
 | `--check-consistency` | Check generated RTE call với ARXML trong CURRENT khi compare hai input. Mặc định tắt; finding hiện trên terminal. |
-| `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. |
+| `--check-current PATH` | Check một folder/ZIP CURRENT, không cần baseline, diff hay HTML. Chấp nhận `--json` / `--sarif`. |
 | `--consistency-config FILE` | Đọc policy YAML hoặc JSON để cấu hình prefix cấm, port và lời gọi service cần bỏ qua, cùng severity của rule. JSON hỗ trợ thêm mapping và ngoại lệ. Setting không khai báo giữ mặc định. |
 | `--ignore-access-port-regex REGEX` | Thêm một regex ignored-port tạm thời, kết hợp OR với pattern trong config. Match payload sau `Rte_<verb>_`; không tắt forbidden-API check. Mặc định không thêm regex. |
 
@@ -57,17 +58,18 @@ Các flag này điều khiển check trên CLI. Viewer dùng cùng checker trong
 
 | Flag | Công dụng và mặc định |
 |---|---|
-| `--rules RULES.json` | Thêm noise pattern của dự án vào built-in rule cho CLI/viewer. Mặc định không có custom rule; xem format tại [Custom noise rules](#custom-noise-rules). |
+| `--rules RULES.json` | Thêm noise pattern của dự án vào built-in rule cho CLI/viewer, có guard chống pattern quá rộng. Mặc định không có custom rule; xem format tại [Custom noise rules](#custom-noise-rules). |
 | `--skip-var-renames` | Quick check rename C/C++ không an toàn; mặc định tắt. Có thể ẩn rewiring thật, gắn nhãn Assumed rename cho hunk bị fold. Không dùng để sign off review; xem [giới hạn noise](#cái-gì-được-tính-là-noise). |
 | `-h`, `--help` | In cú pháp/options CLI rồi thoát; không cần input. |
 | `--version` | Chỉ in version của tool rồi thoát; không cần input. |
 
 ### Kết hợp flag
 
-- `--report` và `--no-report` không dùng cùng nhau. JSON/SARIF là output bổ sung; thêm `--no-report` để tránh tạo HTML mặc định. Nội dung chưa chứa CURRENT finding.
+- `--report` và `--no-report` không dùng cùng nhau. JSON/SARIF là output bổ sung; thêm `--no-report` để tránh tạo HTML mặc định. CURRENT finding chỉ có khi chạy consistency check.
+- `--baseline-rev` / `--current-rev` cần `old_dir` / `new_dir` là folder nằm trong Git repository. Không kết hợp với input ZIP hoặc `--check-current`; lỗi trả exit 2.
 - `--no-report` cần đủ hai input, không dùng cùng `--qt` / `--viewer`. Dùng report/export flag trong CLI comparison; viewer xuất HTML qua thao tác Export riêng.
 - `--consistency-config` và `--ignore-access-port-regex` cần `--check-consistency` hoặc `--check-current`. Cấu hình check trong viewer tại **Code Check**. Check qua CLI cần mã C đã sinh và không kết hợp với `--arxml-only`.
-- `--check-current` lấy input từ PATH, không nhận positional argument. Chấp nhận `--exclude`, `--current-name` và consistency options; `--no-report` / `--check-consistency` không bắt buộc. Option compare/report và JSON/SARIF bị từ chối. `--exit-zero` không bỏ qua failure của mode này.
+- `--check-current` lấy input từ PATH, không nhận positional argument. Chấp nhận `--exclude`, `--current-name` và consistency options; `--no-report` / `--check-consistency` không bắt buộc. Option compare/report bị từ chối; `--json` / `--sarif` được chấp nhận. `--exit-zero` không bỏ qua failure của mode này.
 
 ### Ví dụ
 
@@ -93,6 +95,12 @@ python -m compare_tool baseline current --arxml-only --report autosar.html
 
 ```bash
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
+```
+
+So sánh hai commit gần nhất của một folder generated mà không cần checkout:
+
+```bash
+python -m compare_tool out/gen out/gen --baseline-rev HEAD~1 --json result.json
 ```
 
 Cho phép file difference và dùng consistency failure của CURRENT để quyết định exit code:
@@ -124,6 +132,12 @@ Bấm chuột phải vào một commit và chọn **So sánh với working tree*
 
 Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
 
+### Review và sign-off
+
+Bật **Review** trên thanh công cụ Compare để hiện ô note dưới diff, kèm ô **Reviewed** và nút **Whole file** / **Clear file**. `Ctrl+R` sign off change hiện tại, `Ctrl+Shift+R` sign off cả file. Note tự lưu vào `codegen-review.json` cạnh thư mục CURRENT (với Git compare: cạnh thư mục cha của folder đã chọn).
+
+Chỉ real change và moved change, cùng đơn vị whole-file cho file added, deleted và binary, mới sign off được; noise thì không. Sign-off gắn với nội dung change, nên change được regenerate khác đi sẽ quay lại trạng thái chưa review. File review không đọc được sẽ tắt chỉnh sửa và không bao giờ bị ghi đè. HTML export có kèm note, giống CLI `--review`.
+
 Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer dùng theme trong tab Report.
 
 Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**. Khi tắt một trong hai nút, các dòng tương ứng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
@@ -141,6 +155,7 @@ Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment**
 | `F7` / `F8` | Change trước / sau qua các file |
 | `Ctrl+Home` / `Ctrl+End` | Change đầu / cuối trong file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Tìm, kết quả sau / trước |
+| `Ctrl+R` / `Ctrl+Shift+R` | Sign off change này / cả file (Review mode) |
 | `Ctrl+E` | Export HTML |
 | `F1` | Mở hướng dẫn offline |
 
@@ -233,7 +248,7 @@ Truyền `--rules RULES.json` để thêm substitution của dự án:
 }
 ```
 
-Bắt buộc có `name` và `pattern`; `replacement` mặc định rỗng, `extensions` tùy chọn. Chỉ dùng pattern cho generator noise đã biết. Rule sai hoặc substitution đổi số dòng bị bỏ qua; khác biệt chưa giải thích vẫn là real change. File không đọc được hoặc JSON sai làm dừng lệnh.
+Bắt buộc có `name` và `pattern`; `replacement` mặc định rỗng, `extensions` tùy chọn. Chỉ dùng pattern cho generator noise đã biết. Rule khớp chuỗi rỗng (`.*`, `x*`, `^`) bị bỏ qua kèm warning. Theo từng file, rule làm đổi số dòng, hoặc viết lại hơn 50% ký tự non-whitespace của file có ít nhất 3 dòng không trống, sẽ không được áp dụng và file nhận note dạng `custom rule 'NAME' not applied to CURRENT: reason`. Rule vẫn ẩn mọi thứ nó khớp, nên giữ pattern hẹp; khác biệt chưa giải thích vẫn là real change. File không đọc được hoặc JSON sai làm dừng lệnh.
 
 ## AUTOSAR semantic summary
 
@@ -268,7 +283,9 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Các mục còn `UNCHECKED` hiện trạng thái `INCOMPLETE` và giữ nguyên exit code. Khác biệt file vẫn ảnh hưởng exit code của Compare. `--exit-zero` chỉ bỏ qua phần khác biệt đó. Với lệnh CLI cũ, bỏ cờ `--consistency-policy` cùng giá trị đi kèm.
 
-CURRENT finding hiện trên terminal hoặc Code Check, không nằm trong comparison report/export. Lưu CLI terminal output nếu cần delivery record.
+CURRENT finding hiện trên terminal và Code Check, và có thể xuất làm delivery record bằng `--json` / `--sarif`, từ `--check-current` hoặc comparison có `--check-consistency`. Không có trong HTML report.
+
+JSON có `kind: "current-check"` với `--check-current` (`kind: "compare"` với comparison), `schema: 1`, `exit_code`, `settings` và block `current_check`: `status`, `exit_code`, `scope`, số `coverage`, `policy` và `policy_notes`, cùng các mục `findings`, `unchecked`, `ignored`, `exceptions`, `skipped_findings`, mỗi mục có `rule`, `file`, `line`, `message` và tùy chọn `severity`, `data`. SARIF có một result `current/<RULE>` cho mỗi mục: `error` cho rule fail và lỗi scan/input, `warning` cho warn, `note` cho mục unchecked.
 
 ### Cấu hình policy
 
@@ -393,4 +410,16 @@ python -m compare_tool baseline.zip current.zip --report report.html --json resu
 | 1 | Có real change hoặc consistency rule đã bật bị fail |
 | 2 | Comparison/check không đầy đủ hoặc lỗi input/output |
 
-Publish các file đã yêu cầu thành CI artifact. Thêm `--check-consistency` và policy/config khi cần. JSON/SARIF chứa comparison result và old/new advisory, chưa chứa CURRENT finding.
+Publish các file đã yêu cầu thành CI artifact. Thêm `--check-consistency` và policy/config khi cần; JSON/SARIF khi đó có thêm CURRENT finding. Muốn so sánh commit thay vì folder, dùng `--baseline-rev` / `--current-rev`.
+
+JSON, SARIF, HTML và file review được ghi nguyên tử, luôn với line ending LF; thiếu thư mục output là lỗi (exit 2). Input ZIP vượt 4 GiB sau giải nén, hoặc có member trên 1 MiB nén hơn 1000:1, bị từ chối với exit 2.
+
+### Pipeline migration
+
+Không flag nào bị đổi tên hay xóa và exit code giữ nguyên ý nghĩa. Khi nâng cấp script, kiểm tra:
+
+- `--check-current --json` / `--sarif` trước đây trả exit 2; nay ghi file.
+- Comparison JSON có thêm `kind`, `settings` và, với `--check-consistency`, `current_check` (schema vẫn là 1). SARIF với `--check-consistency` có thêm result `current/<RULE>`, nên số result có thể tăng.
+- File từng là `ignorable-only` chỉ nhờ một pattern `--rules` quá rộng nay có thể thành `real-change` và exit 1. Hãy thu hẹp pattern.
+- Output dùng line ending LF trên mọi nền tảng.
+- `--baseline-rev` / `--current-rev` là flag mới.

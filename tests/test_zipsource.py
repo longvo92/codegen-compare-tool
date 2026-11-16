@@ -99,6 +99,30 @@ class TestZipSource(unittest.TestCase):
         # and the legitimate content is still there
         self.assertTrue(any(p.name == 'ok.c' for p in out.rglob('*.c')))
 
+    def test_oversize_archive_rejected_and_nothing_left(self):
+        z = self._make_zip('big.zip', {'gen/a.c': 'x' * 100, 'gen/b.c': 'y' * 100})
+        with self.assertRaises(ZipError) as cm:
+            zipsource.extract(z, self.dest, max_bytes=150)
+        self.assertIn('big.zip', str(cm.exception))
+        self.assertEqual(list(self.dest.iterdir()), [])
+        # a later call with sane limits is not fooled by a half-made cache
+        out = zipsource.extract(z, self.dest)
+        self.assertTrue((out / 'a.c').is_file())
+
+    def test_high_ratio_member_rejected(self):
+        z = self.tmp / 'bomb.zip'
+        with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('gen/zeros.bin', b'\x00' * (3 * 1024 * 1024))
+        with self.assertRaises(ZipError) as cm:
+            zipsource.extract(z, self.dest, max_ratio=50)
+        self.assertIn('bomb.zip', str(cm.exception))
+        self.assertEqual(list(self.dest.iterdir()), [])
+
+    def test_normal_archive_within_limits_extracts(self):
+        z = self._make_zip('ok.zip', {'gen/a.c': 'x' * 100})
+        out = zipsource.extract(z, self.dest, max_bytes=1000, max_ratio=10)
+        self.assertEqual((out / 'a.c').read_text(), 'x' * 100)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -593,14 +593,16 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertEqual(self.win.source_toolbar.actions(),
                          [self.win.act_open, self.win.act_git, self.win.act_export])
         self.assertEqual(self.win.compare_toolbar.actions(),
-                         [self.win.show_comment, self.win.show_unimportant])
+                         [self.win.show_comment, self.win.show_unimportant,
+                          self.win.act_review_mode])
         self.assertTrue(self.win.source_toolbar.isVisible())
         self.assertTrue(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.help_button.isVisible())
         self.assertEqual(self.win.tree.columnCount(), 2)
+        # Review sign-off lives in Compare only: its panel sits under the diff
         actions = self.win.findChildren(QAction)
-        self.assertNotIn('Review mode', [action.text() for action in actions])
-        self.assertFalse({'Ctrl+R', 'Ctrl+Shift+R'} & {action.shortcut().toString() for action in actions})
+        self.assertTrue({'Ctrl+R', 'Ctrl+Shift+R'} <= {action.shortcut().toString() for action in actions})
+        self.assertTrue(self.win.compare_page.isAncestorOf(self.win.review_panel))
         self.win.modes.setCurrentIndex(1)
         self.app.processEvents()
         self.assertFalse(self.win.source_toolbar.isVisible())

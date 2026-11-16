@@ -33,13 +33,14 @@ Two input paths select CLI comparison; without both paths, the tool opens the vi
 |---|---|
 | `--report OUT.html` | HTML output path. Default: `compare_report.html`, or `arxml_update.html` with `--arxml-only`. Reports open offline. |
 | `--no-report` | Print model/SWC summaries, semantic changes, warnings, effective settings and per-file diagnostics without source hunks or HTML. Requires both input paths; leaves existing HTML untouched. |
-| `--json OUT.json` | Also write the versioned comparison result, including file verdicts, hunks, semantic data, old/new advisories and exit code. No JSON by default. |
-| `--sarif OUT.sarif` | Also write SARIF 2.1.0 findings for Modified, Added, Deleted and error files. No SARIF by default. |
+| `--json OUT.json` | Also write the versioned result (`kind`, `settings`, file verdicts, hunks, semantic data, old/new advisories, exit code). With `--check-consistency` or `--check-current` it adds a `current_check` block. No JSON by default. |
+| `--sarif OUT.sarif` | Also write SARIF 2.1.0 findings for Modified, Added, Deleted and error files; with a consistency check also `current/<RULE>` results. No SARIF by default. |
+| `--baseline-rev REV`, `--current-rev REV` | Read `old_dir` / `new_dir` from a Git revision (SHA, branch, tag or `HEAD~1`) instead of the disk. Read-only; HEAD, index and working tree are untouched. CLI only. |
 | `--baseline-name NAME` | Set the BASELINE display label, e.g. `"build 4821"`; does not change the input path. Default: label derived from the input. |
 | `--current-name NAME` | Set the CURRENT display label; same behavior as `--baseline-name`. |
 | `--theme dark\|light` | Override the initial theme. The viewer uses its saved theme or Light on first launch. CLI HTML defaults to Dark. |
 | `--max-diff-lines N` | Cap the embedded full HTML diff at about N lines per file. Default: `0` (unlimited). Truncation is marked; comparison, verdicts, counts and machine exports remain complete. |
-| `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. |
+| `--review REVIEW.json` | Load an existing review notes/sign-offs file into the full HTML report. Never loaded automatically; no effect with `--no-report` or the compact `--arxml-only` report. See [Review and sign-off](#review-and-sign-off). |
 | `--exit-zero` | Return `0` for file differences so CI can collect reports without failing on changes. Enabled consistency failures still return `1`, and input, scan or output errors return `2`. |
 | `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` | Turn off the corresponding YAML setting for this run. |
 
@@ -50,7 +51,7 @@ These flags control CLI checks. The viewer offers the same checker in **Code Che
 | Flag | Use and defaults |
 |---|---|
 | `--check-consistency` | Check generated RTE calls against ARXML in CURRENT during a two-input comparison. Off by default; findings appear in the terminal. |
-| `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. |
+| `--check-current PATH` | Check one CURRENT folder/ZIP without a baseline, diff or HTML. Accepts `--json` / `--sarif`. |
 | `--consistency-config FILE` | Load YAML or JSON policy for forbidden prefixes, ignored ports and service calls, and rule severities. JSON also supports mappings and exceptions. Omitted settings keep built-in defaults. |
 | `--ignore-access-port-regex REGEX` | Add one temporary ignored-port regex, OR-ed with configured patterns. Matches the payload after `Rte_<verb>_`; does not disable forbidden-API checks. No extra regex by default. |
 
@@ -58,17 +59,18 @@ These flags control CLI checks. The viewer offers the same checker in **Code Che
 
 | Flag | Use and defaults |
 |---|---|
-| `--rules RULES.json` | Add project noise patterns to built-in rules for CLI/viewer. No custom rules by default; see [Custom noise rules](#custom-noise-rules) for the file format. |
+| `--rules RULES.json` | Add project noise patterns to built-in rules for CLI/viewer. Guarded against over-broad patterns. No custom rules by default; see [Custom noise rules](#custom-noise-rules) for the file format. |
 | `--skip-var-renames` | Unsafe C/C++ rename quick check; off by default. Can hide real rewiring and labels folded hunks as Assumed rename. Do not use it to sign off a review; see [noise limits](#what-counts-as-noise). |
 | `-h`, `--help` | Print CLI syntax/options and exit; no inputs needed. |
 | `--version` | Print only the tool version and exit; no inputs needed. |
 
 ### Flag combinations
 
-- `--report` and `--no-report` are mutually exclusive. JSON/SARIF are additional outputs; add `--no-report` to avoid default HTML. Their contents exclude CURRENT findings.
+- `--report` and `--no-report` are mutually exclusive. JSON/SARIF are additional outputs; add `--no-report` to avoid default HTML. CURRENT findings are included only when a consistency check ran.
+- `--baseline-rev` / `--current-rev` need `old_dir` / `new_dir` to be folders inside a Git repository. They cannot be combined with ZIP inputs or `--check-current`; errors exit 2.
 - `--no-report` requires both inputs and cannot run with `--qt` / `--viewer`. Use report/export flags in CLI comparisons; the viewer exports HTML through its own Export action.
 - `--consistency-config` and `--ignore-access-port-regex` require `--check-consistency` or `--check-current`. Configure viewer checks in **Code Check**. The CLI check requires generated C files and is incompatible with `--arxml-only`.
-- `--check-current` takes its input from PATH, not positional arguments. It accepts `--exclude`, `--current-name` and consistency options; `--no-report` / `--check-consistency` are redundant. Comparison/report options and JSON/SARIF are rejected. `--exit-zero` does not suppress its failures.
+- `--check-current` takes its input from PATH, not positional arguments. It accepts `--exclude`, `--current-name` and consistency options; `--no-report` / `--check-consistency` are redundant. Comparison/report options are rejected; `--json` / `--sarif` are accepted. `--exit-zero` does not suppress its failures.
 
 ### Examples
 
@@ -94,6 +96,12 @@ Include custom rules and an existing review file in a capped HTML report:
 
 ```bash
 python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
+```
+
+Compare the last two commits of a generated folder without checking anything out:
+
+```bash
+python -m compare_tool out/gen out/gen --baseline-rev HEAD~1 --json result.json
 ```
 
 Gate CURRENT consistency failures while allowing ordinary file differences:
@@ -125,6 +133,12 @@ Right-click one commit and choose **Compare with working tree** to include local
 
 Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
 
+### Review and sign-off
+
+Turn on **Review** in the Compare toolbar to show a note box under the diff with a **Reviewed** tick and a **Whole file** / **Clear file** button. `Ctrl+R` signs off the current change and `Ctrl+Shift+R` the whole file. Notes save automatically to `codegen-review.json` beside the CURRENT folder (for Git compare, beside the selected folder's parent).
+
+Only real and moved changes, plus whole-file units for added, deleted and binary files, can be signed off; noise cannot. A sign-off is tied to the change content, so a change regenerated differently comes back unreviewed. An unreadable review file disables editing and is never overwritten. Exported HTML includes the notes, as with CLI `--review`.
+
 Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
 
 Use **Export report** on the top toolbar. The **Comment** and **Unimportant** buttons sit below the folder tree in **Files**. When either button is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
@@ -142,6 +156,7 @@ Use **Export report** on the top toolbar. The **Comment** and **Unimportant** bu
 | `F7` / `F8` | Previous / next change across files |
 | `Ctrl+Home` / `Ctrl+End` | First / last change in the file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Find, next / previous match |
+| `Ctrl+R` / `Ctrl+Shift+R` | Sign off this change / the whole file (Review mode) |
 | `Ctrl+E` | Export HTML |
 | `F1` | Open the offline guide |
 
@@ -236,7 +251,7 @@ Pass `--rules RULES.json` to add project-specific substitutions:
 }
 ```
 
-`name` and `pattern` are required; `replacement` defaults to empty and `extensions` is optional. Limit patterns to known generator noise. Invalid rules or substitutions that change line count are skipped; unexplained differences remain real. An unreadable or invalid JSON file stops the run.
+`name` and `pattern` are required; `replacement` defaults to empty and `extensions` is optional. Limit patterns to known generator noise. A rule that matches the empty string (`.*`, `x*`, `^`) is skipped with a warning. Per file, a rule that would change the line count, or rewrite more than 50% of the non-whitespace characters of a file with at least 3 non-blank lines, is not applied and the file gets a note such as `custom rule 'NAME' not applied to CURRENT: reason`. Rules still hide whatever they match, so keep patterns narrow; unexplained differences remain real. An unreadable or invalid JSON file stops the run.
 
 ## AUTOSAR semantic summary
 
@@ -271,7 +286,9 @@ python -m compare_tool baseline current --no-report --check-consistency
 
 Remaining `UNCHECKED` items report `INCOMPLETE` without changing the exit code. Comparison differences also affect exit status. `--exit-zero` suppresses only those differences. Remove `--consistency-policy` and its value from older CLI commands.
 
-CURRENT findings appear in the terminal or Code Check, and are excluded from comparison reports/exports. Capture CLI terminal output for a delivery record.
+CURRENT findings appear in the terminal and Code Check, and can be exported for a delivery record with `--json` / `--sarif`, from `--check-current` or a comparison with `--check-consistency`. They are not in the HTML report.
+
+The JSON has `kind: "current-check"` for `--check-current` (`kind: "compare"` for comparisons), `schema: 1`, `exit_code`, `settings` and a `current_check` block: `status`, `exit_code`, `scope`, `coverage` counts, `policy` and `policy_notes`, plus `findings`, `unchecked`, `ignored`, `exceptions` and `skipped_findings` items, each with `rule`, `file`, `line`, `message` and optional `severity` and `data`. SARIF has one `current/<RULE>` result per item: `error` for failed rules and scan/input errors, `warning` for warn, `note` for unchecked items.
 
 ### Policy configuration
 
@@ -396,4 +413,16 @@ python -m compare_tool baseline.zip current.zip --report report.html --json resu
 | 1 | Real changes or enabled consistency rule failures |
 | 2 | Comparison/check incomplete or an input/output error |
 
-Publish the requested files as CI artifacts. Add `--check-consistency` and a policy/config when needed. JSON/SARIF contain comparison results and old/new advisories, not CURRENT findings.
+Publish the requested files as CI artifacts. Add `--check-consistency` and a policy/config when needed; JSON/SARIF then also carry the CURRENT findings. To compare commits instead of folders, use `--baseline-rev` / `--current-rev`.
+
+JSON, SARIF, HTML and review files are written atomically with LF line endings; a missing output folder is an error (exit 2). ZIP inputs above 4 GiB uncompressed, or with a member over 1 MiB compressed more than 1000:1, are rejected with exit 2.
+
+### Pipeline migration
+
+No flag was renamed or removed and exit codes keep their meaning. Check these when upgrading a script:
+
+- `--check-current --json` / `--sarif` used to exit 2; it now writes the files.
+- Comparison JSON gains `kind`, `settings` and, with `--check-consistency`, `current_check` (schema stays 1). SARIF with `--check-consistency` gains `current/<RULE>` results, so result counts can rise.
+- A file that was `ignorable-only` only because of an over-broad `--rules` pattern can now be `real-change` and exit 1. Narrow the pattern.
+- Outputs use LF line endings on every platform.
+- `--baseline-rev` / `--current-rev` are new.

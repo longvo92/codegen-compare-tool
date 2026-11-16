@@ -103,5 +103,55 @@ class TestComparePairIntegration(unittest.TestCase):
         self.assertIn('real', kinds(r))
 
 
+C_OLD = 'int f(void)\n{\n  return a + b;\n}\n'
+C_NEW = 'int f(void)\n{\n  return a - b;\n}\n'
+
+
+class TestGuards(unittest.TestCase):
+    """A broad pattern must not turn code into noise. Each guard keeps the
+    nearby real change real and leaves a visible reason behind."""
+
+    def test_empty_matching_pattern_is_rejected_at_load(self):
+        for pattern in ('.*', 'x*', '^', '$', r'\s*'):
+            tmp = Path(tempfile.mkdtemp()) / 'rules.json'
+            tmp.write_text(json.dumps([{'name': 'e', 'pattern': pattern}]), encoding='utf-8')
+            rules, warn = userrules.load(tmp)
+            self.assertEqual(rules, [], pattern)
+            self.assertTrue(any('empty string' in w for w in warn), warn)
+
+    def test_rule_rewriting_most_of_a_file_is_not_applied(self):
+        rules = _rules([{'name': 'blank_all', 'pattern': '.+'}])
+        r = compare_pair(C_OLD, C_NEW, 'x.c', rules)
+        self.assertEqual(r['status'], 'real-change')
+        self.assertEqual(kinds(r), ['real'])
+        self.assertTrue(any("'blank_all' not applied to BASELINE" in n for n in r['notes']), r['notes'])
+        self.assertTrue(any("'blank_all' not applied to CURRENT" in n for n in r['notes']), r['notes'])
+
+    def test_line_count_skip_is_reported(self):
+        rules = _rules([{'name': 'multi', 'pattern': r'\n'}])
+        r = compare_pair(C_OLD, C_NEW, 'x.c', rules)
+        self.assertEqual(r['status'], 'real-change')
+        self.assertTrue(any('line count' in n for n in r['notes']), r['notes'])
+
+    def test_value_replacement_counts_only_the_rewritten_value(self):
+        # the tags survive the replacement, so only the checksum counts
+        # toward the share and the rule still applies to a short element
+        rules = _rules([CHECKSUM_RULE])
+        r = compare_pair(AX_OLD, AX_NEW, 'f.arxml', rules)
+        self.assertEqual(r['status'], 'ignorable-only')
+        self.assertEqual(r['notes'], [])
+
+    def test_skips_are_collected_without_changing_text(self):
+        rule = _rules([{'name': 'blank_all', 'pattern': '.+'}])
+        skipped = []
+        self.assertEqual(userrules.apply(C_OLD, '.c', rule, skipped), C_OLD)
+        self.assertEqual([name for name, _ in skipped], ['blank_all'])
+
+    def test_targeted_rule_beside_real_change_stays_real(self):
+        rules = _rules([{'name': 'stamp', 'pattern': r'/\* stamp \d+ \*/'}])
+        r = compare_pair('/* stamp 1 */\n' + C_OLD, '/* stamp 2 */\n' + C_NEW, 'x.c', rules)
+        self.assertEqual(r['status'], 'real-change')
+
+
 if __name__ == '__main__':
     unittest.main()

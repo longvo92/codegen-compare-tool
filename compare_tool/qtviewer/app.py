@@ -24,12 +24,12 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
                                QTreeWidgetItemIterator,
                                QVBoxLayout, QWidget)
 
-from .. import APP_NAME, filepair, gitsource, theme, zipsource
+from .. import APP_NAME, filepair, gitsource, review, theme, zipsource
 from .. import config as app_config_module
 from ..diff_engine import RULES
 from ..messages import Message
 from ..main import default_report_name
-from ..report import build_arxml_report, render_report, consistency_advisories
+from ..report import consistency_advisories, write_report
 from ..scanner import summarize
 from .advisories import AdvisoryPanel
 from .arxml_handler import ArxmlHandlerPage
@@ -43,6 +43,7 @@ from .settings import (SettingsDialog, load_code_check_defaults, load_preference
 from .icons import ACCENT, TINT, app_icon, icon, std_icon
 from .gitpicker import pick_commit, ref_label
 from .pickers import pick_folders
+from .review_panel import ReviewPanel
 from .section import NO_MAX, Section
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip,
@@ -241,10 +242,21 @@ class MainWindow(QMainWindow):
         self._left_layout = lc
 
         self.diff = DiffPane(self._text)
+        # notes and sign-off sit under the diff they describe, hidden until
+        # Review mode is on; the store loads with every comparison either way
+        self.review_panel = ReviewPanel(self._text, self.diff)
+        self.review_panel.setVisible(False)
+        self.review_panel.saved.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        diff_col = QWidget()
+        dc = QVBoxLayout(diff_col)
+        dc.setContentsMargins(0, 0, 0, 0)
+        dc.setSpacing(0)
+        dc.addWidget(self.diff, 1)
+        dc.addWidget(self.review_panel)
 
         split = QSplitter(Qt.Horizontal)
         split.addWidget(left_col)
-        split.addWidget(self.diff)
+        split.addWidget(diff_col)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
         split.setSizes([400, 800])
@@ -434,6 +446,7 @@ class MainWindow(QMainWindow):
             self.code_check.retranslate()
             self.arxml_handler.retranslate()
             self.diff.retranslate()
+            self.review_panel.refresh()
             self._update_tree_labels()
         self._set_theme(prefs.theme)
         if before.comment != prefs.comment or before.unimportant != prefs.unimportant:
@@ -513,6 +526,21 @@ class MainWindow(QMainWindow):
         self.show_unimportant = self._compare_toggle(
             'Unimportant', 'circle-minus', self._prefs.unimportant,
             'Mute Unimportant differences and skip them in F7/F8 when unchecked.')
+        self.act_review_mode = QAction(icon('review-resolved', checked_role='chrome-checked-fg'), '', self)
+        self.act_review_mode.setCheckable(True)
+        self._text.bind(self.act_review_mode.setText, 'Review')
+        self._text.bind(self.act_review_mode.setToolTip,
+                        'Show the note box and sign-off for the change under the cursor.')
+        self.act_review_mode.toggled.connect(self._set_review_mode)
+        self._icon_actions.append((self.act_review_mode, 'review-resolved', None))
+        self.act_reviewed = QAction(self)
+        self.act_reviewed.setShortcut('Ctrl+R')
+        self.act_reviewed.triggered.connect(self._toggle_reviewed)
+        self.act_file_reviewed = QAction(self)
+        self.act_file_reviewed.setShortcut('Ctrl+Shift+R')
+        self.act_file_reviewed.triggered.connect(self._toggle_file_reviewed)
+        self.addAction(self.act_reviewed)
+        self.addAction(self.act_file_reviewed)
 
         # First/Last stay inside the open file -- they mean "this file's ends".
         # Previous/Next run off them into the next file with something to
@@ -599,6 +627,7 @@ class MainWindow(QMainWindow):
         report_button.setCursor(Qt.PointingHandCursor)
         self.compare_toolbar.addAction(self.show_comment)
         self.compare_toolbar.addAction(self.show_unimportant)
+        self.compare_toolbar.addAction(self.act_review_mode)
         self._compare_toolbar_actions = self.source_toolbar.actions() + self.compare_toolbar.actions()
 
         tb.setObjectName('global')
@@ -630,6 +659,35 @@ class MainWindow(QMainWindow):
         action.triggered.connect(self._change_compare_visibility)
         self._icon_actions.append((action, glyph, None))
         return action
+
+    # --- review notes and sign-off ---
+
+    def _set_review_mode(self, on):
+        if not on:
+            self.review_panel.commit()
+        self.review_panel.setVisible(on)
+        if on:
+            self.review_panel.refresh()
+            self.review_panel.note_edit.setFocus()
+
+    def _toggle_reviewed(self):
+        if self.modes.currentIndex() != 0:
+            return
+        self.act_review_mode.setChecked(True)
+        self.review_panel.toggle_reviewed()
+
+    def _toggle_file_reviewed(self):
+        if self.modes.currentIndex() != 0:
+            return
+        self.act_review_mode.setChecked(True)
+        self.review_panel.toggle_file()
+
+    def _review_path(self):
+        """The review file beside the CURRENT folder (a Git snapshot's report
+        folder), never inside a codegen output that is wiped on regeneration."""
+        if self._git_report_dir is not None:
+            return Path(self._git_report_dir) / review.DEFAULT_NAME
+        return review.default_path(self.new) if self.new else None
 
     def _change_compare_visibility(self):
         self._prefs = self._prefs._replace(comment=self.show_comment.isChecked(),
@@ -705,6 +763,7 @@ class MainWindow(QMainWindow):
             self.summary.set_results({})
             self._show_advisories(())
             self.diff.clear()
+            self.review_panel.reset()
             self.counts_label.clear()
             self.act_export.setEnabled(False)
             self._set_state('busy', 'STALE — run again')
@@ -717,6 +776,7 @@ class MainWindow(QMainWindow):
             self.code_check.recheck(context)
 
     def closeEvent(self, event):
+        self.review_panel.commit()
         running = [w for w in (self.worker, self.code_check.worker, self.code_check.fix_worker,
                                self.arxml_handler.worker) if w and w.isRunning()]
         if self.arxml_handler.recovery_required:
@@ -951,6 +1011,7 @@ class MainWindow(QMainWindow):
         self.summary.set_results({})
         self._show_advisories(())
         self.diff.clear()
+        self.review_panel.reset()
         self._raw_results = {}
         self.results = {}
         self.act_export.setEnabled(False)
@@ -982,6 +1043,7 @@ class MainWindow(QMainWindow):
 
     def _on_done(self, results):
         self._raw_results = results
+        self.review_panel.open(self._review_path())
         self._autoselect = True  # consumed by _apply_rules, below
         # the rollup reports the scan itself, never the folded view: a hidden
         # category must not make the model look untouched
@@ -1179,6 +1241,7 @@ class MainWindow(QMainWindow):
         """
         if self.arxml_handler.writing or not self._raw_results:
             return
+        self.review_panel.commit()  # a note still in the box belongs in the report
         report_dir = self._git_report_dir or Path(self.new).parent
         default = str(report_dir / default_report_name(self.arxml_only))
         out, _sel = QFileDialog.getSaveFileName(
@@ -1188,23 +1251,18 @@ class MainWindow(QMainWindow):
             return
         try:
             report_theme = self._config['report']['theme'] if self._config else self._theme
-            if self.arxml_only:
-                page = build_arxml_report(self._raw_results, self.old, self.new,
-                                          old_label=self._old_label,
-                                          new_label=self._new_label,
-                                          theme_name=report_theme)
-            else:
-                # the report opens in whatever the viewer is showing, and
-                # carries both palettes so the reader can still switch
-                rendered = render_report(self._raw_results, self.old, self.new,
-                                    old_label=self._old_label,
-                                    new_label=self._new_label,
-                                    theme_name=report_theme,
-                                    max_diff_lines=self._config['report']['max_diff_lines'] if self._config else 0)
-                page = rendered.html
-            Path(out).write_text(page, encoding='utf-8')
-            if not self.arxml_only and rendered.diagnostics:
-                QMessageBox.warning(self, self._text('Report incomplete'), '\n'.join(rendered.diagnostics))
+            store = self.review_panel.store
+            # built from the raw scan, with both palettes so the reader can
+            # still switch; the same writer as the CLI
+            problems = write_report(
+                self._raw_results, self.old, self.new, out,
+                arxml_only=self.arxml_only,
+                reviews=store if store.path is not None else None,
+                theme_name=report_theme, old_label=self._old_label,
+                new_label=self._new_label,
+                max_diff_lines=self._config['report']['max_diff_lines'] if self._config else 0)
+            if problems:
+                QMessageBox.warning(self, self._text('Report incomplete'), '\n'.join(problems))
                 return
         except Exception as e:
             QMessageBox.critical(self, self._text('Export failed'),

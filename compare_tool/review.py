@@ -30,6 +30,7 @@ from collections import namedtuple
 from datetime import datetime
 from pathlib import Path
 
+from .fileio import write_text_atomic
 from .scanner import looks_binary, read_text
 
 SCHEMA = 1
@@ -207,8 +208,8 @@ class ReviewStore:
                 .format(target, self.error))
         payload = {'schema': SCHEMA, 'tool': 'codegen-compare-tool',
                    'entries': {rel: self._data[rel] for rel in sorted(self._data)}}
-        target.write_text(json.dumps(payload, indent=2, ensure_ascii=False,
-                                     sort_keys=True), encoding='utf-8')
+        write_text_atomic(target, json.dumps(payload, indent=2, ensure_ascii=False,
+                                             sort_keys=True))
         self.path = target
         self.error = None  # the file on disk is ours now, and parseable
         return target

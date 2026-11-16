@@ -36,10 +36,18 @@ Stdlib only, and no Qt -- the CLI and the viewer can both reach it.
 
 import hashlib
 import re
+import shutil
 import zipfile
 from pathlib import Path
 
 _SLUG_RE = re.compile(r'[^A-Za-z0-9_.-]+')
+
+# Zip-bomb guards, checked from the central directory before anything is
+# written. The ratio only applies to members above _RATIO_MIN_BYTES: tiny
+# members of repetitive text compress absurdly well without being a threat.
+MAX_UNCOMPRESSED_BYTES = 4 * 1024 ** 3
+MAX_RATIO = 1000
+_RATIO_MIN_BYTES = 1024 ** 2
 
 
 class ZipError(Exception):
@@ -101,8 +109,33 @@ def _descend(folder):
     return folder
 
 
-def extract(zip_path, dest_root):
+def _discard(out_dir, created):
+    """Remove a failed extraction so it is never mistaken for a cached one."""
+    if created:
+        shutil.rmtree(str(out_dir), ignore_errors=True)
+
+
+def _check_limits(zip_name, members, max_bytes, max_ratio):
+    """Refuse a zip bomb before any byte is written (ZipError)."""
+    total = sum(m.file_size for m in members)
+    if total > max_bytes:
+        raise ZipError(
+            "'{}' expands to {} bytes, over the {}-byte extraction limit".format(
+                zip_name, total, max_bytes))
+    for m in members:
+        ratio = m.file_size / max(m.compress_size, 1)
+        if m.file_size > _RATIO_MIN_BYTES and ratio > max_ratio:
+            raise ZipError(
+                "'{}' member '{}' has a compression ratio over {}:1 "
+                "(possible zip bomb)".format(zip_name, m.filename, max_ratio))
+
+
+def extract(zip_path, dest_root, *, max_bytes=None, max_ratio=None):
     """Materialise ``zip_path`` under ``dest_root``; return the content folder.
+
+    ``max_bytes`` / ``max_ratio`` override :data:`MAX_UNCOMPRESSED_BYTES` and
+    :data:`MAX_RATIO`; an archive over either is a :class:`ZipError` and
+    nothing is written.
 
     Each archive gets its own signature-named subfolder, so flipping between
     two zips in one session costs nothing after the first extraction. A lone
@@ -121,6 +154,11 @@ def extract(zip_path, dest_root):
     if out_dir.is_dir() and any(out_dir.iterdir()):
         return _descend(out_dir)  # already extracted in this session
 
+    if max_bytes is None:
+        max_bytes = MAX_UNCOMPRESSED_BYTES
+    if max_ratio is None:
+        max_ratio = MAX_RATIO
+    created = not out_dir.exists()
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(str(zip_path)) as zf:
@@ -129,10 +167,16 @@ def extract(zip_path, dest_root):
                 # no file survived the safety filter (empty archive, or every
                 # entry escaped / was a symlink): saying so is the point
                 raise ZipError("'{}' has no extractable files".format(zip_path.name))
+            _check_limits(zip_path.name, members, max_bytes, max_ratio)
             zf.extractall(str(out_dir), members=members)
     except zipfile.BadZipFile as e:
+        _discard(out_dir, created)
         raise ZipError("'{}' is not a valid zip: {}".format(zip_path.name, e)) from None
     except OSError as e:
+        _discard(out_dir, created)
         raise ZipError('could not extract {}: {}'.format(zip_path.name, e)) from None
+    except ZipError:
+        _discard(out_dir, created)
+        raise
 
     return _descend(out_dir)

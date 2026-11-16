@@ -242,6 +242,54 @@ DEFAULT_CHECKER_CONFIG = {
 }
 
 
+def finding_location(item: Dict[str, Any]) -> Tuple[str, Optional[int]]:
+    """``(file, line)`` a finding or coverage item points at; line is None
+    for ARXML-side items, file is '' when nothing locates it."""
+    call = item.get('call')
+    if call is not None:
+        return call.file, call.line
+    return item.get('file') or item.get('arxml_file') or '', None
+
+
+def finding_detail(finding: Dict[str, Any]) -> str:
+    """One-line explanation of a finding, shared by terminal and exports."""
+    reason = finding['reason']
+    call = finding.get('call')
+    detail = ''
+    if call is not None:
+        detail = call.api
+        if call.function:
+            detail += ' in {}'.format(call.function)
+    if reason in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE'):
+        detail = finding['error']
+    elif reason == 'NO_MATCHING_PORT_DATAELEMENT':
+        detail += ' has no matching ARXML Port/DataElement'
+    elif reason == 'MISSING_ACCESS_POINT_IN_ARXML':
+        detail += ' is missing {} / {} for runnable {} in {}'.format(
+            finding['port'], finding['data_element'], finding['runnable'],
+            finding['arxml_file'])
+    elif reason == 'ACCESS_MODE_MISMATCH':
+        detail += ' expects {}; ARXML has {}'.format(
+            finding['expected'], ', '.join(finding['actual']))
+    elif reason == 'INCONSISTENT_ARXML_ACCESS_MODE':
+        definitions = '; '.join(
+            '{}: {}'.format(path, ', '.join(modes))
+            for path, modes in sorted(finding['files'].items()))
+        detail = '{} / {} / {} differs across {}'.format(
+            finding['runnable'], finding['port'], finding['data_element'],
+            definitions)
+    elif reason == 'ORPHAN_ACCESS':
+        detail = '{} / {} / {} ({}) has no matching generated RTE access'.format(
+            finding['runnable'], finding['port'], finding['data_element'],
+            finding['access'])
+    elif reason in ('NVM_PACKAGE', 'DEM_PACKAGE'):
+        detail += ' references {}; allowed package(s): {}'.format(
+            finding['interface'], ', '.join(finding['expected_packages']))
+    elif reason == 'FORBIDDEN_FUNCTION':
+        detail += ' is prohibited by forbidden_functions'
+    return detail
+
+
 def ignored_explanation(item: Dict[str, Any]) -> str:
     reason = item['reason']
     if reason in _REGEX_EXCLUSIONS:

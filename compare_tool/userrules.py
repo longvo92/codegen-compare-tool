@@ -12,15 +12,21 @@ expression whose matches are blanked (or replaced) in the *shadow* the verdict
 is decided on, so text a rule explains stops counting as a real change and is
 labelled with the rule's own name in the diff.
 
-Fail-safe, like every rule in this tool -- a user filter must never be able to
-hide a real change or abort a run:
+A rule is trusted configuration: whatever it matches stops counting as a real
+change, so a pattern that matches code hides that code. The guards below stop
+the broad mistakes and make every effect visible; they cannot judge intent:
 
-- a rule whose regex does not compile is skipped and named in the warnings,
-  never fatal;
+- a rule whose regex does not compile, or that matches the empty string
+  (``.*``, ``x*``, ``^``), is skipped and named in the warnings, never fatal;
 - a rule whose replacement (or a match) would change a file's line count is
-  skipped -- the two-pass diff needs the shadow to stay line-for-line with the
-  raw text (see ``docs/architecture.md``), and a multi-line edit could misalign
-  a real change, so the safe answer is not to apply it;
+  skipped for that file -- the two-pass diff needs the shadow to stay
+  line-for-line with the raw text (see ``docs/architecture.md``);
+- a rule that would rewrite more than :data:`MAX_SHARE` of the
+  non-whitespace characters of a file with at least :data:`MIN_GUARDED_LINES`
+  non-blank lines is skipped for that file (``.+`` would otherwise hide every
+  change; a one-line stamp file may still be blanked whole);
+- each per-file skip is returned to the caller, which records it as a file
+  note, and hunks a rule explains carry the rule's name;
 - anything a rule cannot fully explain stays a real change.
 
 Only the standard library is used (``json``, ``re``): these rules ship inside
@@ -32,6 +38,14 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+
+# Largest share of a file's non-whitespace characters one rule may rewrite.
+# Generator churn (ids, banners, timestamps) is a small part of a file; a rule
+# above this share is far more likely to be blanking code.
+MAX_SHARE = 0.5
+# Files shorter than this (build stamps, version files) are often nothing but
+# generator churn, so the share guard does not apply to them.
+MIN_GUARDED_LINES = 3
 
 
 class Rule:
@@ -92,6 +106,9 @@ def _parse_rule(item, warn):
     except re.error as e:
         warn.append('rule {!r}: bad regex ({}), skipped'.format(name, e))
         return None
+    if regex.fullmatch('') is not None:
+        warn.append('rule {!r}: pattern matches the empty string, skipped'.format(name))
+        return None
     return Rule(name, regex, replacement, exts)
 
 
@@ -120,17 +137,57 @@ def load(path):
     return rules, warn
 
 
-def apply(text, ext, rules):
+def _nonspace(text):
+    return sum(1 for ch in text if not ch.isspace())
+
+
+def _rewritten_part(old, new):
+    """The part of ``old`` a substitution actually changes: ``old`` without
+    the prefix and suffix it shares with ``new`` (a replacement that keeps
+    the surrounding tags only rewrites the value between them)."""
+    start = 0
+    limit = min(len(old), len(new))
+    while start < limit and old[start] == new[start]:
+        start += 1
+    end = 0
+    while end < limit - start and old[-1 - end] == new[-1 - end]:
+        end += 1
+    return old[start:len(old) - end]
+
+
+def _apply_one(rule, text):
+    """``(new_text, reason)``: the rewritten text, or the input and why the
+    rule was not applied to it."""
+    changed = [0]
+
+    def sub(match):
+        old = match.group(0)
+        out = match.expand(rule.replacement)
+        changed[0] += _nonspace(_rewritten_part(old, out))
+        return out
+
+    new = rule.regex.sub(sub, text)
+    if new.count('\n') != text.count('\n'):
+        return text, 'would change the line count'
+    total = _nonspace(text)
+    lines = sum(1 for line in text.split('\n') if line.strip())
+    if lines >= MIN_GUARDED_LINES and changed[0] > MAX_SHARE * total:
+        return text, 'would rewrite {:.0%} of the file (limit {:.0%})'.format(
+            changed[0] / total, MAX_SHARE)
+    return new, None
+
+
+def apply(text, ext, rules, skipped=None):
     """Blank every match of each rule that applies to ``ext``.
 
-    A rule that changes the line count on this input is skipped (fail-safe):
-    the shadow has to stay line-for-line with the raw text. When ``rules`` is
-    empty this returns ``text`` unchanged, which is why the default -- no
-    ``--rules`` -- costs nothing and changes nothing."""
+    A rule that fails a per-file guard (line count, :data:`MAX_SHARE`) is not
+    applied to this text; ``(rule name, reason)`` is appended to ``skipped``
+    when a list is given. With no rules this returns ``text`` unchanged, which
+    is why the default -- no ``--rules`` -- costs nothing and changes nothing."""
     for r in rules:
         if not r.applies_to(ext):
             continue
-        new = r.regex.sub(r.replacement, text)
-        if new.count('\n') == text.count('\n'):
-            text = new
+        text, reason = _apply_one(r, text)
+        if reason is not None and skipped is not None:
+            skipped.append((r.name, reason))
     return text

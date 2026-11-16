@@ -19,11 +19,12 @@ Path tương đối với `compare_tool/`.
 | `filepair.py` | Ghép Added/Deleted file một cách bảo thủ |
 | `consistency.py` | Old/new advisory và CURRENT RTE/ARXML check tùy chọn |
 | `view_model.py`, `funcname.py` | Label, aligned row, mute và object caption dùng chung |
-| `report.py`, `serialize.py` | HTML offline, model Overview dùng chung, JSON và SARIF |
+| `report.py`, `serialize.py` | HTML offline (`write_report` là đường export duy nhất cho CLI và viewer), model Overview dùng chung, JSON và SARIF |
+| `fileio.py` | Ghi output nguyên tử (temp file + replace, line ending LF) |
 | `review.py` | Review identity, note và sign-off |
 | `gitsource.py`, `gitgraph.py`, `zipsource.py` | Lịch sử Git, lane của graph, snapshot read-only và giải nén ZIP an toàn |
 | `theme.py`, `resources.py` | Color role dùng chung và packaged asset tùy chọn |
-| `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt |
+| `qtviewer/` | Qt UI, worker, model và rendering; package duy nhất phụ thuộc Qt. `qtviewer/review_panel.py` là panel Review note/sign-off |
 
 ## Xử lý ARXML
 
@@ -42,12 +43,12 @@ quan đến Master phải được quét lại.
 
 ## Data flow
 
-1. Source adapter đưa folder, ZIP hoặc Git snapshot về directory.
+1. Source adapter đưa folder, ZIP hoặc Git snapshot về directory. CLI đọc `--baseline-rev` / `--current-rev` qua cùng Git source chỉ-đọc này.
 2. `scanner.scan` compare từng cặp file qua `diff_engine.compare_pair` và gắn semantic data.
 3. Move pairing và semantic rollup bổ sung raw result.
 4. CLI, HTML, JSON/SARIF và viewer dùng result này.
 
-Git dùng `git archive`, không đổi HEAD, index hoặc working file. ZIP extraction từ chối archive không đọc được/rỗng và path traversal, rồi dọn temp directory.
+Git dùng `git archive`, không đổi HEAD, index hoặc working file. ZIP extraction từ chối archive không đọc được/rỗng, path traversal, archive trên 4 GiB sau giải nén và member trên 1 MiB có tỉ lệ nén trên 1000, rồi dọn temp directory. HTML, JSON, SARIF và file review đi qua `fileio`, nên ghi lỗi không để lại file dở.
 
 ## Comparison contract
 
@@ -69,11 +70,13 @@ Hunk kind gồm `real`, `moved`, `comment`, `rename`, `assumed-rename`, `uuid`, 
 
 Generated rename cần mapping một-một đã verify; function callee cần cùng generated checksum root. Reorder luôn là real change vì dependency theo tên biến không chứng minh được sự vắng mặt của volatile, pointer alias và macro alias. Nhãn moved vẫn hỗ trợ xem diff.
 
+User rule trong `userrules.py` có guard: pattern khớp chuỗi rỗng bị bỏ qua, và theo từng file, rule làm đổi số dòng hoặc viết lại hơn một nửa ký tự non-whitespace (file có ít nhất 3 dòng không trống) sẽ không được áp dụng và để lại note. File đó vẫn là real change.
+
 `--skip-var-renames` chủ động nới điều kiện chứng minh rename. Hunk dùng `assumed-rename`; mọi output phải ghi rõ đã bật option.
 
 ## Consistency
 
-`consistency.py` tạo regeneration advisory từ raw comparison. CURRENT check chạy khi CLI hoặc workspace Code Check độc lập trong viewer yêu cầu. HTML và comparison export không chứa CURRENT finding.
+`consistency.py` tạo regeneration advisory từ raw comparison. CURRENT check chạy khi CLI hoặc workspace Code Check độc lập trong viewer yêu cầu. HTML không chứa CURRENT finding. JSON và SARIF có: `serialize.current_check_block` dựng block cho `--check-current` và comparison có `--check-consistency`, còn `consistency.finding_location` / `finding_detail` cho terminal, JSON và SARIF cùng một vị trí và message cho mỗi finding.
 
 CURRENT policy cũng check package interface NVM/DEM đã cấu hình qua server-call-point của runnable và required-port reference, cùng lời gọi function trực tiếp bị cấm trong thân C. Cả chín rule finding dùng chung severity trong `rules` của YAML/JSON. Lỗi scan và input luôn chặn. Package policy kiểm tra vị trí package của interface. `CurrentTreeCheck` cung cấp riêng cho CLI và Code Check các mục giới hạn coverage, mục bị loại theo regex, finding bị skip, ngoại lệ theo phạm vi và mục chưa kiểm tra. Verdict và exit code dựa trên finding và quy tắc coverage hiện hành.
 
@@ -111,7 +114,7 @@ Help nhúng nội dung hướng dẫn song ngữ và About. `resources.doc_text`
 
 Git picker phân trang lịch sử theo thứ tự topology từ các tip đã resolve. Với thư mục con, worker dựng DAG theo đúng đường dẫn một lần cho mỗi tập tip. Merge được kiểm tra theo first parent gốc. Lane nối qua các commit bị ẩn, còn metadata giữ parent SHA gốc. Cửa sổ chuẩn bị hai nguồn trên worker rồi chuyển các thư mục cho luồng scan chung. Snapshot hoàn tất được cache theo repository, commit và thư mục cho đến khi đóng cửa sổ.
 
-Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Export dùng raw scan.
+Giữ các quyết định này ngoài renderer. Viewer scan trong `qtviewer/worker.py` bằng `QThread`; model không phụ thuộc Qt phải import được khi thiếu PySide6. Export dùng raw scan. Review note và sign-off dùng identity của `review.py`; `qtviewer/review_panel.py` chỉnh chúng trong viewer và lưu `codegen-review.json` nguyên tử cạnh CURRENT, còn `report.write_report` nhúng chúng vào HTML export như CLI `--review`.
 
 `main.viewer_requested` chọn front end. `run_compare` xóa target HTML cũ trước scan; lỗi ghi vẫn giữ terminal result và trả 2. `--no-report` bỏ qua HTML, không đụng report cũ. `summary_lines` và `diagnostic_lines` dùng raw scan, không đổi kết quả.
 

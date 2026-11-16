@@ -130,5 +130,82 @@ class TestCliWritesMachineOutput(unittest.TestCase):
         self.assertIn('JSON written', out)
 
 
+class TestCurrentUncheckedCoverage(unittest.TestCase):
+    """An unsupported/unresolved RTE access must surface as UNCHECKED, never
+    as an empty-equals-clean result."""
+
+    ARXML = (
+        '<AUTOSAR xmlns="http://autosar.org/schema/r4.0"><AR-PACKAGES>'
+        '<AR-PACKAGE><SHORT-NAME>Pkg</SHORT-NAME><ELEMENTS>'
+        '<APPLICATION-SW-COMPONENT-TYPE><SHORT-NAME>Ctrl</SHORT-NAME>'
+        '<SYMBOL-PROPS><SYMBOL></SYMBOL></SYMBOL-PROPS>'
+        '<INTERNAL-BEHAVIORS><SWC-INTERNAL-BEHAVIOR><SHORT-NAME>IB</SHORT-NAME>'
+        '<RUNNABLES><RUNNABLE-ENTITY><SHORT-NAME>Step</SHORT-NAME>'
+        '<DATA-RECEIVE-POINT-BY-ARGUMENTS><VARIABLE-ACCESS><ACCESSED-VARIABLE>'
+        '<AUTOSAR-VARIABLE-IREF>'
+        '<PORT-PROTOTYPE-REF>/Pkg/Ctrl/Speed</PORT-PROTOTYPE-REF>'
+        '<TARGET-DATA-PROTOTYPE-REF>/Interfaces/Speed/Value</TARGET-DATA-PROTOTYPE-REF>'
+        '</AUTOSAR-VARIABLE-IREF></ACCESSED-VARIABLE></VARIABLE-ACCESS>'
+        '</DATA-RECEIVE-POINT-BY-ARGUMENTS></RUNNABLE-ENTITY></RUNNABLES>'
+        '</SWC-INTERNAL-BEHAVIOR></INTERNAL-BEHAVIORS>'
+        '</APPLICATION-SW-COMPONENT-TYPE></ELEMENTS></AR-PACKAGE>'
+        '</AR-PACKAGES></AUTOSAR>')
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.root = self.tmp / 'current'
+        self.root.mkdir()
+        (self.root / 'Ctrl.c').write_text(
+            'void Ctrl_Step(void) { Rte_Read_Speed_Value(); }', encoding='utf-8')
+        (self.root / 'Ctrl.arxml').write_text(self.ARXML, encoding='utf-8')
+        self.json = self.tmp / 'o.json'
+        self.sarif = self.tmp / 'o.sarif'
+
+    def _run(self, *argv):
+        from unittest import mock
+
+        from compare_tool import consistency
+        skipped = {'reason': 'NEW_COVERAGE_GAP', 'arxml_file': 'Ctrl.arxml'}
+        out = io.StringIO()
+        with mock.patch.object(consistency, '_orphan_accesses',
+                               return_value=([], [skipped], [])), \
+                contextlib.redirect_stdout(out):
+            rc = main(list(argv))
+        return rc, out.getvalue()
+
+    def _assert_unchecked(self, rc, out, block, sarif):
+        self.assertEqual(rc, 0)  # UNCHECKED never gates ...
+        self.assertEqual(block['status'], 'INCOMPLETE')  # ... but is never "PASS"
+        self.assertEqual(block['findings'], [])
+        self.assertEqual(len(block['unchecked']), 1)
+        self.assertEqual(block['coverage']['unchecked'], 1)
+        item = block['unchecked'][0]
+        self.assertEqual(item['rule'], 'NEW_COVERAGE_GAP')
+        self.assertEqual(item['file'], 'Ctrl.arxml')
+        self.assertIn('[UNCHECKED] NEW_COVERAGE_GAP', out)
+        results = sarif['runs'][0]['results']
+        self.assertEqual([(r['ruleId'], r['level']) for r in results],
+                         [('current/NEW_COVERAGE_GAP', 'note')])
+
+    def test_check_current_reports_unchecked_in_json_and_sarif(self):
+        rc, out = self._run('--check-current', str(self.root),
+                            '--json', str(self.json), '--sarif', str(self.sarif))
+        doc = json.loads(self.json.read_text(encoding='utf-8'))
+        self.assertEqual(doc['exit_code'], rc)
+        self._assert_unchecked(rc, out, doc['current_check'],
+                               json.loads(self.sarif.read_text(encoding='utf-8')))
+
+    def test_comparison_with_check_consistency_reports_unchecked(self):
+        rc, out = self._run(str(self.root), str(self.root), '--no-report',
+                            '--check-consistency', '--json', str(self.json),
+                            '--sarif', str(self.sarif))
+        doc = json.loads(self.json.read_text(encoding='utf-8'))
+        self.assertEqual(doc['kind'], 'compare')
+        self._assert_unchecked(rc, out, doc['current_check'],
+                               json.loads(self.sarif.read_text(encoding='utf-8')))
+
+
 if __name__ == '__main__':
     unittest.main()
