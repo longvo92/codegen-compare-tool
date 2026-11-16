@@ -58,9 +58,11 @@ python -m compare_tool --check-current current
 | HTML report | Chia sẻ offline hoặc làm CI artifact |
 | `--no-report` | Xem summary và diagnostics trên terminal |
 | `--check-current PATH` | Kiểm tra RTE/ARXML trong CURRENT trước delivery |
-| `--json` / `--sarif` | Export comparison result cho pipeline |
+| Review sign-off | Thêm note và sign off real change trong viewer; lưu vào `codegen-review.json` |
+| `--json` / `--sarif` | Export comparison result và CURRENT finding cho pipeline |
+| `--baseline-rev` / `--current-rev` | So sánh Git revision từ CLI |
 
-CURRENT consistency finding hiện trong Code Check hoặc terminal; JSON/SARIF chứa comparison result và old/new advisory.
+CURRENT consistency finding hiện trong Code Check và terminal. Với `--check-current` hoặc `--check-consistency`, JSON/SARIF cũng chứa chúng; xem [Pipeline migration](usage.md#pipeline-migration) khi nâng cấp script.
 
 ## Đọc kết quả
 

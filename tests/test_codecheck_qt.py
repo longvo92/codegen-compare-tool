@@ -593,33 +593,37 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertEqual(self.win.source_toolbar.actions(),
                          [self.win.act_open, self.win.act_git, self.win.act_export])
         self.assertEqual(self.win.compare_toolbar.actions(),
-                         [self.win.show_comment, self.win.show_unimportant])
+                         [self.win.show_comment, self.win.show_unimportant,
+                          self.win.act_review_mode])
         self.assertTrue(self.win.source_toolbar.isVisible())
         self.assertTrue(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.help_button.isVisible())
         self.assertEqual(self.win.tree.columnCount(), 2)
+        # Review sign-off lives in Compare only: its panel sits under the diff
         actions = self.win.findChildren(QAction)
-        self.assertNotIn('Review mode', [action.text() for action in actions])
-        self.assertFalse({'Ctrl+R', 'Ctrl+Shift+R'} & {action.shortcut().toString() for action in actions})
+        self.assertTrue({'Ctrl+R', 'Ctrl+Shift+R'} <= {action.shortcut().toString() for action in actions})
+        self.assertTrue(self.win.compare_page.isAncestorOf(self.win.review_panel))
         self.win.modes.setCurrentIndex(1)
         self.app.processEvents()
         self.assertFalse(self.win.source_toolbar.isVisible())
         self.assertFalse(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.help_button.isVisible())
 
-    def test_compare_and_export_leave_existing_review_file_untouched(self):
+    def test_compare_and_export_leave_unreadable_review_file_untouched(self):
+        # Review mode reads the file beside CURRENT; an unreadable one is
+        # reported, never rewritten, and does not block the scan or export
         record = Path(self.temp.name) / 'codegen-review.json'
-        record.write_text('Existing review file must not be read or rewritten.', encoding='utf-8')
+        record.write_text('Existing review file must not be rewritten.', encoding='utf-8')
         before = record.read_bytes(), record.stat().st_mtime_ns
         self.win.old = self.win.new = str(self.root)
-        with mock.patch('compare_tool.review.ReviewStore.load', side_effect=AssertionError('Unexpected review load')):
-            self.win._start_scan()
-            self.settle(lambda: bool(self.win._raw_results) and not self.win.worker.isRunning())
-            output = Path(self.temp.name) / 'report.html'
-            with mock.patch('compare_tool.qtviewer.app.QFileDialog.getSaveFileName', return_value=(str(output), '')), \
-                    mock.patch('compare_tool.qtviewer.app.QMessageBox.question', return_value=QMessageBox.No):
-                self.win._export_report()
-            self.assertTrue(output.is_file())
+        self.win._start_scan()
+        self.settle(lambda: bool(self.win._raw_results) and not self.win.worker.isRunning())
+        self.assertIsNotNone(self.win.review_panel.store.error)
+        output = Path(self.temp.name) / 'report.html'
+        with mock.patch('compare_tool.qtviewer.app.QFileDialog.getSaveFileName', return_value=(str(output), '')), \
+                mock.patch('compare_tool.qtviewer.app.QMessageBox.question', return_value=QMessageBox.No):
+            self.win._export_report()
+        self.assertTrue(output.is_file())
         self.assertEqual((record.read_bytes(), record.stat().st_mtime_ns), before)
 
     def test_source_uses_compare_syntax_colours_in_both_themes(self):

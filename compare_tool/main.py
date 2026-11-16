@@ -19,12 +19,12 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from . import (APP_NAME, __version__, consistency, review, serialize, theme, userrules,
-               zipsource)
+from . import (APP_NAME, __version__, consistency, gitsource, review, serialize, theme,
+               userrules, zipsource)
 from .diff_engine import RULES, ruleset_for
+from .fileio import write_text_atomic
 from .fix_suggestions import assess_fix, finding_key, suggestion
-from .report import (build_arxml_report, consistency_advisories,
-                     model_overview, render_report)
+from .report import consistency_advisories, model_overview, write_report
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
                       summarize_rte, summarize_swcs)
@@ -92,23 +92,18 @@ def run_compare(old_root, new_root, out, arxml_only=False, exclude=(),
     counts = summarize(results)
     if out is None:
         return results, counts
-    if arxml_only:
-        # ALWAYS written: "no changes" must be an explicit statement, never
-        # a silently absent file (indistinguishable from a run that died)
-        page = build_arxml_report(results, old_root, new_root,
-                                  old_label=old_label, theme_name=theme_name,
-                                  new_label=new_label)
-    else:
-        rendered = render_report(results, old_root, new_root, reviews,
-                            old_label=old_label, theme_name=theme_name,
-                            new_label=new_label, max_diff_lines=max_diff_lines)
-        page = rendered.html
-        if diagnostics is not None:
-            diagnostics.extend(rendered.diagnostics)
+    # the arxml-only report is ALWAYS written: "no changes" must be an explicit
+    # statement, never a silently absent file (indistinguishable from a run
+    # that died)
     try:
-        out.write_text(page, encoding='utf-8')
+        problems = write_report(results, old_root, new_root, out,
+                                arxml_only=arxml_only, reviews=reviews,
+                                theme_name=theme_name, old_label=old_label,
+                                new_label=new_label, max_diff_lines=max_diff_lines)
     except OSError as e:
         raise ReportWriteError(_write_hint(out, e), results, counts) from None
+    if diagnostics is not None:
+        diagnostics.extend(problems)
     return results, counts
 
 
@@ -161,41 +156,9 @@ def _current_consistency_lines(check, assessment=None):
     ]
     for finding in check.findings:
         reason = finding['reason']
-        call = finding.get('call')
-        location = finding.get('file') or finding.get('arxml_file') or '-'
-        detail = ''
-        if call is not None:
-            location = '{}:{}'.format(call.file, call.line)
-            detail = call.api
-            if call.function:
-                detail += ' in {}'.format(call.function)
-        if reason in ('CONSISTENCY_SCAN_ERROR', 'CONSISTENCY_INPUT_INCOMPLETE'):
-            detail = finding['error']
-        elif reason == 'NO_MATCHING_PORT_DATAELEMENT':
-            detail += ' has no matching ARXML Port/DataElement'
-        elif reason == 'MISSING_ACCESS_POINT_IN_ARXML':
-            detail += ' is missing {} / {} for runnable {} in {}'.format(
-                finding['port'], finding['data_element'], finding['runnable'],
-                finding['arxml_file'])
-        elif reason == 'ACCESS_MODE_MISMATCH':
-            detail += ' expects {}; ARXML has {}'.format(
-                finding['expected'], ', '.join(finding['actual']))
-        elif reason == 'INCONSISTENT_ARXML_ACCESS_MODE':
-            definitions = '; '.join(
-                '{}: {}'.format(path, ', '.join(modes))
-                for path, modes in sorted(finding['files'].items()))
-            detail = '{} / {} / {} differs across {}'.format(
-                finding['runnable'], finding['port'], finding['data_element'],
-                definitions)
-        elif reason == 'ORPHAN_ACCESS':
-            detail = '{} / {} / {} ({}) has no matching generated RTE access'.format(
-                finding['runnable'], finding['port'], finding['data_element'],
-                finding['access'])
-        elif reason in ('NVM_PACKAGE', 'DEM_PACKAGE'):
-            detail += ' references {}; allowed package(s): {}'.format(
-                finding['interface'], ', '.join(finding['expected_packages']))
-        elif reason == 'FORBIDDEN_FUNCTION':
-            detail += ' is prohibited by forbidden_functions'
+        file, line = consistency.finding_location(finding)
+        location = '{}:{}'.format(file, line) if line is not None else (file or '-')
+        detail = consistency.finding_detail(finding)
         severity = finding['severity'].upper()
         lines.append('  !! [{}] {} {} -- {}'.format(
             severity, reason, location, detail))
@@ -480,13 +443,19 @@ def _parser():
                     help='previous codegen output folder')
     ap.add_argument('new_dir', nargs='?', default=None,
                     help='new codegen output folder')
-    ap.add_argument('--qt', '--viewer', dest='qt', action='store_true',
+    inputs = ap.add_argument_group('inputs', 'folders, ZIPs or Git revisions to compare')
+    compare = ap.add_argument_group('comparison')
+    output = ap.add_argument_group('reports and machine output')
+    check = ap.add_argument_group('CURRENT consistency check (Code Check)')
+    settings = ap.add_argument_group('portable settings')
+    handler = ap.add_argument_group('ARXML Handler')
+    inputs.add_argument('--qt', '--viewer', dest='qt', action='store_true',
                     help='open the side-by-side compare viewer (PySide6): a '
                          'folder tree with a two-pane BASELINE/CURRENT diff. '
                          'This is also what runs when no folders are given, so '
                          'the flag is only needed to view folders passed on the '
                          'command line instead of comparing them in the terminal')
-    reports = ap.add_mutually_exclusive_group()
+    reports = output.add_mutually_exclusive_group()
     reports.add_argument('--report', metavar='OUT.html', default=None,
                     help='HTML report output path (default: compare_report.html, '
                          'or arxml_update.html with --arxml-only)')
@@ -497,7 +466,7 @@ def _parser():
                               'non-identical file, without source diffs or an '
                               'HTML report. Requires both input paths; existing '
                               'reports are left untouched')
-    ap.add_argument('--arxml-only', action='store_true',
+    compare.add_argument('--arxml-only', action='store_true',
                     help='compare only ARXML/XML and A2L files and write a '
                          'compact "what changed in the AUTOSAR model and '
                          'calibration surface" report instead of the full '
@@ -509,46 +478,56 @@ def _parser():
     # header ends up naming the mechanism (`cg_temp`) instead of what was
     # compared. The folder path stays in the tooltip either way -- these rename
     # a side in the report, they never stand in for one.
-    ap.add_argument('--baseline-name', metavar='NAME', default=None,
+    inputs.add_argument('--baseline-name', metavar='NAME', default=None,
                     help='name the BASELINE side in the report header instead '
                          'of using its folder name -- for a pipeline that '
                          'stages the previous codegen into a scratch directory, '
                          'where the folder name says nothing. Example: '
                          '--baseline-name "build 4821"')
-    ap.add_argument('--current-name', metavar='NAME', default=None,
+    inputs.add_argument('--current-name', metavar='NAME', default=None,
                     help='same for the CURRENT side')
-    ap.add_argument('--theme', choices=theme.THEMES, default=None,
+    inputs.add_argument('--baseline-rev', metavar='REV', default=None,
+                    help='read old_dir from this Git revision (SHA, branch, tag or '
+                         'expression such as HEAD~1) instead of the working tree. '
+                         'old_dir must name a folder inside a Git repository; the '
+                         'snapshot is exported read-only with git archive. '
+                         'Example: out/gen out/gen --baseline-rev HEAD~1')
+    inputs.add_argument('--current-rev', metavar='REV', default=None,
+                    help='same for new_dir; without it CURRENT is the folder on disk')
+    output.add_argument('--theme', choices=theme.THEMES, default=None,
                     help='initial viewer or HTML theme. Viewer uses its saved theme '
                          'or light if unset; CLI HTML defaults to dark. Change the '
                          'viewer theme in Settings, or switch it in the HTML report.')
-    ap.add_argument('--config', metavar='SETTINGS.yaml', help='load portable application settings')
-    ap.add_argument('--export-config', metavar='OUT.yaml', help='write resolved settings and exit')
-    ap.add_argument('--clear-exclude', action='store_true', help='clear configured file exclusions')
+    settings.add_argument('--config', metavar='SETTINGS.yaml', help='load portable application settings')
+    settings.add_argument('--export-config', metavar='OUT.yaml', help='write resolved settings and exit')
+    settings.add_argument('--clear-exclude', action='store_true', help='clear configured file exclusions')
     for name in ('arxml-only', 'skip-var-renames', 'check-consistency', 'exit-zero'):
-        ap.add_argument('--no-' + name, dest=name.replace('-', '_'), action='store_false', default=None,
+        settings.add_argument('--no-' + name, dest=name.replace('-', '_'), action='store_false', default=None,
                         help='disable configured ' + name)
-    ap.add_argument('--exclude', metavar='PATTERN', action='append',
+    compare.add_argument('--exclude', metavar='PATTERN', action='append',
                     help='skip files matching this glob (relative path or bare '
                          'file name); repeatable. Example: --exclude compare_report.html')
-    ap.add_argument('--review', metavar='REVIEW.json', default=None,
+    output.add_argument('--review', metavar='REVIEW.json', default=None,
                     help='existing review notes/sign-offs file (legacy name: '
                          'codegen-review.json). Its notes are rendered next to '
                          'the changes they belong to and the report gains a '
                          'Reviewed badge that hides the changes already signed '
                          'off. Not loaded unless named: a report must not pick '
                          'up someone else\'s sign-off by accident')
-    ap.add_argument('--rules', metavar='RULES.json', default=None,
+    compare.add_argument('--rules', metavar='RULES.json', default=None,
                     help='extra noise patterns as a JSON file, applied ON TOP '
                          'of the built-in Embedded Coder rules (they are never '
                          'replaced). A team on TargetLink or DaVinci can teach '
                          'the tool its own generated churn without editing the '
                          'source. Each rule is {"name", "pattern" (regex), '
-                         'optional "replacement", optional "extensions"}; a '
-                         'rule that cannot compile, or that would change a '
-                         'file\'s line count, is skipped with a warning -- a '
-                         'filter can never hide a real change. Applies to both '
-                         'the report and the viewer')
-    ap.add_argument('--skip-var-renames', action='store_true',
+                         'optional "replacement", optional "extensions"}. A '
+                         'rule that cannot compile or matches the empty string is '
+                         'skipped with a warning; per file, a rule that would '
+                         'change the line count or rewrite most of a file is not '
+                         'applied and the file gets a note. A rule still hides '
+                         'whatever it matches, so keep patterns narrow. Applies '
+                         'to both the report and the viewer')
+    compare.add_argument('--skip-var-renames', action='store_true',
                     help='QUICK CHECK, UNSAFE: fold away any C/C++ hunk that is '
                          'only bindings differing by variable names -- an '
                          'assignment or a declaration that names one object and '
@@ -563,37 +542,41 @@ def _parser():
                          'as real. Everything folded is labelled Assumed rename '
                          'and the report and the terminal both carry a warning; '
                          'do not sign a review off on a run that used this')
-    ap.add_argument('--check-consistency', action='store_true',
+    check.add_argument('--check-consistency', action='store_true',
                     help='enable the CLI-only CURRENT-tree RTE/ARXML '
                          'consistency check; disabled by default and not '
                          'included in the viewer or HTML report')
-    ap.add_argument('--arxml-handler', action='store_true',
+    handler.add_argument('--arxml-handler', action='store_true',
                     help='ARXML patch workspace CLI; use --arxml-handler --help')
-    ap.add_argument('--fix-master', metavar='FOLDER', help='Master for read-only --check-current repair evaluation')
-    ap.add_argument('--fix-source', metavar='FOLDER', help='Source ARXML for read-only --check-current repair evaluation')
-    ap.add_argument('--check-current', metavar='PATH', default=None,
+    check.add_argument('--fix-master', metavar='FOLDER', help='Master for read-only --check-current repair evaluation')
+    check.add_argument('--fix-source', metavar='FOLDER', help='Source ARXML for read-only --check-current repair evaluation')
+    check.add_argument('--check-current', metavar='PATH', default=None,
                     help='check one CURRENT folder or ZIP without a baseline, '
                          'diff or HTML')
-    ap.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
+    check.add_argument('--consistency-config', metavar='CONFIG.yaml', default=None,
                     help='settings for --check-consistency: NVM/DEM packages, '
                          'forbidden functions/RTE prefixes, port and Rte_Call ignore regexes, and per-rule '
                          'fail/warn/skip/off severities. Uses a small YAML '
                          'subset, or JSON with scoped exceptions and function '
                          'mappings; also accepted with --check-current')
-    ap.add_argument('--ignore-access-port-regex', metavar='REGEX', default=None,
+    check.add_argument('--ignore-access-port-regex', metavar='REGEX', default=None,
                     help='CLI-only extra regex for RTE Port/DataElement names '
                          'that the current-tree consistency check should skip; '
                          'OR-ed with patterns from --consistency-config')
-    ap.add_argument('--json', metavar='OUT.json', default=None,
+    output.add_argument('--json', metavar='OUT.json', default=None,
                     help='also write the full scan as schema-versioned JSON for '
                          'a pipeline to read -- per-file verdict, hunks, renames, '
-                         'AUTOSAR extras, the run summary, the consistency '
-                         'advisories and the exit code')
-    ap.add_argument('--sarif', metavar='OUT.sarif', default=None,
+                         'AUTOSAR extras, the run summary, effective settings, '
+                         'the consistency advisories and the exit code; with '
+                         '--check-consistency or --check-current also the '
+                         'CURRENT findings, coverage and exceptions')
+    output.add_argument('--sarif', metavar='OUT.sarif', default=None,
                     help='also write a SARIF 2.1.0 log of the files that need '
-                         'action (modified / added / deleted / error), so GitHub '
-                         'or Azure DevOps code scanning can annotate them inline')
-    ap.add_argument('--max-diff-lines', metavar='N', type=int,
+                         'action (modified / added / deleted / error), plus '
+                         'CURRENT findings (current/<RULE>) and unchecked items '
+                         'when a consistency check ran, so GitHub or Azure DevOps '
+                         'code scanning can annotate them inline')
+    output.add_argument('--max-diff-lines', metavar='N', type=int,
                     help='cap the diff embedded PER FILE in the HTML report at '
                          'about N lines (0 = no cap, the default). A regenerate '
                          'that touched a whole tree can otherwise render one '
@@ -601,7 +584,7 @@ def _parser():
                          'the mailed report. A capped file keeps its verdict, '
                          'its counts and the exit code -- the cut is loud in the '
                          'report and points at the viewer for the full diff')
-    ap.add_argument('--exit-zero', action='store_true',
+    compare.add_argument('--exit-zero', action='store_true',
                     help='always exit 0 even when real changes exist '
                          '(report-only mode for CI pipelines); current-tree '
                          'consistency failures still exit 1 and compare or '
@@ -655,6 +638,30 @@ def _resolve_source(ap, arg, zip_temp):
         return zipsource.extract(p, zip_temp[0]), p.name
     except zipsource.ZipError as e:
         ap.error('cannot use {} as a compare source: {}'.format(arg, e))
+
+
+def _git_source(ap, arg, rev, temp_box, side):
+    """``old_dir``/``new_dir`` read from a Git revision. Returns
+    ``(root, label)``; every Git or path failure is a usage error (exit 2),
+    never an empty tree."""
+    # abspath first: before Python 3.10, Windows resolve() leaves a missing
+    # relative path relative, and a folder deleted from the work tree is missing
+    path = Path(os.path.abspath(arg)).resolve()
+    probe = path
+    while not probe.is_dir() and probe != probe.parent:
+        probe = probe.parent  # the folder may be gone from the working tree
+    try:
+        root = gitsource.repo_root(probe, strict=True)
+        if root is None:
+            raise gitsource.GitError('not inside a Git repository')
+        sub = gitsource.rel_in_repo(root, path)
+        sha = gitsource.resolve_sha(root, rev)
+        if temp_box[0] is None:
+            temp_box[0] = tempfile.mkdtemp(prefix='codegen-compare-src-')
+        out = gitsource.export(root, sha, sub, temp_box[0])
+    except (gitsource.GitError, ValueError) as e:
+        ap.error('cannot read {} {} at {}: {}'.format(side, arg, rev, e))
+    return out, '{} @ {} ({})'.format(Path(arg).as_posix(), rev, sha[:12])
 
 
 def _viewer_source(ap, arg, zip_temp):
@@ -788,7 +795,7 @@ def _run_current(ap, args, zip_temp):
         '--review': args.review, '--rules': args.rules,
         '--skip-var-renames': args.skip_var_renames,
         '--max-diff-lines': args.max_diff_lines,
-        '--json/--sarif (CURRENT findings export is not implemented)': args.json or args.sarif,
+        '--baseline-rev/--current-rev': args.baseline_rev or args.current_rev,
     }
     conflicts = [name for name, value in incompatible.items() if value]
     if conflicts:
@@ -836,7 +843,44 @@ def _run_current(ap, args, zip_temp):
             print('  To apply: ' + ' '.join(shlex.quote(value) for value in command))
     elif assessment:
         print('  Repair preview: ' + assessment.status)
-    return check.exit_code
+    code = check.exit_code
+    if args.json or args.sarif:
+        settings = _run_settings(args, ())
+        try:
+            if args.json:
+                write_text_atomic(args.json, serialize.dumps_current(
+                    check, root, code, args.current_name or label, config, settings))
+                print('JSON written: {}'.format(Path(args.json).resolve()))
+            if args.sarif:
+                write_text_atomic(args.sarif, serialize.dumps_sarif(None, check))
+                print('SARIF written: {}'.format(Path(args.sarif).resolve()))
+        except OSError as e:
+            print('!! MACHINE OUTPUT NOT WRITTEN -- {}'.format(_write_hint(
+                Path(args.json or args.sarif), e)), file=sys.stderr)
+            return 2
+    return code
+
+
+def _run_settings(args, user_rules):
+    """Effective options recorded in machine outputs, so a delivery record
+    shows what was excluded, which custom rules ran and which unsafe options
+    were on -- not only the verdicts they produced."""
+    return {
+        'arxml_only': bool(args.arxml_only),
+        'exclude': list(args.exclude),
+        'custom_rules': [{'name': r.name, 'pattern': r.regex.pattern,
+                          'replacement': r.replacement,
+                          'extensions': sorted(r.exts) if r.exts is not None else None}
+                         for r in user_rules],
+        'skip_var_renames': bool(args.skip_var_renames),
+        'check_consistency': bool(args.check_consistency or args.check_current),
+        'consistency_config': args.consistency_config,
+        'ignore_access_port_regex': args.ignore_access_port_regex,
+        'exit_zero': bool(args.exit_zero),
+        'config': args.config,
+        'baseline_rev': getattr(args, 'baseline_rev', None),
+        'current_rev': getattr(args, 'current_rev', None),
+    }
 
 
 def _run(ap, args, zip_temp):
@@ -853,6 +897,9 @@ def _run(ap, args, zip_temp):
                          args.ignore_access_port_regex):
         ap.error('--check-consistency and its options are CLI-only; give both '
                  'folders without --qt/--viewer')
+    if wants_viewer and (args.baseline_rev or args.current_rev):
+        ap.error('--baseline-rev/--current-rev are CLI-only; the viewer picks '
+                 'commits with Git Compare')
     if not args.check_consistency and (args.consistency_config or args.ignore_access_port_regex):
         ap.error('--consistency-config and --ignore-access-port-regex require '
                  '--check-consistency or --check-current')
@@ -896,8 +943,20 @@ def _run(ap, args, zip_temp):
     if args.report is None and not args.no_report:
         args.report = default_report_name(args.arxml_only)
 
-    old_root, old_zip = _resolve_source(ap, args.old_dir, zip_temp)
-    new_root, new_zip = _resolve_source(ap, args.new_dir, zip_temp)
+    kinds = []
+    sides = []
+    for arg, rev, side in ((args.old_dir, args.baseline_rev, 'old_dir'),
+                           (args.new_dir, args.current_rev, 'new_dir')):
+        if rev:
+            if zipsource.is_zip(Path(arg)):
+                ap.error('--{}-rev needs a folder, not a ZIP: {}'.format(
+                    'baseline' if side == 'old_dir' else 'current', arg))
+            sides.append(_git_source(ap, arg, rev, zip_temp, side))
+            kinds.append('git')
+        else:
+            sides.append(_resolve_source(ap, arg, zip_temp))
+            kinds.append('zip' if sides[-1][1] else 'folder')
+    (old_root, old_zip), (new_root, new_zip) = sides
     for p, name in ((old_root, 'old_dir'), (new_root, 'new_dir')):
         if not p.is_dir():
             ap.error('{} is not a directory: {}'.format(name, p))
@@ -920,8 +979,10 @@ def _run(ap, args, zip_temp):
               'only ever folds C/C++ bindings)', file=sys.stderr)
     out = Path(args.report) if args.report is not None else None
     if args.no_report:
-        print('BASELINE: {}'.format(args.baseline_name or args.old_dir))
-        print('CURRENT:  {}'.format(args.current_name or args.new_dir))
+        print('BASELINE: {}'.format(args.baseline_name or (old_zip if args.baseline_rev else None)
+                                    or args.old_dir))
+        print('CURRENT:  {}'.format(args.current_name or (new_zip if args.current_rev else None)
+                                    or args.new_dir))
     print('Scanning...')
 
     current_check = None
@@ -971,8 +1032,7 @@ def _run(ap, args, zip_temp):
                 results, arxml_only=args.arxml_only, exclude=args.exclude,
                 user_rules=user_rules,
                 skip_var_renames=args.skip_var_renames,
-                source_kinds=('zip' if old_zip else 'folder',
-                              'zip' if new_zip else 'folder')):
+                source_kinds=tuple(kinds)):
             print(line)
 
     if out is not None and args.arxml_only:
@@ -995,7 +1055,9 @@ def _run(ap, args, zip_temp):
         try:
             _write_machine(args, results, counts, old_root, new_root, code,
                            args.baseline_name or old_zip,
-                           args.current_name or new_zip)
+                           args.current_name or new_zip,
+                           _run_settings(args, user_rules), current_check,
+                           checker_config)
         except OSError as e:
             # a machine output a pipeline asked for is a record; failing to
             # write it leaves the run without the file it will gate on
@@ -1023,18 +1085,19 @@ def _exit_code(counts, exit_zero, current_check=None):
 
 
 def _write_machine(args, results, counts, old_root, new_root, code,
-                   old_label, new_label):
+                   old_label, new_label, settings=None, current_check=None,
+                   policy=None):
     """Write the JSON and/or SARIF outputs the CLI was asked for. Raises
     ``OSError`` on a failed write, which the caller turns into exit 2."""
     if args.json:
         advisories = consistency_advisories(results)
         text = serialize.dumps(results, counts, old_root, new_root, code,
-                               old_label, new_label, advisories)
-        Path(args.json).write_text(text, encoding='utf-8')
+                               old_label, new_label, advisories, settings,
+                               current_check, policy)
+        write_text_atomic(args.json, text)
         print('JSON written: {}'.format(Path(args.json).resolve()))
     if args.sarif:
-        Path(args.sarif).write_text(serialize.dumps_sarif(results),
-                                    encoding='utf-8')
+        write_text_atomic(args.sarif, serialize.dumps_sarif(results, current_check))
         print('SARIF written: {}'.format(Path(args.sarif).resolve()))
 
 

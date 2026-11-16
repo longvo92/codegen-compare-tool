@@ -377,8 +377,13 @@ def compare_pair(old_text, new_text, path, user_rules=(),
     # same way UUIDs are. Line count is preserved (userrules.apply guarantees
     # it), so the two passes still line up. Pass 1 below keeps the ORIGINAL
     # lines, so the reviewer still sees the real text.
-    u_old = userrules.apply(old_text, ext, user_rules)
-    u_new = userrules.apply(new_text, ext, user_rules)
+    old_skips, new_skips = [], []
+    u_old = userrules.apply(old_text, ext, user_rules, old_skips)
+    u_new = userrules.apply(new_text, ext, user_rules, new_skips)
+    for side, skips in (('BASELINE', old_skips), ('CURRENT', new_skips)):
+        for name, reason in skips:
+            result['notes'].append(
+                'custom rule {!r} not applied to {}: {}'.format(name, side, reason))
     if ruleset == 'c':
         old_shadow = c_rules.c_shadow(u_old)
         new_shadow = c_rules.c_shadow(u_new)

@@ -445,8 +445,9 @@ rules:
         self.fixture()
         output = self.base / 'result.json'
         output.write_text('existing')
-        for flags in (['--json', str(output)], ['--sarif', str(output)], ['--report', str(output)],
-                      ['--qt'], ['--arxml-only'], ['--consistency-policy', 'delivery'],
+        # --json/--sarif are supported since CURRENT findings export (see
+        # tests/test_cli_modes.py TestCurrentMachineOutputAgreement)
+        for flags in (['--report', str(output)], ['--qt'], ['--arxml-only'], ['--consistency-policy', 'delivery'],
                       [str(self.root), str(self.root)]):
             with self.subTest(flags=flags), self.assertRaises(SystemExit) as caught:
                 self.cli('--check-current', str(self.root), *flags)

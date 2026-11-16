@@ -407,4 +407,25 @@ VI = {
     'Code Check could not verify the proposed ARXML output.': 'Code Check không xác minh được kết quả ARXML đề xuất.',
     'The proposed additions do not resolve this finding.': 'Các bổ sung đề xuất chưa giải quyết được lỗi này.',
     'ARXML repair could not be verified: {}': 'Không xác minh được bản sửa ARXML: {}',
+    'Review': 'Review',
+    'Show the note box and sign-off for the change under the cursor.':
+        'Hiện ô ghi chú và sign-off cho thay đổi đang chọn.',
+    'Reviewed': 'Đã review',
+    'Sign this change off (Ctrl+R). Exported reports can hide signed-off changes.':
+        'Sign-off thay đổi này (Ctrl+R). Báo cáo xuất ra có thể ẩn các thay đổi đã sign-off.',
+    'The review file could not be read; editing is off.':
+        'Không đọc được file review; đã tắt chỉnh sửa.',
+    'Run a comparison to review its changes.': 'Chạy so sánh để review các thay đổi.',
+    'No change to review here.': 'Không có thay đổi cần review ở đây.',
+    'Why this change? Purpose, decision, ticket…': 'Vì sao có thay đổi này? Mục đích, quyết định, ticket…',
+    'Clear file': 'Bỏ cả file',
+    'Whole file': 'Cả file',
+    'Nothing in this file can be signed off.': 'File này không có gì để sign-off.',
+    'Sign off or clear all {} change(s) in this file (Ctrl+Shift+R). Notes are kept.':
+        'Sign-off hoặc bỏ sign-off toàn bộ {} thay đổi trong file (Ctrl+Shift+R). Ghi chú được giữ nguyên.',
+    '{}\n\n{}\n\nNothing is loaded from it or written over it. Fix or remove the file, then rescan.':
+        '{}\n\n{}\n\nKhông nạp và không ghi đè file này. Sửa hoặc xóa file rồi quét lại.',
+    'Notes and sign-offs are saved to\n{}': 'Ghi chú và sign-off được lưu vào\n{}',
+    'Review NOT saved to {}: {}: {}': 'CHƯA lưu được review vào {}: {}: {}',
+    'Review saved to {}': 'Đã lưu review vào {}',
 }

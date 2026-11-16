@@ -3,17 +3,56 @@ it must never run on the GUI thread. Results cross back to the UI through
 signals only (Qt queues cross-thread signals), never by touching widgets.
 """
 
+import gc
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QCoreApplication, QThread, QTimer, Signal
 
 from .. import zipsource
 from ..consistency import current_tree_check, load_checker_config
 from ..scanner import scan
 
+_gc_timer = None
 
-class ScanWorker(QThread):
+
+def _collect_on_gui_thread():
+    """Run the generations Python would have run, using its own thresholds."""
+    threshold = gc.get_threshold()
+    for generation in range(3):
+        if gc.get_count()[generation] <= threshold[generation]:
+            break
+        gc.collect(generation)
+
+
+def gui_thread_gc():
+    """Keep the cyclic garbage collector on the GUI thread.
+
+    Automatic collection runs in whichever thread happens to allocate, so a
+    worker could free a cycle holding Qt widgets or a QThread wrapper -- and
+    destroying those off the GUI thread crashes (seen as a segfault inside a
+    git subprocess call on a worker). Once a worker exists, automatic
+    collection is switched off and a GUI-thread timer collects instead.
+    Idempotent; a no-op without a Qt application.
+    """
+    global _gc_timer
+    app = QCoreApplication.instance()
+    if _gc_timer is not None or app is None:
+        return
+    gc.disable()
+    _gc_timer = QTimer(app)
+    _gc_timer.setInterval(500)
+    _gc_timer.timeout.connect(_collect_on_gui_thread)
+    _gc_timer.start()
+
+
+class _Worker(QThread):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        gui_thread_gc()
+
+
+class ScanWorker(_Worker):
     progressed = Signal(int, int, str)   # done, total, current rel path
     done = Signal(dict)                  # results
     failed = Signal(str)                 # loud failure -> red banner
@@ -48,7 +87,7 @@ class ScanWorker(QThread):
         self.progressed.emit(done, total, rel)
 
 
-class CodeCheckWorker(QThread):
+class CodeCheckWorker(_Worker):
     """Use the CLI checker off the GUI thread, retaining ZIP sources for inspection."""
 
     done = Signal(object, str)
@@ -86,7 +125,7 @@ class CodeCheckWorker(QThread):
             self._temp.cleanup()
             self._temp = None
 
-class TaskWorker(QThread):
+class TaskWorker(_Worker):
     """Return both results and typed exceptions after the thread stops."""
 
     def __init__(self, task, parent=None):

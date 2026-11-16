@@ -19,11 +19,12 @@ Paths are relative to `compare_tool/`.
 | `filepair.py` | Conservative Added/Deleted file pairing |
 | `consistency.py` | Old/new advisories and opt-in CURRENT RTE/ARXML checks |
 | `view_model.py`, `funcname.py` | Shared labels, aligned rows, muting and object captions |
-| `report.py`, `serialize.py` | Offline HTML, shared model Overview, JSON and SARIF |
+| `report.py`, `serialize.py` | Offline HTML (`write_report` is the single export path for CLI and viewer), shared model Overview, JSON and SARIF |
+| `fileio.py` | Atomic output writes (temp file + replace, LF line endings) |
 | `review.py` | Review identity, notes and sign-offs |
 | `gitsource.py`, `gitgraph.py`, `zipsource.py` | Git history, graph lanes, read-only snapshots and safe temporary ZIP extraction |
 | `theme.py`, `resources.py` | Shared color roles and optional packaged assets |
-| `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package |
+| `qtviewer/` | Qt UI, worker, models and rendering; the only Qt-dependent package. `qtviewer/review_panel.py` is the Review note/sign-off panel |
 
 ## ARXML Handler
 
@@ -43,12 +44,12 @@ from its repair flow. Other overlapping results must be rescanned.
 
 ## Data flow
 
-1. Source adapters materialize folders, ZIPs or Git snapshots as directories.
+1. Source adapters materialize folders, ZIPs or Git snapshots as directories. The CLI reads `--baseline-rev` / `--current-rev` through the same read-only Git source.
 2. `scanner.scan` compares file pairs through `diff_engine.compare_pair` and attaches semantic data.
 3. Move pairing and semantic rollups enrich the raw result.
 4. CLI, HTML, JSON/SARIF and viewer consume that result.
 
-Git uses `git archive` without changing HEAD, index or working files. ZIP extraction rejects unreadable/empty archives and path traversal, then cleans temporary directories.
+Git uses `git archive` without changing HEAD, index or working files. ZIP extraction rejects unreadable/empty archives, path traversal, archives above 4 GiB uncompressed and members over 1 MiB with a compression ratio above 1000, then cleans temporary directories. HTML, JSON, SARIF and review files go through `fileio`, so a failed write never leaves a partial file.
 
 ## Comparison contracts
 
@@ -70,11 +71,13 @@ Hunk kinds include `real`, `moved`, `comment`, `rename`, `assumed-rename`, `uuid
 
 Generated renames require a verified one-to-one mapping; function callees need matching generated checksum roots. Reorders remain real changes: textual scalar dependencies cannot prove the absence of volatile effects, pointer aliases or macro aliases. Moved-block labels remain available.
 
+User rules from `userrules.py` are guarded: a pattern matching the empty string is skipped, and per file a rule that changes the line count or rewrites more than half of the non-whitespace characters (files with at least 3 non-blank lines) is not applied and leaves a note. A guarded file stays a real change.
+
 `--skip-var-renames` deliberately relaxes rename proof. Its hunks use `assumed-rename`; every output surface must disclose the option.
 
 ## Consistency
 
-`consistency.py` derives advisory regeneration findings from the raw comparison. CURRENT checking runs when requested by CLI or the viewer's independent Code Check workspace. HTML and comparison exports do not include CURRENT findings.
+`consistency.py` derives advisory regeneration findings from the raw comparison. CURRENT checking runs when requested by CLI or the viewer's independent Code Check workspace. HTML does not include CURRENT findings. JSON and SARIF do: `serialize.current_check_block` builds the block for `--check-current` and for comparisons with `--check-consistency`, and `consistency.finding_location` / `finding_detail` give the terminal, JSON and SARIF the same location and message for each finding.
 
 `c_syntax.scan_calls` supplies both CURRENT checking and comparison RTE summaries. It excludes declarations, definitions, literals and member-pointer calls, but retains calls with unknown ownership for explicit coverage reporting. It does not expand macros or resolve conditional compilation. Implicit S/R API names must match the resolved runnable's declared name or generated symbol; a port/data suffix alone is insufficient.
 
@@ -106,7 +109,7 @@ The shared `c_source.py` lexical view handles C line splicing before comments/li
 | Function/object captions | `funcname.enclosing` |
 | Color roles / review identity | `theme.py` / `review.py` |
 
-Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Exports use the raw scan.
+Keep these decisions outside renderers. Viewer scans run in `qtviewer/worker.py` on a `QThread`; Qt-free models remain importable without PySide6. Creating any worker hands cyclic garbage collection to a GUI-thread timer (`worker.gui_thread_gc`): a cycle holding Qt objects must never be freed on a worker thread. Avoid closures over windows in signal connections; the review panel receives the current unit instead of referencing the diff pane. Exports use the raw scan. Review notes and sign-offs are keyed by `review.py` identity; `qtviewer/review_panel.py` edits them in the viewer and saves `codegen-review.json` atomically beside CURRENT, and `report.write_report` embeds them in the exported HTML like CLI `--review`.
 
 `compare_tool/config.py` owns the versioned YAML settings shared by viewer and opt-in CLI `--config`. `qtviewer/settings.py` migrates legacy QSettings once and edits the user's YAML file; `qtviewer/policy_editor.py` edits the embedded checker policy as structured fields. PyYAML is optional for the comparison core and bundled for packaged config use. `qtviewer/i18n.py` binds GUI text to a Vietnamese catalog. Structured messages keep their English string value for CLI and reports and expose templates and values for translation in the viewer. Language and display changes render existing results without running either worker again.
 
