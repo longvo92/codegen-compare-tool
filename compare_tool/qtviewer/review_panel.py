@@ -34,13 +34,19 @@ class ReviewPanel(QFrame):
 
     saved = Signal(str)   # status message after a write (or a failed one)
 
-    def __init__(self, texts, diff, parent=None):
+    def __init__(self, texts, parent=None):
+        """The owner pushes the change under the cursor with :meth:`show_unit`.
+        The panel holds no reference to the diff pane: a diff -> panel signal
+        plus a panel -> diff attribute would form a reference cycle that only
+        the cyclic GC frees, possibly on a worker thread, where deleting Qt
+        widgets crashes."""
         super().__init__(parent)
         self.setObjectName('reviewbar')
         self._text = texts
-        self._diff = diff
         self.store = review.ReviewStore()
         self._unit = None  # (rel, key, label) the note box is editing
+        self._current = None  # (rel, key, label) under the cursor, or None
+        self._file_units = []  # every reviewable unit of the file on screen
 
         self.note_edit = _NoteEdit()
         self.note_edit.setFixedHeight(58)
@@ -76,7 +82,6 @@ class ReviewPanel(QFrame):
         row.setSpacing(10)
         row.addWidget(self.note_edit, 1)
         row.addLayout(side)
-        diff.unitChanged.connect(self.on_unit_changed)
         self.refresh()
 
     # --- store lifecycle ---
@@ -97,11 +102,14 @@ class ReviewPanel(QFrame):
 
     # --- edits ---
 
-    def on_unit_changed(self):
+    def show_unit(self, unit, file_units):
         """The cursor moved. Save the previous unit's note, then load the
         current one: this one seam covers F7/F8, clicks, file changes and
-        rescans."""
+        rescans. ``unit`` is ``(rel, key, label)`` or None; ``file_units``
+        are the file's reviewable :class:`compare_tool.review.Unit` items."""
         self.commit()
+        self._current = unit
+        self._file_units = list(file_units)
         self.refresh()
 
     def commit(self):
@@ -139,8 +147,8 @@ class ReviewPanel(QFrame):
     def _file_state(self):
         """``(rel, units, all_reviewed)``; ``rel`` is None when nothing on the
         file can be signed off (noise-only, not compared, or no usable store)."""
-        unit = self._diff.current_unit()
-        units = self._diff.file_units()
+        unit = self._current
+        units = self._file_units
         if unit is None or not units or self.store.error or self.store.path is None:
             return None, [], False
         rel = unit[0]
@@ -148,7 +156,7 @@ class ReviewPanel(QFrame):
 
     def refresh(self):
         tr = self._text
-        unit = self._diff.current_unit()
+        unit = self._current
         self._unit = unit
         usable = self.store.path is not None and not self.store.error
         editable = unit is not None and usable

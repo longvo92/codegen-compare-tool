@@ -244,7 +244,8 @@ class MainWindow(QMainWindow):
         self.diff = DiffPane(self._text)
         # notes and sign-off sit under the diff they describe, hidden until
         # Review mode is on; the store loads with every comparison either way
-        self.review_panel = ReviewPanel(self._text, self.diff)
+        self.review_panel = ReviewPanel(self._text)
+        self.diff.unitChanged.connect(self._sync_review_unit)
         self.review_panel.setVisible(False)
         # a bound method, not a lambda over self: a closure would tie the
         # window into a reference cycle that only the cyclic GC can free --
@@ -685,6 +686,9 @@ class MainWindow(QMainWindow):
         self.act_review_mode.setChecked(True)
         self.review_panel.toggle_file()
 
+    def _sync_review_unit(self):
+        self.review_panel.show_unit(self.diff.current_unit(), self.diff.file_units())
+
     def _show_review_status(self, text):
         self.statusBar().showMessage(text, 6000)
 
@@ -1049,7 +1053,6 @@ class MainWindow(QMainWindow):
 
     def _on_done(self, results):
         self._raw_results = results
-        self.review_panel.open(self._review_path())
         self._autoselect = True  # consumed by _apply_rules, below
         # the rollup reports the scan itself, never the folded view: a hidden
         # category must not make the model look untouched
@@ -1069,6 +1072,9 @@ class MainWindow(QMainWindow):
                 len(errs), shown)
             self.banner.setText(self._text(self._banner_message))
             self.banner.setVisible(True)
+        # after the results are on screen, before a file is auto-selected:
+        # the first change shown already has its note
+        self.review_panel.open(self._review_path())
         self._apply_rules()
 
     def _apply_rules(self):
