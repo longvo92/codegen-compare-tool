@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
-- Restore Review sign-off in the viewer: a `Review` toggle under the diff adds notes, a `Reviewed` tick and whole-file sign-off, saved to `codegen-review.json` and included in exported HTML.
+- Remove review notes and sign-off: the viewer has no Review mode, HTML reports carry no notes or Reviewed badge, and the `--review` flag is gone.
 - Export CURRENT consistency findings: `--check-current` now writes `--json` / `--sarif`, and comparisons with `--check-consistency` include the same findings.
 - Compare a Git revision from the CLI with `--baseline-rev` / `--current-rev`, without touching HEAD, the index or the working tree.
 - Guard custom `--rules` against over-broad patterns and reject ZIP bombs; outputs are written atomically.
@@ -13,13 +13,13 @@ All notable changes to this project are documented here. Versions follow
 
 ### Pipeline notes
 
-No existing flag was renamed or removed, and exit-code semantics are unchanged. Behaviour a CI script can notice:
+`--review` was removed: scripts passing it now fail with exit 2, so drop the flag and its file argument. Other flags are unchanged, and exit-code semantics are unchanged. Behaviour a CI script can notice:
 
 - `--check-current` with `--json` / `--sarif` used to exit 2; it now writes the files.
 - Comparison JSON gains `kind`, `settings` and, with `--check-consistency`, a `current_check` block (schema stays 1). With `--check-consistency`, SARIF also holds `current/<RULE>` results, so consumers that count results see more.
 - A custom rule that matches the empty string is skipped, and one that changes the line count or rewrites more than half of a file is not applied to it (the file gets a note). A file that was `ignorable-only` only because of such a rule can now be `real-change` and exit 1.
 - ZIP inputs above 4 GiB uncompressed, or with a member over 1 MiB compressed more than 1000:1, exit 2.
-- HTML, JSON, SARIF and review files are written atomically and always with LF line endings. A missing output folder is still an error (exit 2).
+- HTML, JSON and SARIF files are written atomically and always with LF line endings. A missing output folder is still an error (exit 2).
 - New flags `--baseline-rev` / `--current-rev` (not with ZIP inputs or `--check-current`).
 
 ## [2.4.1] — 2026-11-13

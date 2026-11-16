@@ -40,7 +40,6 @@ Có đủ hai path thì chạy CLI comparison; thiếu path thì mở viewer. D�
 | `--current-name NAME` | Đặt label hiển thị CURRENT; cùng cách hoạt động với `--baseline-name`. |
 | `--theme dark\|light` | Ghi đè theme khi mở. Viewer dùng theme đã lưu hoặc Light ở lần mở đầu. HTML xuất từ CLI mặc định dùng Dark. |
 | `--max-diff-lines N` | Giới hạn full HTML diff nhúng khoảng N dòng mỗi file. Mặc định: `0` (không giới hạn). Có đánh dấu phần bị cắt; comparison, verdict, count và machine export vẫn đầy đủ. |
-| `--review REVIEW.json` | Đọc file review note/sign-off có sẵn vào full HTML report. Không tự đọc; không có tác dụng với `--no-report` hoặc compact report `--arxml-only`. Xem [Review và sign-off](#review-và-sign-off). |
 | `--exit-zero` | Trả `0` khi có file difference để CI thu report. Consistency failure đã bật vẫn trả `1`, còn lỗi input, scan hoặc output trả `2`. |
 
 #### CURRENT consistency
@@ -91,10 +90,10 @@ Chỉ review AUTOSAR/calibration surface:
 python -m compare_tool baseline current --arxml-only --report autosar.html
 ```
 
-Đưa custom rule và file review có sẵn vào HTML report có giới hạn diff:
+Đưa custom rule vào HTML report có giới hạn diff:
 
 ```bash
-python -m compare_tool baseline current --report report.html --rules rules.json --review codegen-review.json --max-diff-lines 4000
+python -m compare_tool baseline current --report report.html --rules rules.json --max-diff-lines 4000
 ```
 
 So sánh hai commit gần nhất của một folder generated mà không cần checkout:
@@ -111,7 +110,7 @@ python -m compare_tool baseline current --no-report --check-consistency --exit-z
 
 ## Cấu hình YAML
 
-Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Phạm vi Code Check được chỉnh trong workspace; bấm **Save scope as default** trước khi export nếu muốn mang theo phạm vi vừa sửa. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn, kết quả hoặc review notes.
+Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Phạm vi Code Check được chỉnh trong workspace; bấm **Save scope as default** trước khi export nếu muốn mang theo phạm vi vừa sửa. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn hoặc kết quả.
 
 CLI chỉ đọc YAML khi truyền `--config settings.yaml`. Flag được truyền rõ ràng có ưu tiên cao hơn file. `--export-config output.yaml` ghi settings đã resolve mà không chạy scan. Các flag `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` và `--clear-exclude` ghi đè giá trị bật trong YAML. Với bản Python, cài extra `config`; EXE và zipapp đã bundle YAML.
 
@@ -132,12 +131,6 @@ Bấm chuột phải vào một commit và chọn **So sánh với working tree*
 
 Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
 
-### Review và sign-off
-
-Bật **Review** trên thanh công cụ Compare để hiện ô note dưới diff, kèm ô **Reviewed** và nút **Whole file** / **Clear file**. `Ctrl+R` sign off change hiện tại, `Ctrl+Shift+R` sign off cả file. Note tự lưu vào `codegen-review.json` cạnh thư mục CURRENT (với Git compare: cạnh thư mục cha của folder đã chọn).
-
-Chỉ real change và moved change, cùng đơn vị whole-file cho file added, deleted và binary, mới sign off được; noise thì không. Sign-off gắn với nội dung change, nên change được regenerate khác đi sẽ quay lại trạng thái chưa review. File review không đọc được sẽ tắt chỉnh sửa và không bao giờ bị ghi đè. HTML export có kèm note, giống CLI `--review`.
-
 Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer dùng theme trong tab Report.
 
 Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**. Khi tắt một trong hai nút, các dòng tương ứng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
@@ -155,7 +148,6 @@ Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment**
 | `F7` / `F8` | Change trước / sau qua các file |
 | `Ctrl+Home` / `Ctrl+End` | Change đầu / cuối trong file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Tìm, kết quả sau / trước |
-| `Ctrl+R` / `Ctrl+Shift+R` | Sign off change này / cả file (Review mode) |
 | `Ctrl+E` | Export HTML |
 | `F1` | Mở hướng dẫn offline |
 
@@ -412,11 +404,11 @@ python -m compare_tool baseline.zip current.zip --report report.html --json resu
 
 Publish các file đã yêu cầu thành CI artifact. Thêm `--check-consistency` và policy/config khi cần; JSON/SARIF khi đó có thêm CURRENT finding. Muốn so sánh commit thay vì folder, dùng `--baseline-rev` / `--current-rev`.
 
-JSON, SARIF, HTML và file review được ghi nguyên tử, luôn với line ending LF; thiếu thư mục output là lỗi (exit 2). Input ZIP vượt 4 GiB sau giải nén, hoặc có member trên 1 MiB nén hơn 1000:1, bị từ chối với exit 2.
+File JSON, SARIF và HTML được ghi nguyên tử, luôn với line ending LF; thiếu thư mục output là lỗi (exit 2). Input ZIP vượt 4 GiB sau giải nén, hoặc có member trên 1 MiB nén hơn 1000:1, bị từ chối với exit 2.
 
 ### Pipeline migration
 
-Không flag nào bị đổi tên hay xóa và exit code giữ nguyên ý nghĩa. Khi nâng cấp script, kiểm tra:
+`--review` đã bị xóa: script còn truyền flag này sẽ lỗi với exit 2, hãy bỏ flag và file đi kèm. Các flag khác không đổi và exit code giữ nguyên ý nghĩa. Khi nâng cấp script, kiểm tra:
 
 - `--check-current --json` / `--sarif` trước đây trả exit 2; nay ghi file.
 - Comparison JSON có thêm `kind`, `settings` và, với `--check-consistency`, `current_check` (schema vẫn là 1). SARIF với `--check-consistency` có thêm result `current/<RULE>`, nên số result có thể tăng.

@@ -12,7 +12,7 @@ import re
 from collections import namedtuple
 from pathlib import Path
 
-from . import APP_NAME, consistency, filepair, funcname, review, syntax, theme
+from . import APP_NAME, consistency, filepair, funcname, syntax, theme
 from .diff_engine import ruleset_for
 from .report_assets import _CSS, _THEME_BUTTON, _THEME_JS
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
@@ -23,7 +23,6 @@ from .view_model import (A2L_KINDS, SWC_DISPLAY, VERDICT_MARK,
 
 CONTEXT = 3
 MAX_CONTENT = 400  # max lines shown for added/deleted file content
-
 
 
 def _head(title, initial, body_class=''):
@@ -67,60 +66,6 @@ def _root_html(tag, root, label=None):
     p = Path(str(root))
     return '{} <code title="{}">{}</code>'.format(
         tag, html.escape(str(p), quote=True), _esc(label or p.name or str(p)))
-
-
-class _Review:
-    """Review lookup plus a running tally, threaded through the file sections.
-
-    The badge count and the per-change notes need the SAME unit keys, and a key
-    needs the file's own lines -- so the tally is accumulated while the sections
-    render rather than by walking every file a second time. A report built
-    without a review store gets an inert instance: no markup, no badge.
-    """
-
-    def __init__(self, store=None):
-        self.store = store
-        self.units = 0      # reviewable changes in this scan
-        self.reviewed = 0   # ... of which signed off
-        self.files = set()  # files whose every change is reviewed
-
-    def annotate(self, rel, result, old_lines=None, new_lines=None, blob=None):
-        """Register one file and return its entries as
-        ``{(i1, i2, j1, j2): (note, reviewed, where)}``; the whole-file unit of
-        an added / deleted / binary file is keyed ``None``."""
-        if self.store is None:
-            return {}
-        hunks = result.get('hunks') or []
-        out, done = {}, 0
-        found = review.units(result, old_lines, new_lines, blob)
-        for u in found:
-            entry = self.store.entry(rel, u.key)
-            if not entry:
-                continue
-            reviewed = bool(entry.get('reviewed'))
-            done += reviewed
-            key = None
-            if u.index is not None:
-                h = hunks[u.index]
-                key = tuple(h['old_range']) + tuple(h['new_range'])
-            out[key] = (entry.get('note', ''), reviewed, u.label)
-        self.units += len(found)
-        self.reviewed += done
-        if found and done == len(found):
-            self.files.add(rel)
-        return out
-
-
-def _note_html(note, reviewed, where='', show_where=False):
-    """One review note block. A note without the flag is still shown -- work in
-    progress is information, and hiding it would make the report disagree with
-    the viewer the note was written in."""
-    loc = ('<span class="rvwhere">{}</span>'.format(_esc(where))
-           if show_where and where else '')
-    return ('<div class="rvnote{}"><span class="rvtag">{}</span>{}{}</div>'
-            .format('' if reviewed else ' pending',
-                    '&#10003; Reviewed' if reviewed else '&#9998; Note',
-                    loc, _esc(note)))
 
 
 # the modes that earn a code window around them. Everything else is noise, and
@@ -315,24 +260,6 @@ def _group_table(old_lines, new_lines, group, language=None, old_states=None,
     return '<table class="diff">' + ''.join(rows) + '</table>'
 
 
-def _group_notes(group, notes):
-    """(html, fully_reviewed) for one group's review notes. Fully reviewed
-    means the group holds at least one reviewable hunk and every one of them is
-    signed off -- only then may the Reviewed badge hide it."""
-    if not notes:
-        return '', False
-    todo = [h for h in group if h['kind'] in review.REVIEWABLE]
-    entries = [(h, notes.get(tuple(h['old_range']) + tuple(h['new_range'])))
-               for h in todo]
-    # the range prefix binds a note to its hunk; a single-hunk group renders one
-    # table, so there is nothing to bind and the prefix would be noise
-    show_where = len(todo) > 1
-    html = ''.join(_note_html(e[0], e[1], e[2], show_where)
-                   for _h, e in entries if e)
-    done = bool(entries) and all(e and e[1] for _h, e in entries)
-    return html, done
-
-
 def _trunc_note(shown_rows, omitted_groups):
     """Loud placeholder for a file whose diff was cut off by --max-diff-lines.
 
@@ -346,7 +273,7 @@ def _trunc_note(shown_rows, omitted_groups):
             'viewer for the complete diff.</div>'.format(shown_rows, omitted_groups))
 
 
-def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
+def _groups_html(old_lines, new_lines, hunks, language=None,
                  labels=None, max_rows=0):
     """All hunk groups of one file. Comment and Unimportant rows hide behind
     their own badge individually (``tr.comment`` / ``tr.minor`` in the CSS) --
@@ -354,10 +281,6 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
     was noise, which took the placeholder and the ordinary context lines
     around it down with the rest: a noise-only file opened to an empty box.
     Moved blocks never hide: they are real changes, just shown in blue.
-
-    A group whose every real/moved hunk is signed off gets .grp-rev, so the
-    Reviewed badge can fold it away -- with its notes, which belong to the
-    changes being hidden.
 
     Which hunks share a group, and which of them get a code window at all, is
     :func:`_focus_runs`: once the file has a real change, the noise outside
@@ -379,9 +302,8 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
                                         funcname.enclosing(new_lines, language))
     out = []
     rows_so_far = 0
-    # the scope named by the nearest code group above: once with every group
-    # on screen, once with signed-off groups folded away by the Reviewed badge
-    above = above_unrev = None
+    # the scope named by the nearest code group above
+    above = None
     runs = _focus_runs(hunks)
     for idx, (i, j, lean) in enumerate(runs):
         # --max-diff-lines caps the diff embedded per file: a regenerate that
@@ -399,29 +321,17 @@ def _groups_html(old_lines, new_lines, hunks, notes=None, language=None,
                   before['new_range'][1] if before else 0,
                   after['old_range'][0] if after else len(old_lines),
                   after['new_range'][0] if after else len(new_lines))
-        notes_html, done = _group_notes(g, notes)
-        cls = ' grp-rev' if done else ''
-        block = ['<div class="grp{}{}">'.format(' lean' if lean else '', cls)]
+        block = ['<div class="grp{}">'.format(' lean' if lean else '')]
         # a lean group is a collapsed noise placeholder with no code window, so
         # a caption over it would point at rows that are not shown; naming no
         # scope, it does not break a run of groups inside one either
         if not lean:
             label = funcname.hunk_label(old_labels, new_labels, g[0])
             # a caption only where the scope changes, not over every table of
-            # one function. The Reviewed badge can fold the group carrying it
-            # away, so a caption that repeats in only one badge state is still
-            # emitted, marked for the CSS to hide in that state. A signed-off
-            # group is itself hidden once reviewed groups are, so only the
-            # every-group-shown state decides its own caption.
-            dup = label == above
-            dup_unrev = dup if done else label == above_unrev
-            if label and not (dup and dup_unrev):
-                mark = ' dup' if dup else ' dup-unrev' if dup_unrev else ''
-                block.append('<div class="fnhdr{}">ƒ {}</div>'.format(mark, _esc(label)))
+            # one function
+            if label and label != above:
+                block.append('<div class="fnhdr">ƒ {}</div>'.format(_esc(label)))
             above = label
-            if not done:
-                above_unrev = label
-        block.append(notes_html)
         budget = (max_rows - rows_so_far) if max_rows else 0
         block.append(_group_table(old_lines, new_lines, g, language, old_states,
                                   new_states, lean, limits, budget))
@@ -860,7 +770,7 @@ def _agg_status(node, results):
     return best
 
 
-def _tree_html(results, anchors, reviewed=()):
+def _tree_html(results, anchors):
     root = {}
     for rel in results:
         parts = rel.replace('\\', '/').split('/')
@@ -891,12 +801,10 @@ def _tree_html(results, anchors, reviewed=()):
                 name = '<a onclick="go(\'{}\')">{}</a>'.format(anchors[rel], name)
             # tc-* colors only: tree rows never hide, so the full tree stays
             # visible even while badges hide detail categories (sec-*)
-            check = (' <span class="rvcheck" title="Every change in this file '
-                     'is reviewed">&#10003;</span>' if rel in reviewed else '')
             out.append('<div class="tf {}" data-p="{}">'
-                       '<span class="tmark {}" title="{}">{}</span>{}{}</div>'
+                       '<span class="tmark {}" title="{}">{}</span>{}</div>'
                        .format(sec.replace('sec-', 'tc-'), _esc(rel), mcls,
-                               _STATUS_TITLE[st], mark, name, check))
+                               _STATUS_TITLE[st], mark, name))
 
     walk(root)
     return ''.join(out)
@@ -1064,18 +972,15 @@ def _notes(r):
     return _iface_note(r) + _swc_note(r) + _rte_note(r) + _a2l_note(r)
 
 
-def _file_open(anchor, rel, status, extra='', expanded=False, reviewed=False):
+def _file_open(anchor, rel, status, extra='', expanded=False):
     label, tag = _LABEL[status]
     sec = _TREE[status][2]
     if extra:
         extra = ' <span class="hcount">{}</span>'.format(extra)
-    check = (' <span class="rvcheck" title="Every change in this file is '
-             'reviewed">&#10003;</span>' if reviewed else '')
-    return ('<details class="file {}{}" id="{}" data-p="{}"{}><summary>{}'
-            ' <span class="tag {}">{}</span>{}{}</summary><div class="body">'
-            .format(sec, ' file-rev' if reviewed else '', anchor, _esc(rel),
-                    ' open' if expanded else '', _esc(rel), tag, label, check,
-                    extra))
+    return ('<details class="file {}" id="{}" data-p="{}"{}><summary>{}'
+            ' <span class="tag {}">{}</span>{}</summary><div class="body">'
+            .format(sec, anchor, _esc(rel), ' open' if expanded else '',
+                    _esc(rel), tag, label, extra))
 
 
 def _error_banner(results):
@@ -1112,13 +1017,8 @@ def _quick_check_note(results):
             '(<code>--skip-var-renames</code>).</div>'.format(n))
 
 
-def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
-    """One collapsible detail section for a non-identical file.
-
-    ``rv`` is the :class:`_Review` context: it turns the file's content into
-    unit keys, hands back the notes to render and tallies what the badge
-    counts. It is asked BEFORE the section header is emitted, because whether
-    the whole file is signed off decides the header's own class."""
+def _file_section(rel, results, old_root, new_root, anchors, max_rows=0):
+    """One collapsible detail section for a non-identical file."""
     r = results[rel]
     status = r['status']
     parts = []
@@ -1131,12 +1031,9 @@ def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
     elif status == 'real-change':
         hunks = r['hunks'] if not r['binary'] else []
         old_lines = new_lines = None
-        if r['binary']:
-            notes = rv.annotate(rel, r, blob=review.blob_digest(Path(new_root) / rel))
-        else:
+        if not r['binary']:
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
-            notes = rv.annotate(rel, r, old_lines, new_lines)
         lang = syntax.language_for(rel)
         labels = None
         if not r['binary']:
@@ -1145,16 +1042,12 @@ def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
         # only the verdict badge: the header answers "must I read this file",
         # and which symbols / which noise kinds are in it is what the diff
         # below is for
-        parts.append(_file_open(anchors[rel], rel, 'real-change',
-                                expanded=True, reviewed=rel in rv.files))
+        parts.append(_file_open(anchors[rel], rel, 'real-change', expanded=True))
         parts.append(_notes(r))
         if r['binary']:
-            whole = notes.get(None)
-            if whole:
-                parts.append(_note_html(*whole))
             parts.append('<div class="filenote">Binary file differs.</div>')
         else:
-            parts.append(_groups_html(old_lines, new_lines, hunks, notes,
+            parts.append(_groups_html(old_lines, new_lines, hunks,
                                       lang, labels, max_rows))
     elif status in ('comment-only', 'ignorable-only'):
         parts.append(_file_open(anchors[rel], rel, status))
@@ -1164,19 +1057,14 @@ def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
         else:
             old_lines = read_text(Path(old_root) / rel).split('\n')
             new_lines = read_text(Path(new_root) / rel).split('\n')
-            parts.append(_groups_html(old_lines, new_lines, r['hunks'], None,
+            parts.append(_groups_html(old_lines, new_lines, r['hunks'],
                                       syntax.language_for(rel), max_rows=max_rows))
     elif status in ('added', 'deleted'):
         side = 'add' if status == 'added' else 'del'
         path = Path(new_root if status == 'added' else old_root) / rel
         if looks_binary(path):
-            notes = rv.annotate(rel, r, blob=review.blob_digest(path))
             parts.append(_file_open(anchors[rel], rel, status,
-                                    '({} bytes, binary)'.format(path.stat().st_size),
-                                    reviewed=rel in rv.files))
-            whole = notes.get(None)
-            if whole:
-                parts.append(_note_html(*whole))
+                                    '({} bytes, binary)'.format(path.stat().st_size)))
             parts.append('<div class="filenote">Binary file {}.</div>'.format(status))
         elif status == 'added' and r.get('moved_from'):
             # the file was found again under another path, so the answer the
@@ -1185,37 +1073,26 @@ def _file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0):
             # says where the content went.
             old_lines = read_text(Path(old_root) / r['moved_from']).split('\n')
             new_lines = read_text(path).split('\n')
-            notes = rv.annotate(rel, r, old_lines, new_lines)
             parts.append(_file_open(anchors[rel], rel, status, _move_note(r),
-                                    expanded=True, reviewed=rel in rv.files))
-            whole = notes.get(None)
-            if whole:
-                parts.append(_note_html(*whole))
+                                    expanded=True))
             parts.append(_notes(r))
-            parts.append(_groups_html(old_lines, new_lines, r['hunks'], notes,
+            parts.append(_groups_html(old_lines, new_lines, r['hunks'],
                                       syntax.language_for(rel), max_rows=max_rows))
         elif status == 'deleted' and r.get('moved_to') in anchors:
             # its content is on screen already, as the OLD side of the paired
             # file's diff. Printing the file again here would be the same bytes
             # a second time -- so this section says where they went and sends
             # the reader there instead.
-            parts.append(_file_open(anchors[rel], rel, status, _move_note(r),
-                                    reviewed=rel in rv.files))
+            parts.append(_file_open(anchors[rel], rel, status, _move_note(r)))
             parts.append(_notes(r))
             parts.append('<div class="filenote">Content shown under '
                          '<a onclick="go(\'{}\')">{}</a>.</div>'.format(
                              anchors[r['moved_to']], _esc(r['moved_to'])))
         else:
             lines = read_text(path).split('\n')
-            kw = {'new_lines' if status == 'added' else 'old_lines': lines}
-            notes = rv.annotate(rel, r, **kw)
             parts.append(_file_open(anchors[rel], rel, status,
                                     _move_note(r) or '({} line{})'.format(
-                                        len(lines), '' if len(lines) == 1 else 's'),
-                                    reviewed=rel in rv.files))
-            whole = notes.get(None)
-            if whole:
-                parts.append(_note_html(*whole))
+                                        len(lines), '' if len(lines) == 1 else 's')))
             parts.append(_notes(r))
             parts.append(_content_table(lines, side, syntax.language_for(rel)))
     parts.append('</div></details>')
@@ -1229,13 +1106,13 @@ def _move_note(r):
     return '({})'.format(_esc(text)) if text else ''
 
 
-def _safe_file_section(rel, results, old_root, new_root, anchors, rv, max_rows=0, diagnostics=None):
+def _safe_file_section(rel, results, old_root, new_root, anchors, max_rows=0, diagnostics=None):
     """Fail-safe wrapper: rendering one file (which re-reads it from disk)
     must not kill the whole report -- e.g. the file was deleted or locked
     between scan and render. The failure stays loud: an error section takes
     the file's place."""
     try:
-        return _file_section(rel, results, old_root, new_root, anchors, rv, max_rows)
+        return _file_section(rel, results, old_root, new_root, anchors, max_rows)
     except Exception as e:
         if diagnostics is not None:
             diagnostics.append('{}: {}: {}'.format(rel, type(e).__name__, e))
@@ -1350,7 +1227,7 @@ def build_arxml_report(results, old_root, new_root, old_label=None,
     return ''.join(parts)
 
 
-def build_report(results, old_root, new_root, reviews=None, old_label=None,
+def build_report(results, old_root, new_root, old_label=None,
                  theme_name=theme.DEFAULT, new_label=None, max_diff_lines=0,
                  diagnostics=None):
     """Full self-contained HTML report.
@@ -1365,18 +1242,10 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     ``theme_name`` is which palette the page opens with (``--theme`` on the
     CLI). Both are embedded either way, so the reader's own button -- and their
     saved preference -- can override it without the file changing.
-
-    ``reviews`` is a :class:`compare_tool.review.ReviewStore` or None. When
-    given, every change the reviewer signed off carries its note, and a
-    Reviewed badge folds those changes away so a second pass sees only what is
-    left. The badge starts SHOWN on purpose: the report is the record of what
-    the compare found, and a record that opens with real changes already
-    hidden is not one.
     """
     diagnostics = [] if diagnostics is None else diagnostics
     counts = summarize(results)
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    rv = _Review(reviews)
 
     groups = _model_groups(results)
     if groups:
@@ -1389,11 +1258,8 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
         model_anchors = {}
     anchors = {rel: 'f{}'.format(i) for i, rel in enumerate(detail_files)}
 
-    # The detail sections are rendered FIRST, before the page they sit in: they
-    # are what reads each file, and therefore what computes the review tally
-    # the badge shows and the per-file sign-off the folder tree marks. The
-    # alternative -- walking every file a second time just to count -- would
-    # double the report's IO for a number the sections already know.
+    # The detail sections are rendered first, before the page they sit in, so
+    # render failures are known when the header's diagnostics are written.
     detail = []
     if groups:
         for m, rels in groups.items():
@@ -1410,12 +1276,12 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                                                        opn, _esc(m), counts_html))
             for rel in drels:
                 detail.append(_safe_file_section(rel, results, old_root, new_root,
-                                                 anchors, rv, max_diff_lines, diagnostics))
+                                                 anchors, max_diff_lines, diagnostics))
             detail.append('</div></details>')
     else:
         for rel in detail_files:
             detail.append(_safe_file_section(rel, results, old_root, new_root,
-                                             anchors, rv, max_diff_lines, diagnostics))
+                                             anchors, max_diff_lines, diagnostics))
 
     parts = []
     parts.append(_head('AUTOSAR Code Generation Report', theme_name,
@@ -1428,27 +1294,9 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
     if diagnostics:
         parts.append('<div class="errbox"><div class="errtitle">REPORT INCOMPLETE</div>'
                      + '<br>'.join(_esc(d) for d in diagnostics) + '</div>')
-    if reviews is not None and reviews.error:
-        # the notes are missing, not merely absent -- say so, or the reader
-        # would take "nothing reviewed" at face value
-        parts.append('<div class="errbox"><div class="errtitle">&#9888; REVIEW '
-                     'FILE NOT READ</div><div><code>{}</code> &mdash; {}</div>'
-                     '<div>No note or sign-off from it appears below; every '
-                     'change counts as not reviewed.</div></div>'
-                     .format(_esc(str(reviews.path)), _esc(reviews.error)))
     # error badge is not toggleable on purpose: errors can never be hidden
     err_badge = ('<span class="badge b-err">{error} Error</span>'.format(**counts)
                  if counts['error'] else '')
-    # review is its own group: "what the compare found" and "how far a human
-    # has got through it" are two different questions, and a divider says so
-    # faster than a label would
-    rev_group = ''
-    if reviews is not None and rv.units:
-        rev_group = ('<span class="bgroup"><span class="badge b-rev" '
-                     'onclick="tg(this,\'rev\')" title="Hide the changes '
-                     'already signed off, leaving only what is still to '
-                     'review">{} of {} Reviewed</span></span>'
-                     .format(rv.reviewed, rv.units))
     parts.append('<div class="summary"><span class="bgroup">' + err_badge +
                  # reportable categories first, in the order they are read:
                  # Modified, Added, Deleted. Unimportant is last because it is
@@ -1457,7 +1305,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  '<span class="badge b-add" onclick="tg(this,\'add\')">{added} Added</span>'
                  '<span class="badge b-del" onclick="tg(this,\'del\')">{deleted} Deleted</span>'
                  '<span class="badge b-ign off" onclick="tg(this,\'ign\')">{ignorable-only} Unimportant</span>'
-                 '</span>'.format(**counts) + rev_group + '</div>')
+                 '</span>'.format(**counts) + '</div>')
     if groups:
         parts.append(_overview_table(groups, results, model_anchors))
     parts.append(_autosar_section(results, anchors))
@@ -1473,7 +1321,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                      'title="Hide identical, comment-only and Unimportant files, '
                      'and any folder left holding none">Focus on changes</button></div>')
         parts.append('<div class="tree">{}</div>'.format(
-            _tree_html(results, anchors, rv.files)))
+            _tree_html(results, anchors)))
 
     if (not counts['real-change'] and not counts['added']
             and not counts['deleted'] and not counts['error']):
@@ -1506,8 +1354,7 @@ def build_report(results, old_root, new_root, reviews=None, old_label=None,
                  # combination. mv() is the single place model visibility is
                  # decided, so the badges and the filter cannot disagree.
                  'var HID=[["hide-real","sec-real"],["hide-ign","sec-ign"],'
-                 '["hide-add","sec-add"],["hide-del","sec-del"],'
-                 '["hide-rev","file-rev"]];'
+                 '["hide-add","sec-add"],["hide-del","sec-del"]];'
                  'function mv(){var b=document.body.classList;'
                  'document.querySelectorAll("details.model").forEach(function(m){'
                  'var any=false;'
@@ -1551,7 +1398,7 @@ def render_report(*args, **kwargs):
 
 
 def write_report(results, old_root, new_root, out, *, arxml_only=False,
-                 reviews=None, theme_name=theme.DEFAULT, old_label=None,
+                 theme_name=theme.DEFAULT, old_label=None,
                  new_label=None, max_diff_lines=0):
     """Render the report for a finished scan and write it atomically.
 
@@ -1565,7 +1412,7 @@ def write_report(results, old_root, new_root, out, *, arxml_only=False,
                                   theme_name=theme_name, new_label=new_label)
         diagnostics = []
     else:
-        rendered = render_report(results, old_root, new_root, reviews,
+        rendered = render_report(results, old_root, new_root,
                                  old_label=old_label, theme_name=theme_name,
                                  new_label=new_label, max_diff_lines=max_diff_lines)
         page, diagnostics = rendered.html, rendered.diagnostics

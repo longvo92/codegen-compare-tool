@@ -3,9 +3,8 @@
 An Azure DevOps build artifact arrives as ``drop.zip``. Comparing two of them
 used to mean unzipping both by hand first. This is the same idea as
 :mod:`compare_tool.gitsource` -- a *source* that produces one of the two folders
-the engine sees, so everything downstream (scan, verdicts, folding, report,
-review notes) runs unchanged, none the wiser that a folder came out of an
-archive.
+the engine sees, so everything downstream (scan, verdicts, folding, report)
+runs unchanged, none the wiser that a folder came out of an archive.
 
 Every operation is read-only and lands only in a caller-owned temp directory;
 the archive itself is never modified. Extraction is cached by a signature of

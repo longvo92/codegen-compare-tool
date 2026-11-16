@@ -58,7 +58,6 @@ python -m compare_tool --check-current current
 | HTML report | Chia sẻ offline hoặc làm CI artifact |
 | `--no-report` | Xem summary và diagnostics trên terminal |
 | `--check-current PATH` | Kiểm tra RTE/ARXML trong CURRENT trước delivery |
-| Review sign-off | Thêm note và sign off real change trong viewer; lưu vào `codegen-review.json` |
 | `--json` / `--sarif` | Export comparison result và CURRENT finding cho pipeline |
 | `--baseline-rev` / `--current-rev` | So sánh Git revision từ CLI |
 

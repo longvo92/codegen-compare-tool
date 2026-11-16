@@ -80,7 +80,6 @@ _DARK = {
     'tag-del-bg': '#4a2b52', 'tag-del-fg': '#d9a8e6',
     'tag-err-bg': '#7a1f1f', 'tag-err-fg': '#ffc2c2',
     'tag-id-bg': '#333333', 'tag-id-fg': '#aaaaaa',
-    'tag-rev-bg': '#274a45', 'tag-rev-fg': '#9fe0cf',
 
     # --- the incomplete-compare banner ---
     'err-bg': '#4a1d1d',
@@ -124,13 +123,6 @@ _DARK = {
     # context, and then nothing on screen says the category was switched off.
     'muted-bg': '#2c2e33',
     'muted-fg': '#6c7178',
-
-    # --- review notes ---
-    'note-bg': '#22302e', 'note-border': '#3f8f7a', 'note-fg': '#cfe6df',
-    'note-tag': '#7fd3ba', 'note-where': '#7d8f8b',
-    'note-pending-bg': '#2d2b21', 'note-pending-border': '#8a7a3f',
-    'note-pending-fg': '#e6dcc0', 'note-pending-tag': '#d8c07a',
-    'note-check': '#5f9e8b',
 
     # --- buttons and inputs (report toolbar; the viewer's QSS uses these too) ---
     'btn-bg': '#2b2c30', 'btn-fg': '#d4d4d4', 'btn-border': '#444444',
@@ -190,9 +182,6 @@ _DARK = {
     'state-busy': '#e2c16b',
     'state-ready': '#7bd88a',
     'state-error': '#ff7b7b',
-    'review-done': '#7bd88a',
-    'review-partial': '#e2c16b',
-    'review-none': '#8a8f98',
 
     # --- syntax tokens (foreground only; diff backgrounds carry change status) ---
     'syn-comment': '#8f96a2',
@@ -243,7 +232,6 @@ _LIGHT = {
     'tag-del-bg': '#f5eafd', 'tag-del-fg': '#6639ba',
     'tag-err-bg': '#ffdcdc', 'tag-err-fg': '#a40e26',
     'tag-id-bg': '#eaeef2', 'tag-id-fg': '#6e7781',
-    'tag-rev-bg': '#d7f5ec', 'tag-rev-fg': '#0f5d4e',
 
     'err-bg': '#fff5f5',
     'err-border': '#e0989b',
@@ -271,11 +259,6 @@ _LIGHT = {
     'muted-bg': '#e8e8e8',
     'muted-fg': '#666666',
 
-    'note-bg': '#eafaf4', 'note-border': '#3f8f7a', 'note-fg': '#12463c',
-    'note-tag': '#0f6d5b', 'note-where': '#6a7d78',
-    'note-pending-bg': '#fdf6e3', 'note-pending-border': '#b8a04f',
-    'note-pending-fg': '#5c4c10', 'note-pending-tag': '#8a6d0a',
-    'note-check': '#1b7f6a',
 
     'btn-bg': '#f0f0f0', 'btn-fg': '#24292f', 'btn-border': '#c8c8c8',
     'btn-hover': '#e0e0e0', 'btn-focus': '#0076a8',
@@ -328,9 +311,6 @@ _LIGHT = {
     'state-busy': '#b58900',
     'state-ready': '#1a7f37',
     'state-error': '#cf222e',
-    'review-done': '#1a7f37',
-    'review-partial': '#b58900',
-    'review-none': '#8c959f',
 
     # Based on MATLAB light syntax; comments/strings are slightly darkened
     # to maintain contrast on the comparison's red and green row backgrounds.

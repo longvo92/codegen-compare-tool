@@ -19,7 +19,7 @@ from pathlib import Path
 
 PKG = Path(__file__).resolve().parent.parent / 'compare_tool'
 # what ships in the zipapp: the scan, the rules, the diff, the report, the
-# review store and gitsource -- everything except the Qt viewer
+# gitsource -- everything except the Qt viewer
 CORE = sorted(p for p in PKG.glob('*.py'))
 ALL_MODULES = sorted(PKG.rglob('*.py'))
 # named in AGENTS.md as Qt-free on purpose, so the suite runs on a box with no

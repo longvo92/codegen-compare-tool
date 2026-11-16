@@ -658,17 +658,13 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
 
     def test_a_noise_only_file_is_still_navigable_while_unmuted(self):
         # rename_only.c has no real change, only renames (mode 'minor'); shown
-        # (the default, nothing muted) they are themselves valid F7/F8 stops,
-        # but landing on one offers nothing to sign off -- noise never enters
-        # the review record (review.REVIEWABLE)
+        # (the default, nothing muted) they are themselves valid F7/F8 stops
         self.pane.show_file('NoiseDemo_autosar_rtw/NoiseDemo_data.c', self.results['NoiseDemo_autosar_rtw/NoiseDemo_data.c'],
                             str(DEMO / 'old'), str(DEMO / 'new'))
         for _ in range(5):
             self.app.processEvents()
         self.assertTrue(self.pane._stops)
-        self.assertIsNone(self.pane.current_unit())
         self.assertTrue(self.pane.next_change())
-        self.assertIsNone(self.pane.current_unit())
 
     def test_stepping_moves_the_gutter_arrow_on_both_panes(self):
         self.pane.first_change()
@@ -694,7 +690,7 @@ class TestChangeNavigationStopsAtTheEnd(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 not installed')
-class TestWindowLevelReviewFlow(unittest.TestCase):
+class TestWindowLevelNavigation(unittest.TestCase):
     """What the reviewer meets right after a scan, and how F7/F8 walk it."""
 
     def setUp(self):
@@ -780,7 +776,7 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         self.assertNotIn('NoiseDemo_autosar_rtw/NoiseDemo.h',
                          self.win._tree_rels())
 
-    def test_next_change_stops_inside_a_shown_comment_only_file_with_no_unit(self):
+    def test_next_change_stops_inside_a_shown_comment_only_file(self):
         nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]
         self.assertIn('NoiseDemo_autosar_rtw/ert_main.c', nav)
         self.win._reselect(nav[nav.index('NoiseDemo_autosar_rtw/ert_main.c') - 1])
@@ -789,7 +785,6 @@ class TestWindowLevelReviewFlow(unittest.TestCase):
         self._settle_ui()
         self.assertEqual(self.win._selected_rel(), 'NoiseDemo_autosar_rtw/ert_main.c')
         self.assertTrue(self.win.diff._stops)
-        self.assertIsNone(self.win.diff.current_unit())
 
     def test_next_change_crosses_into_the_following_file(self):
         nav = [r for r in self.win._tree_rels() if self.win._is_nav(r)]

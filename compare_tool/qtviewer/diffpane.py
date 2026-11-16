@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                                QSplitter, QStackedWidget, QTextEdit,
                                QToolButton, QVBoxLayout, QWidget)
 
-from .. import funcname, review, theme
+from .. import funcname, theme
 from ..messages import Message
 from .i18n import Texts
 from ..scanner import looks_binary, read_text
@@ -331,10 +331,6 @@ class DiffPane(QStackedWidget):
     two-editor side-by-side page. ``show_file`` / ``clear`` are the seam the
     main window drives."""
 
-    # the reviewable change under the cursor moved (a new file was opened, or
-    # F7/F8 stepped to another change): the review bar reloads its note
-    unitChanged = Signal()
-
     def __init__(self, texts=None):
         super().__init__()
         self._text = Texts() if texts is None else texts
@@ -444,20 +440,15 @@ class DiffPane(QStackedWidget):
 
         self.rows = []
         self._stops = []           # first row of every F7/F8 stop, in file order
-        # review.Unit for each entry in _stops, or None for a Comment/
-        # Unimportant stop -- those are navigable but never reviewable (see
-        # review.REVIEWABLE), so current_unit() must not attach a note to one
-        self._stop_units = []
         self._row_fn = []          # enclosing scope name per row, for the caption
         self._muted = ()           # row modes played down in the panes
-        self._units = []           # every reviewable review.Unit, file order
         self._rel = None           # file currently shown
         # what show_file was last called with, so a theme switch can re-render
         # the same file from the same arguments instead of half-repainting it
         self._last = None
         self._old_label = None     # (text, tooltip) when OLD is not a plain folder
         self._new_label = None     # ... and the same for CURRENT (a zip source)
-        self._cur_idx = 0          # which change (index into _stops / _units)
+        self._cur_idx = 0          # which change (index into _stops)
         self._pos_text = ''        # "change k of N", folded into the header text
         self._syncing = False
         # which editor scrolling is driven from. The old pane normally carries
@@ -599,7 +590,6 @@ class DiffPane(QStackedWidget):
             self._highlight_block(row)
             self._update_position(row)
         self._drive.verticalScrollBar().setValue(scroll)
-        self.unitChanged.emit()
 
     @staticmethod
     def _pane(banner, editor):
@@ -997,7 +987,7 @@ class DiffPane(QStackedWidget):
     def clear(self):
         self._logo.setVisible(False)
         self._set_message(_HINT)
-        self._forget_units()
+        self._forget_file()
         self._find_bar.setVisible(False)  # no file: nothing to search
         self._hits = []
         self._hit_idx = -1
@@ -1007,13 +997,10 @@ class DiffPane(QStackedWidget):
         self._clear_selections()
         self.setCurrentIndex(0)
 
-    def _forget_units(self):
+    def _forget_file(self):
         self._rel = None
         self._last = None
-        self._units = []
-        self._stop_units = []
         self._cur_idx = 0
-        self.unitChanged.emit()
 
     def show_drop_hint(self, old=None):
         """Landing screen when no folders are chosen yet. Two lines: it is a
@@ -1026,12 +1013,11 @@ class DiffPane(QStackedWidget):
             # about a pair of folders hides half the tool
             self._set_message('Drop the BASELINE and CURRENT folders (or .zip artifacts) here.\nOr use "Open folders…" — or "Git compare…" for one folder and its own history.')
         self._logo.setVisible(True)
-        self._forget_units()
+        self._forget_file()
         self.setCurrentIndex(0)
 
     def show_file(self, rel, result, old_root, new_root):
         self._rel = rel
-        self._units = []
         self._cur_idx = 0
         self._last = (rel, result, old_root, new_root)
         try:
@@ -1039,44 +1025,14 @@ class DiffPane(QStackedWidget):
         except Exception as e:
             # rendering re-reads from disk; a failure must stay loud and never
             # masquerade as an empty (== unchanged-looking) diff
-            self._units = []  # nothing to sign off on a file we could not read
             self._message(Message('{}\n\nCould not render — treat as potentially changed.\n{}: {}', rel, type(e).__name__, e))
         self._refresh_find()
-        self.unitChanged.emit()
-
-    def file_units(self):
-        """Every reviewable unit of the file on screen, in file order.
-
-        Empty when there is nothing to sign off, which is what stops a
-        noise-only or unreadable file from being marked reviewed wholesale.
-        """
-        return list(self._units)
-
-    def current_unit(self):
-        """``(rel, key, label)`` of the change the reviewer is looking at, or
-        None when there is nothing to sign off here: an identical or
-        noise-only file, a path that could not be compared (a note would look
-        like a verdict on something nobody read), or -- now that F7/F8 also
-        stops on a shown Comment/Unimportant hunk -- the reviewer is standing
-        on exactly one of those (see the ``_stop_units`` note in show_file)."""
-        if not self._units:
-            return None
-        if self._units[0].index is None:
-            u = self._units[0]  # whole-file unit: added / deleted / binary
-        elif self._cur_idx < len(self._stop_units):
-            u = self._stop_units[self._cur_idx]
-        else:
-            return None
-        if u is None:
-            return None
-        return self._rel, u.key, u.label
 
     # --- internals ---
 
     def _message(self, text):
         self.rows = []
         self._stops = []
-        self._stop_units = []
         self._row_fn = []
         self._set_fn(None)
         self._hide_sticky()
@@ -1094,20 +1050,12 @@ class DiffPane(QStackedWidget):
         if status == 'error':
             self._message(Message('{}\n\nNOT compared — treat as potentially changed.\n{}', rel, '; '.join(result.get('notes', []))))
             return
-        # units come from the shared seam, never from a local reading of the
-        # verdict: the tree's review column counts the same units, and a second
-        # copy of "which side does this status need" is how the two start
-        # disagreeing about whether a file is fully signed off
         if result.get('binary'):
-            # a binary change is still a change to sign off; it is keyed by the
-            # file's own bytes, so a regenerated binary drops the signature
-            self._units = review.units_of(result, old_p, new_p)
             self._message(Message('{}\n\nBinary file differs.', rel))
             return
         if status in ('added', 'deleted'):
             path = new_p if status == 'added' else old_p
             label = 'Added' if status == 'added' else 'Deleted'
-            self._units = review.units_of(result, old_p, new_p)
             if looks_binary(path):
                 self._message(Message('{}\n\nBinary file {}.', rel, status))
                 return
@@ -1123,10 +1071,6 @@ class DiffPane(QStackedWidget):
         old_lines = read_text(old_p).split('\n')
         new_lines = read_text(new_p).split('\n')
         rows = aligned_rows(old_lines, new_lines, result.get('hunks', []))
-        # folding is a display choice: the units (and therefore the review keys)
-        # come from the hunks, so what a note is attached to never depends on
-        # which categories happen to be folded on screen
-        self._units = review.units_of(result, old_p, new_p, old_lines, new_lines)
         self.rows = mute_rows(rows, self._muted)
         # scope caption source, aligned to the rows so scrolling is a lookup
         self._row_fn = _row_labels(self.rows, old_lines, new_lines,
@@ -1198,25 +1142,18 @@ class DiffPane(QStackedWidget):
                 (o_lo, o_hi), (n_lo, n_hi) = char_span(r.old_txt, r.new_txt)
                 self._seg_bg(self.old_edit, i, o_lo, o_hi, self._seg(r.mode, 'old'))
                 self._seg_bg(self.new_edit, i, n_lo, n_hi, self._seg(r.mode, 'new'))
-        # navigation stops: the first row of each reviewable change, one per
+        # navigation stops: the first row of each real or moved change, one per
         # hunk. Deriving them from the hunk list rather than from runs of
-        # coloured rows is what makes "change 3 of 7", the hunk count the CLI
-        # prints and the units a review note attaches to all the same thing.
+        # coloured rows is what makes "change 3 of 7" and the hunk count the
+        # CLI prints the same thing.
         #
         # A Comment or Unimportant hunk is also a stop -- but only while its
         # category is being shown (its mode is not in self._muted): a hunk the
         # reviewer just told the tool to fold away should not make F7/F8 land
-        # on it anyway. It carries no Unit (None in _stop_units), so
-        # current_unit() reports nothing to sign off there -- noise stays off
-        # the review record on purpose (review.REVIEWABLE), navigable or not.
-        stops = [(starts[u.index], u) for u in self._units
-                 if u.index is not None and u.index < len(starts)]
-        shown_noise = {'comment', 'minor'} - set(self._muted)
-        stops += [(starts[i], None) for i, h in enumerate(hunks)
-                  if i < len(starts) and mode_of(h['kind']) in shown_noise]
-        stops.sort(key=lambda t: t[0])
-        self._stops = [row for row, _u in stops]
-        self._stop_units = [u for _row, u in stops]
+        # on it anyway.
+        shown = {'real', 'moved'} | ({'comment', 'minor'} - set(self._muted))
+        self._stops = sorted(starts[i] for i, h in enumerate(hunks)
+                             if i < len(starts) and mode_of(h['kind']) in shown)
         self._cur_idx = 0
         self.setCurrentIndex(1)
         # start at the top of the file; jump to the first change only if there
@@ -1240,7 +1177,6 @@ class DiffPane(QStackedWidget):
         # is just that side's scope names
         self._row_fn = funcname.enclosing(lines, language_for(rel))
         self._stops = []
-        self._stop_units = []
         self._pos_text = ''
         self._clear_selections()  # nothing of the previous file may survive
         # A whole added/deleted ARXML or A2L file still carries semantic counts.
@@ -1334,7 +1270,6 @@ class DiffPane(QStackedWidget):
         self._highlight_block(row)
         self._update_position(row)
         self._on_vscroll()  # setValue may clamp to a no-op; refresh caption/sticky
-        self.unitChanged.emit()
 
     def _paint_selections(self):
         for i, editor in enumerate((self.old_edit, self.new_edit)):

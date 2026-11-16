@@ -4,10 +4,9 @@ here so the suite runs on a headless box without PySide6 installed."""
 import unittest
 
 from compare_tool import theme
-from compare_tool.qtviewer.tree import (PRIO, REVIEW_COLOR, STATUS,
+from compare_tool.qtviewer.tree import (PRIO, STATUS,
                                         build_nodes, filter_nodes,
-                                        move_tooltip, review_state,
-                                        status_label)
+                                        move_tooltip, status_label)
 
 
 def _res(mapping):
@@ -145,33 +144,6 @@ class TestFilterNodes(unittest.TestCase):
         # stable unless the reviewer asked for it
         nodes = self._nodes({'a.c': 'identical'})
         self.assertEqual(self._rels(filter_nodes(nodes)), ['a.c'])
-
-
-class TestReviewState(unittest.TestCase):
-    """The colour behind the tree's Review column. 'done' is a claim that
-    every change in that row has been read, so it may not be handed out for
-    free."""
-
-    def test_nothing_to_sign_off_makes_no_claim(self):
-        # a noise-only, identical or NOT-compared row: no unit, no verdict --
-        # a green here would say "reviewed" about something nobody could read
-        self.assertIsNone(review_state(0, 0))
-
-    def test_none_partial_done(self):
-        self.assertEqual(review_state(0, 3), 'none')
-        self.assertEqual(review_state(1, 3), 'partial')
-        self.assertEqual(review_state(2, 3), 'partial')
-        self.assertEqual(review_state(3, 3), 'done')
-
-    def test_one_unreviewed_change_is_never_done(self):
-        self.assertEqual(review_state(99, 100), 'partial')
-
-    def test_every_state_has_a_colour(self):
-        for reviewed, total in ((0, 1), (1, 2), (2, 2)):
-            state = review_state(reviewed, total)
-            self.assertIn(state, REVIEW_COLOR)
-            for name in theme.THEMES:
-                self.assertTrue(theme.color(REVIEW_COLOR[state], name))
 
 
 class TestMoveLabel(unittest.TestCase):
