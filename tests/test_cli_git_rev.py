@@ -51,10 +51,10 @@ class TestCliGitRev(unittest.TestCase):
         (self.repo / 'gen').mkdir(parents=True)
         self.git('init', '-q')
         self.a = self.repo / 'gen' / 'a.c'
-        self.a.write_text(V1, newline='\n')
+        self.a.write_bytes(V1.encode('utf-8'))
         self.git('add', '.')
         self.git('commit', '-q', '-m', 'v1')
-        self.a.write_text(V2, newline='\n')
+        self.a.write_bytes(V2.encode('utf-8'))
         self.git('commit', '-q', '-am', 'v2')
         self.head = self.git('rev-parse', 'HEAD')
         self.prev = self.git('rev-parse', 'HEAD~1')
@@ -73,7 +73,7 @@ class TestCliGitRev(unittest.TestCase):
         self.assertIn('CURRENT folder', out)
 
     def test_both_sides_from_revisions_ignore_working_tree(self):
-        self.a.write_text(WT, newline='\n')
+        self.a.write_bytes(WT.encode('utf-8'))
         code, out, _ = run_cli(['gen', 'gen', '--baseline-rev', 'HEAD~1',
                                 '--current-rev', 'HEAD', '--no-report',
                                 '--json', str(Path(self.tmp) / 'o.json')])
@@ -86,7 +86,7 @@ class TestCliGitRev(unittest.TestCase):
         self.assertEqual(doc['exit_code'], 1)
 
     def test_head_vs_head_is_identical_even_with_dirty_tree(self):
-        self.a.write_text(WT, newline='\n')
+        self.a.write_bytes(WT.encode('utf-8'))
         code, out, _ = run_cli(['gen', 'gen', '--baseline-rev', 'HEAD',
                                 '--current-rev', 'HEAD', '--no-report'])
         self.assertEqual(code, 0, out)
@@ -94,7 +94,7 @@ class TestCliGitRev(unittest.TestCase):
     def test_folder_deleted_from_working_tree(self):
         other = Path(self.tmp) / 'other'
         other.mkdir()
-        (other / 'a.c').write_text(V2, newline='\n')
+        (other / 'a.c').write_bytes(V2.encode('utf-8'))
         shutil.rmtree(self.repo / 'gen')
         code, out, err = run_cli(['gen', str(other), '--baseline-rev', 'HEAD', '--no-report'])
         self.assertEqual(code, 0, out + err)
@@ -131,7 +131,7 @@ class TestCliGitRev(unittest.TestCase):
         self.assertEqual(doc['exit_code'], code)
 
     def test_repo_untouched_and_no_temp_left(self):
-        self.a.write_text(WT, newline='\n')
+        self.a.write_bytes(WT.encode('utf-8'))
         (self.repo / 'untracked.txt').write_text('u')
         before, tmp_before = self.snapshot(), src_dirs()
         run_cli(['gen', 'gen', '--baseline-rev', 'HEAD~1', '--current-rev', 'HEAD',
