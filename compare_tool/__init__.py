@@ -2,4 +2,4 @@
 
 APP_NAME = 'CodeGen Studio'
 
-__version__ = "2.4.1"
+__version__ = "3.0.0"
