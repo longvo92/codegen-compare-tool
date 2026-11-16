@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-11-16
+
 - Remove review notes and sign-off: the viewer has no Review mode, HTML reports carry no notes or Reviewed badge, and the `--review` flag is gone.
 - Export CURRENT consistency findings: `--check-current` now writes `--json` / `--sarif`, and comparisons with `--check-consistency` include the same findings.
 - Compare a Git revision from the CLI with `--baseline-rev` / `--current-rev`, without touching HEAD, the index or the working tree.
