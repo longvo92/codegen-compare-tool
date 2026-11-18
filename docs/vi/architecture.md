@@ -30,7 +30,13 @@ Path tương đối với `compare_tool/`.
 Engine tùy chọn dùng lxml trong `compare_tool/arxml_handler/` được chuyển từ
 arxml_handler tại `4e27ad9`. Engine dùng định danh AUTOSAR đầy đủ và XML có
 namespace. CLI và Qt dùng chung bước lập kế hoạch, validation, khóa Master,
-rollback, Undo trong phiên và export report.
+rollback, Undo trong phiên và export report. Trong Qt, `qtviewer/repair_panel.py`
+(`RepairPanel`) là engine xem trước/áp dụng/hoàn tác/report duy nhất với hai nơi dùng:
+bản sửa tại chỗ dưới finding Code Check (kế hoạch từ `assess_fix`, kiểm chứng lại
+trước khi ghi) và `qtviewer/arxml_handler.py`, trang Master/Source/XSD thủ công hiển
+thị trong cửa sổ `qtviewer/tool_window.py` mở từ Công cụ. `MainWindow._may_write_arxml`
+chỉ cho một nơi ghi khi nơi còn lại rảnh và không giữ trạng thái cần khôi phục; đóng
+ứng dụng khi còn khôi phục dang dở sẽ mở đúng nơi phải hoàn tác.
 
 `fix_suggestions.py` đưa ra hướng xử lý mà không cần lxml. Khi có lxml và input
 sửa rõ ràng, tool tạo bản sao tạm gồm các file checker cần và kết quả patch đã

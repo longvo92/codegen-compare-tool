@@ -177,7 +177,7 @@ Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với
 
 ### ARXML Handler và đề xuất sửa
 
-**Xử lý ARXML** bổ sung datatype S/R và dependency, datatype mapping, interface,
+**Công cụ → Xử lý ARXML…** mở trình xử lý trong cửa sổ riêng; đóng cửa sổ vẫn giữ các ô và dữ liệu hoàn tác trong phiên. Trình này bổ sung datatype S/R và dependency, datatype mapping, interface,
 R/P port, assembly/delegation connector, data element, ComSpec và runnable access
 từ **Source ARXML** đã generate vào **Master**. Chọn hai thư mục tách biệt,
 không lồng nhau, mỗi thư mục chứa một bộ định nghĩa nhất quán. Source chỉ được đọc.
@@ -195,9 +195,13 @@ compare-tool --check-current Current --fix-master Current/Master --fix-source Ge
 Code Check hiển thị **Đề xuất sửa** cho các finding được hỗ trợ. Với lỗi thiếu
 định nghĩa S/R, chọn Master trong CURRENT và thư mục Source đã generate. Tool
 kiểm tra toàn bộ bản sửa rồi chạy lại checker trên bản sao tạm với cùng policy
-và phạm vi. **Xem trước bản sửa** đánh dấu các bổ sung liên quan đến finding đã
-hết trên bản sao mà không phát sinh lỗi mới. Review toàn bộ bổ sung trước khi áp
-dụng. Sau Cập nhật hoặc Hoàn tác từ luồng này, ứng dụng tự kiểm tra lại CURRENT.
+và phạm vi. **Xem trước bản sửa** hiển thị bản sửa ngay dưới finding, đánh dấu sao
+các bổ sung liên quan, khi finding đã hết trên bản sao mà không phát sinh lỗi mới.
+Review toàn bộ bổ sung rồi bấm **Cập nhật Master** tại đó; có thể chọn XSD để
+validate khi ghi. Sau Cập nhật hoặc Hoàn tác, ứng dụng tự kiểm tra lại CURRENT, và
+**Hoàn tác lần cập nhật gần nhất** vẫn nằm dưới kết quả kể cả khi finding đã hết.
+Khi một bản sửa đang ghi hoặc cần khôi phục, nơi còn lại (tại chỗ hoặc Xử lý ARXML)
+không được ghi.
 Với input ZIP, giải nén ra thư mục làm việc rồi chạy lại Code Check trước khi
 tạo bản sửa. Cặp flag fix chỉ đánh giá bản sửa và giữ exit code của lần kiểm tra gốc.
 

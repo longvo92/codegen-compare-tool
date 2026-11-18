@@ -88,6 +88,7 @@ class WindowState:
         self._qsettings = qsettings
         self.geometry = None
         self.recent = []
+        self.tools = {}   # tool window key -> geometry
         self.error = ''
         self._load()
 
@@ -115,8 +116,14 @@ class WindowState:
             if not isinstance(recent, list):
                 raise ValueError('window state recent sources must be a list')
             self.recent = [e for e in recent if _valid_entry(e)][:MAX_RECENT]
+            tools = data.get('tools', {})
+            if not isinstance(tools, dict):
+                raise ValueError('window state tools must be an object')
+            self.tools = {key: base64.b64decode(value.encode('ascii'), validate=True)
+                          for key, value in tools.items()
+                          if isinstance(key, str) and isinstance(value, str) and value}
         except (OSError, UnicodeError, ValueError) as exc:
-            self.geometry, self.recent = None, []
+            self.geometry, self.recent, self.tools = None, [], {}
             self.error = str(exc)
 
     def _read(self):
@@ -139,8 +146,10 @@ class WindowState:
 
     def dumps(self):
         geometry = base64.b64encode(self.geometry).decode('ascii') if self.geometry else ''
+        tools = {key: base64.b64encode(value).decode('ascii')
+                 for key, value in sorted(self.tools.items()) if value}
         return json.dumps({'version': STATE_VERSION, 'geometry': geometry,
-                           'recent': self.recent}, indent=2, ensure_ascii=False)
+                           'recent': self.recent, 'tools': tools}, indent=2, ensure_ascii=False)
 
     def save(self):
         """True when written (or when there is nowhere to write). Never raises:

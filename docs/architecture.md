@@ -29,8 +29,15 @@ Paths are relative to `compare_tool/`.
 
 The optional lxml-backed engine lives in `compare_tool/arxml_handler/`.
 It uses the complete AUTOSAR identity and namespace-aware XML instead of Compare's
-noise rules. The CLI and Qt workspace share planning, pre-write validation,
-Master locking, rollback, in-session undo and report export. The engine was
+noise rules. The CLI and Qt share planning, pre-write validation,
+Master locking, rollback, in-session undo and report export. In Qt,
+`qtviewer/repair_panel.py` (`RepairPanel`) is the one preview/apply/undo/report
+engine with two hosts: the inline repair under a Code Check finding (plan from
+`assess_fix`, re-verified before writing) and `qtviewer/arxml_handler.py`, the
+manual Master/Source/XSD page shown in a `qtviewer/tool_window.py` window from
+Tools. `MainWindow._may_write_arxml` lets a host write only while the other is
+idle and holds no recovery state; closing the app with a recovery pending shows
+the host that must revert it. The engine was
 ported from arxml_handler at `4e27ad9`.
 
 `fix_suggestions.py` provides standard-library finding guidance. With lxml and

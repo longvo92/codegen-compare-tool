@@ -47,6 +47,7 @@ from .pickers import pick_folders
 from .section import NO_MAX, Section
 from .shell import AppShell, folders_entry, git_entry
 from .summary import SummaryPanel
+from .tool_window import ToolWindow
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip,
                    status_color)
 from .worker import ScanWorker, TaskWorker
@@ -285,19 +286,25 @@ class MainWindow(AppShell):
         self.compare_page = central
         self.modes.addTab(central, '')
         self._text.bind(self.modes.setTabText, 'Compare', 0)
-        self.arxml_handler = ArxmlHandlerPage(self._text, self._may_write_arxml, self,
-                                             protected_source=self._temporary_source)
+        # two hosts of one ARXML repair engine: the manual ARXML Handler in its
+        # own tool window, and the inline fix under a Code Check finding. Each
+        # may write only while the other is idle and has nothing to recover.
+        self.arxml_handler = ArxmlHandlerPage(
+            self._text, partial(self._may_write_arxml, 'handler'), self,
+            protected_source=self._temporary_source)
         self.code_check = CodeCheckPage(lambda: self.new, self, self._text, settings=self._settings,
-                                        may_check=lambda: not self.arxml_handler.writing,
-                                        temporary_source=self._temporary_source)
+                                        may_check=lambda: not self._arxml_writing(),
+                                        temporary_source=self._temporary_source,
+                                        may_write=partial(self._may_write_arxml, 'check'))
         self.modes.addTab(self.code_check, '')
         self._text.bind(self.modes.setTabText, 'Code Check', 1)
-        self.modes.addTab(self.arxml_handler, '')
-        self._text.bind(self.modes.setTabText, 'ARXML Handler', 2)
-        self.code_check.activity_changed.connect(self.arxml_handler.refresh_buttons)
-        self.arxml_handler.activity_changed.connect(self._arxml_activity_changed)
-        self.arxml_handler.master_written.connect(self._master_written)
-        self.code_check.repair_selected.connect(self._show_arxml_repair)
+        self.arxml_window = ToolWindow(self, self.arxml_handler, self._text,
+                                       window_state=self.window_state, key='arxml_handler')
+        self.code_check.activity_changed.connect(self._refresh_repair_buttons)
+        for panel in self._repair_panels():
+            panel.activity_changed.connect(self._arxml_activity_changed)
+            panel.master_written.connect(self._master_written)
+        self._refresh_repair_buttons()
         self.setCentralWidget(self.modes)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
@@ -340,7 +347,7 @@ class MainWindow(AppShell):
 
     def _switch_workspace(self, index):
         comparing = index == 0
-        writing = self.arxml_handler.writing
+        writing = self._arxml_writing()
         # the toolbars belong to the Compare page; their actions also sit in
         # the File menu, which must keep working from any workspace
         self.compare_toolbar.setVisible(comparing)
@@ -355,7 +362,7 @@ class MainWindow(AppShell):
         self._update_title()
 
     def _update_title(self):
-        title = APP_NAME + ' — ' + self._text(('Compare', 'Code Check', 'ARXML Handler')[self.modes.currentIndex()])
+        title = APP_NAME + ' — ' + self._text(('Compare', 'Code Check')[self.modes.currentIndex()])
         if not self.modes.currentIndex() and self._compare_name is not None:
             title += ' — ' + self._compare_name
             if self.skip_var_renames:
@@ -406,7 +413,7 @@ class MainWindow(AppShell):
                         QMessageBox.warning(self, self._text('Settings'),
                                             self._text('Import a valid config or restore defaults before saving.'))
                         return
-                    if (self.worker and self.worker.isRunning()) or self.code_check.is_running() or self.arxml_handler.writing:
+                    if (self.worker and self.worker.isRunning()) or self.code_check.is_running() or self._arxml_writing():
                         QMessageBox.warning(self, self._text('Settings'), self._text('Wait for the current task to finish.'))
                         return
                     try:
@@ -707,7 +714,7 @@ class MainWindow(AppShell):
         self._sync_view_actions()
 
     def _show_arxml_tool(self):
-        self.modes.setCurrentWidget(self.arxml_handler)
+        self.arxml_window.open()
 
     def _sync_view_actions(self):
         index = self.modes.currentIndex()
@@ -799,27 +806,50 @@ class MainWindow(AppShell):
         a, b = Path(first).resolve(), Path(second).resolve()
         return a == b or a in b.parents or b in a.parents
 
-    def _may_write_arxml(self):
+    def _repair_panels(self):
+        """Every ARXML repair host built so far (the Handler is built first)."""
+        handler = getattr(self, 'arxml_handler', None)
         check = getattr(self, 'code_check', None)
-        return not (self._git_worker is not None or (self.worker and self.worker.isRunning())
+        return tuple(p for p in (getattr(handler, 'panel', None), getattr(check, 'repair_panel', None))
+                     if p is not None)
+
+    def _arxml_writing(self):
+        return any(panel.writing for panel in self._repair_panels())
+
+    def _arxml_busy(self):
+        return any(panel.worker is not None for panel in self._repair_panels())
+
+    def _refresh_repair_buttons(self, *_args):
+        for panel in self._repair_panels():
+            panel.refresh_buttons()
+        handler = getattr(self, 'arxml_handler', None)
+        if handler is not None:
+            handler.refresh_buttons()
+
+    def _may_write_arxml(self, host=None):
+        """``host`` is 'handler' or 'check', looked up lazily: the hosts ask
+        while they are still being built."""
+        check = getattr(self, 'code_check', None)
+        panel = (getattr(getattr(self, 'arxml_handler', None), 'panel', None) if host == 'handler'
+                 else getattr(check, 'repair_panel', None) if host == 'check' else None)
+        # the other host must be idle and must not hold a half-written Master
+        other = any(p is not panel and (p.worker is not None or p.recovery_required)
+                    for p in self._repair_panels())
+        return not (other or self._git_worker is not None or (self.worker and self.worker.isRunning())
                     or (check and (check.is_running() or check.fix_worker is not None))
                     or getattr(self, '_close_pending', False))
 
     def _arxml_activity_changed(self):
-        writing = self.arxml_handler.writing
-        self.compare_page.setEnabled(not writing)
-        self.code_check.setEnabled(not writing)
+        handler_writing = self.arxml_handler.writing
+        inline_writing = self.code_check.repair_panel.writing
+        self.compare_page.setEnabled(not (handler_writing or inline_writing))
+        self.code_check.setEnabled(not handler_writing)
+        self.arxml_handler.setEnabled(not inline_writing)
         self.code_check.refresh_run_button()
+        self._refresh_repair_buttons()
         self._switch_workspace(self.modes.currentIndex())
-        if getattr(self, '_close_pending', False) and self.arxml_handler.worker is None:
+        if getattr(self, '_close_pending', False) and not self._arxml_busy():
             QTimer.singleShot(0, self.close)
-
-    def _show_arxml_repair(self, plan, related, verify, context):
-        if self.arxml_handler.load_repair(plan, related, verify, context):
-            self.modes.setCurrentWidget(self.arxml_handler)
-        else:
-            self.statusBar().showMessage(self._text('Finish the current ARXML operation first.'), 5000)
-            self.modes.setCurrentWidget(self.arxml_handler)
 
     def _master_written(self, master, context):
         if any(self._paths_overlap(root, master) for root in (self.old, self.new) if root):
@@ -842,15 +872,21 @@ class MainWindow(AppShell):
 
     def closeEvent(self, event):
         running = [w for w in (self.worker, self.code_check.worker, self.code_check.fix_worker,
-                               self.arxml_handler.worker) if w and w.isRunning()]
-        if self.arxml_handler.recovery_required:
+                               *(p.worker for p in self._repair_panels())) if w and w.isRunning()]
+        recovering = [p for p in self._repair_panels() if p.recovery_required]
+        if recovering:
+            # a half-written Master must be reverted first: show where to do it
             event.ignore()
             self._close_pending = False
             self.setEnabled(True)
-            self.modes.setCurrentWidget(self.arxml_handler)
-            self.arxml_handler.refresh_buttons()
+            if recovering[0] is self.arxml_handler.panel:
+                self._show_arxml_tool()
+            else:
+                self._show_workspace(1)
+                self.code_check._refresh_fix()
+            self._refresh_repair_buttons()
             return
-        if running or self._git_worker is not None or self.arxml_handler.worker is not None:
+        if running or self._git_worker is not None or self._arxml_busy():
             # Keep source directories and QThreads alive until their reads finish.
             event.ignore()
             if not getattr(self, '_close_pending', False):
@@ -865,6 +901,7 @@ class MainWindow(AppShell):
             # session, so flipping between sources is instant, and go with it
             shutil.rmtree(self._src_temp, ignore_errors=True)
             self._src_temp = None
+        self.arxml_window.close()   # remembers its geometry
         self._save_window_state()
         super().closeEvent(event)
 
@@ -911,7 +948,7 @@ class MainWindow(AppShell):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
-        if self._git_worker or self.arxml_handler.writing or self.modes.currentWidget() is self.arxml_handler:
+        if self._git_worker or self._arxml_writing():
             event.ignore()
             return
         paths = self._droppable(event)
@@ -988,7 +1025,7 @@ class MainWindow(AppShell):
         return True
 
     def _pick_commit(self):
-        if self._git_worker or self.arxml_handler.writing or (self.worker and self.worker.isRunning()):
+        if self._git_worker or self._arxml_writing() or (self.worker and self.worker.isRunning()):
             return
         start = self.new if self.new and not self._temporary_source(self.new) else self._git_folder
         picked = pick_commit(self, start)
@@ -1019,7 +1056,7 @@ class MainWindow(AppShell):
         self._git_worker = TaskWorker(prepare, self)
         self._git_worker.finished.connect(self._git_prepared)
         self._git_worker.start()
-        self.arxml_handler.refresh_buttons()
+        self._refresh_repair_buttons()
 
     def _git_prepared(self):
         worker = self._git_worker
@@ -1028,7 +1065,7 @@ class MainWindow(AppShell):
         if getattr(self, '_close_pending', False):
             QTimer.singleShot(0, self.close)
             return
-        self.arxml_handler.refresh_buttons()
+        self._refresh_repair_buttons()
         if worker.error is not None:
             self._set_state(*self._git_previous_state)
             QMessageBox.critical(self, self._text('Git comparison failed'), str(worker.error))
@@ -1077,7 +1114,7 @@ class MainWindow(AppShell):
 
     def _start_scan(self, *, compare_name=None):
         self.code_check.refresh_current()
-        if not (self.old and self.new) or self.arxml_handler.writing or self._git_worker:
+        if not (self.old and self.new) or self._arxml_writing() or self._git_worker:
             return
         if self.worker and self.worker.isRunning():
             return
@@ -1107,9 +1144,9 @@ class MainWindow(AppShell):
         self.worker.progressed.connect(self._on_progress)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_fail)
-        self.worker.finished.connect(self.arxml_handler.refresh_buttons)
+        self.worker.finished.connect(self._refresh_repair_buttons)
         self.worker.start()
-        self.arxml_handler.refresh_buttons()
+        self._refresh_repair_buttons()
 
     def _remember_current_sources(self):
         entry = self._git_entry
@@ -1123,7 +1160,7 @@ class MainWindow(AppShell):
             self.statusBar().showMessage(self._text('Recent sources could not be saved.'), 5000)
 
     def _may_open_recent(self):
-        return not (self._git_worker is not None or self.arxml_handler.writing
+        return not (self._git_worker is not None or self._arxml_writing()
                     or (self.worker is not None and self.worker.isRunning()))
 
     def _open_recent(self, entry):
@@ -1153,7 +1190,7 @@ class MainWindow(AppShell):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setVisible(False)
-        self.act_export.setEnabled(bool(results) and not self.arxml_handler.writing)
+        self.act_export.setEnabled(bool(results) and not self._arxml_writing())
         errs = sorted(rel for rel, r in results.items() if r['status'] == 'error')
         if errs:
             shown = ', '.join(errs[:20]) + (' …' if len(errs) > 20 else '')
@@ -1338,7 +1375,7 @@ class MainWindow(AppShell):
         report's own badges still let the reader hide categories while looking
         at it.
         """
-        if self.arxml_handler.writing or not self._raw_results:
+        if self._arxml_writing() or not self._raw_results:
             return
         report_dir = self._git_report_dir or Path(self.new).parent
         default = str(report_dir / default_report_name(self.arxml_only))
