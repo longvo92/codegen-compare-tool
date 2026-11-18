@@ -111,7 +111,10 @@ class WindowState:
             geometry = data.get('geometry')
             if isinstance(geometry, str) and geometry:
                 self.geometry = base64.b64decode(geometry.encode('ascii'), validate=True)
-            self.recent = [e for e in data.get('recent', ()) if _valid_entry(e)][:MAX_RECENT]
+            recent = data.get('recent', [])
+            if not isinstance(recent, list):
+                raise ValueError('window state recent sources must be a list')
+            self.recent = [e for e in recent if _valid_entry(e)][:MAX_RECENT]
         except (OSError, UnicodeError, ValueError) as exc:
             self.geometry, self.recent = None, []
             self.error = str(exc)

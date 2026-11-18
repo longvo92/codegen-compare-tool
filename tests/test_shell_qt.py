@@ -85,7 +85,10 @@ class TestWindowState(unittest.TestCase):
 
     def test_unreadable_state_starts_fresh_and_is_replaced_on_save(self):
         path = self.dir / STATE_FILE
-        for raw in ('{not json', json.dumps({'version': 99}), json.dumps([1])):
+        for raw in ('{not json', json.dumps({'version': 99}), json.dumps([1]),
+                    json.dumps({'version': 1, 'recent': None}),
+                    json.dumps({'version': 1, 'recent': 5}),
+                    json.dumps({'version': 1, 'geometry': 'not base64!'})):
             path.write_text(raw, encoding='utf-8')
             state = WindowState(path)
             self.assertEqual((state.geometry, state.recent), (None, []))
