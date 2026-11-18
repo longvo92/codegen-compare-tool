@@ -379,6 +379,9 @@ class MainWindow(AppShell):
         self.compare_docks = (self.files_dock, self.changes_dock, self.advisories_dock)
         self.check_docks = (self.setup_dock, self.evidence_dock, self.fix_dock)
         self.docks = self.compare_docks + self.check_docks
+        # the arrangement as built -- areas, splits, nothing tabbed or floating.
+        # A default layout starts from it, so a reset also undoes moves and tabs.
+        self._pristine_layout = bytes(self.saveState(LAYOUT_VERSION))
 
     def _set_advisory_title(self):
         tr, n = self._text, self._advisory_count
@@ -388,6 +391,7 @@ class MainWindow(AppShell):
         self.advisories_dock.setWindowTitle(title)
 
     def _apply_default_layout(self, index):
+        self.restoreState(QByteArray(self._pristine_layout), LAYOUT_VERSION)
         for view, docks in enumerate((self.compare_docks, self.check_docks)):
             for panel in docks:
                 panel.setFloating(False)

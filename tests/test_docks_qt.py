@@ -103,6 +103,24 @@ class TestWorkspaceDocks(unittest.TestCase):
         win.act_reset_layout.trigger()
         self.assertEqual(_shown(win.docks), ['checkSetupDock', 'evidenceDock', 'fixDock'])
 
+    def test_reset_puts_moved_tabbed_and_floating_panels_back(self):
+        win = self.demo()
+        win._show_workspace(1)
+        win.addDockWidget(Qt.LeftDockWidgetArea, win.evidence_dock)
+        win.tabifyDockWidget(win.setup_dock, win.evidence_dock)
+        win.fix_dock.setFloating(True)
+        win.act_reset_layout.trigger()
+        self.assertEqual(win.dockWidgetArea(win.evidence_dock), Qt.RightDockWidgetArea)
+        self.assertEqual(win.dockWidgetArea(win.fix_dock), Qt.BottomDockWidgetArea)
+        self.assertEqual(win.tabifiedDockWidgets(win.setup_dock), [])
+        self.assertFalse(win.fix_dock.isFloating())
+        self.assertEqual(_shown(win.docks), ['checkSetupDock', 'evidenceDock', 'fixDock'])
+        # a view opened for the first time starts from the built arrangement too
+        win.addDockWidget(Qt.RightDockWidgetArea, win.files_dock)
+        win._layouts.pop(0, None)
+        win._show_workspace(0)
+        self.assertEqual(win.dockWidgetArea(win.files_dock), Qt.LeftDockWidgetArea)
+
     def test_view_menu_lists_every_panel_and_reset(self):
         win = self.window()
         view = win.menuBar().actions()[1].menu()
