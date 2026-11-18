@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
-- Add a menu bar (File, View, Tools, Settings, Help). It replaces the Settings button and Help menu in the corner of the workspace tabs; the Compare and Files toolbars are unchanged.
+- Add a menu bar (File, View, Tools, Settings, Help). It replaces the Settings button and Help menu in the corner of the workspace tabs, and the Open folders / Git compare / Export report toolbar above Compare: those commands are in **File** now. **Comment** and **Unimportant** stay below the Files tree.
 - **File → Recent sources** reopens the last eight folder/ZIP pairs and Git comparisons. Git entries resolve their commits again and fail loudly when one is gone.
 - **Settings → Language / Theme** switch at once; Settings menu entries open the dialog on the Code Check policy, Compare rules or Report page.
 - The window remembers its size and position. Window state lives in `window-state.json` beside `settings.yaml`, never in the exported config.

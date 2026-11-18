@@ -143,7 +143,7 @@ Mọi lệnh nằm trên thanh menu:
 
 **Cài đặt → Ngôn ngữ** và **Cài đặt → Theme** đổi ngay và được ghi nhớ; mặc định là English và theme sáng. Chọn theme ở đây cũng thay lựa chọn `--theme` cho các lần mở sau. Trong hộp thoại Cài đặt, bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. HTML xuất từ viewer dùng theme trong tab Report.
 
-**Xuất report** cũng có trên thanh công cụ So sánh. Hai nút **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**; đây là compare rule nên không nằm trong menu Xem. Khi tắt một trong hai nút, các dòng tương ứng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
+Mở thư mục, So sánh với Git và Xuất report chỉ nằm trong menu **File**. Hai nút **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**; đây là compare rule nên không nằm trong menu Xem. Khi tắt một trong hai nút, các dòng tương ứng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
 
 | Verdict | Ý nghĩa |
 |---|---|

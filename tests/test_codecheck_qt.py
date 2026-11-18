@@ -216,7 +216,7 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertIsNone(self.win.worker)
         self.assertFalse(self.win.act_export.isEnabled())
         # the Compare toolbar is hidden here, but File > Open folders still works
-        self.assertFalse(self.win.source_toolbar.isVisible())
+        self.assertFalse(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.act_open.isEnabled())
         self.run_check()
         self.assertEqual(self.page.status.text(), 'PASS')
@@ -583,21 +583,21 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
 
     def test_compare_actions_stay_below_the_file_tree_and_inside_compare(self):
         from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QToolBar
         self.win.modes.setCurrentIndex(0)
         self.app.processEvents()
-        tabs_bottom = self.win.modes.tabBar().mapTo(self.win, QPoint(0, self.win.modes.tabBar().height())).y()
-        source_top = self.win.source_toolbar.mapTo(self.win, QPoint(0, 0)).y()
         tree_bottom = self.win.tree.mapTo(self.win, QPoint(0, self.win.tree.height())).y()
         toolbar_top = self.win.compare_toolbar.mapTo(self.win, QPoint(0, 0)).y()
-        self.assertLessEqual(tabs_bottom, source_top)
         self.assertLessEqual(tree_bottom, toolbar_top)
         self.assertTrue(self.win.sec_files.isAncestorOf(self.win.compare_toolbar))
-        self.assertEqual(self.win.source_toolbar.actions(),
-                         [self.win.act_open, self.win.act_git, self.win.act_export])
         self.assertEqual(self.win.compare_toolbar.actions(),
                          [self.win.show_comment, self.win.show_unimportant])
-        self.assertTrue(self.win.source_toolbar.isVisible())
         self.assertTrue(self.win.compare_toolbar.isVisible())
+        # Open folders, Git compare and Export live in the File menu only
+        toolbars = self.win.findChildren(QToolBar)
+        self.assertEqual(toolbars, [self.win.compare_toolbar])
+        for action in (self.win.act_open, self.win.act_git, self.win.act_export):
+            self.assertEqual([w for w in action.associatedObjects() if isinstance(w, QToolBar)], [])
         # Settings and Help live in the menu bar, not in a corner of the tabs
         self.assertIsNone(self.win.modes.cornerWidget(Qt.TopRightCorner))
         self.assertTrue(self.win.menuBar().isVisible())
@@ -609,7 +609,6 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertFalse(hasattr(self.win, 'review_panel'))
         self.win.modes.setCurrentIndex(1)
         self.app.processEvents()
-        self.assertFalse(self.win.source_toolbar.isVisible())
         self.assertFalse(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.menuBar().isVisible())
 

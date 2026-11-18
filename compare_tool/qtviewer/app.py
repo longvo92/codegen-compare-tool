@@ -343,9 +343,8 @@ class MainWindow(AppShell):
         writing = self.arxml_handler.writing
         # the toolbars belong to the Compare page; their actions also sit in
         # the File menu, which must keep working from any workspace
-        self.source_toolbar.setVisible(comparing)
         self.compare_toolbar.setVisible(comparing)
-        for action in self._compare_toolbar_actions:
+        for action in self._source_actions:
             action.setEnabled(not writing)
         for action in (self.act_first, self.act_prev, self.act_next, self.act_last):
             action.setEnabled(comparing and not writing)
@@ -736,24 +735,16 @@ class MainWindow(AppShell):
         self._sync_menu_checks()
 
     def _build_toolbar(self, tree_box):
-        self.source_toolbar = QToolBar('Compare sources', self.compare_page)
+        # Open folders, Git compare and Export live in the File menu only; the
+        # one toolbar left carries the compare rules, under the Files tree
         self.compare_toolbar = QToolBar('Compare', tree_box)
-        for toolbar in (self.source_toolbar, self.compare_toolbar):
-            toolbar.setMovable(False)
-            toolbar.setIconSize(QSize(20, 20))
-            toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-
-        self.compare_page.layout().insertWidget(0, self.source_toolbar)
+        self.compare_toolbar.setMovable(False)
+        self.compare_toolbar.setIconSize(QSize(20, 20))
+        self.compare_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         tree_box.layout().addWidget(self.compare_toolbar)
-        self.source_toolbar.addAction(self.act_open)
-        self.source_toolbar.addAction(self.act_git)
-        self.source_toolbar.addAction(self.act_export)
-        report_button = self.source_toolbar.widgetForAction(self.act_export)
-        report_button.setObjectName('primary')
-        report_button.setCursor(Qt.PointingHandCursor)
         self.compare_toolbar.addAction(self.show_comment)
         self.compare_toolbar.addAction(self.show_unimportant)
-        self._compare_toolbar_actions = self.source_toolbar.actions() + self.compare_toolbar.actions()
+        self._source_actions = (self.act_open, self.act_git, self.show_comment, self.show_unimportant)
 
     def _compare_toggle(self, label, glyph, checked, tooltip):
         action = QAction(icon(glyph, checked_role='chrome-checked-fg'), label, self)
@@ -1647,10 +1638,6 @@ QFrame#advisorypanel {{ background:{chrome-bar-bg}; }}
 QFrame#advisorypanel QScrollArea,
 QFrame#advisorypanel QScrollArea > QWidget > QWidget {{ background:transparent; }}
 QLabel#advisoryhead {{ font-size:12px; }}
-QToolButton#primary {{ background:{chrome-checked-bg}; color:{chrome-checked-fg}; }}
-QToolButton#primary:hover {{ background:{chrome-checked-hover}; }}
-QToolButton#primary:disabled {{ background:{chrome-disabled-bg};
-            color:{chrome-disabled-fg}; }}
 QTreeWidget {{ border:1px solid {border}; border-radius:6px; }}
 QTreeWidget::item {{ padding:2px 0; }}
 QTreeWidget::item:selected {{ background:{tree-selected}; }}

@@ -144,7 +144,7 @@ Every command sits in the menu bar:
 
 **Settings → Language** and **Settings → Theme** switch at once and are remembered; English and Light are the defaults. Choosing a theme here also replaces a `--theme` launch choice for later launches. In the Settings dialog, **Save** applies and remembers your choices. HTML exports use the Report theme in Settings.
 
-**Export report** is also on the Compare toolbar. The **Comment** and **Unimportant** buttons sit below the folder tree in **Files**; they are compare rules, so they are not in the View menu. When either button is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
+Open folders, Git compare and Export report are in the **File** menu only. The **Comment** and **Unimportant** buttons sit below the folder tree in **Files**; they are compare rules, so they are not in the View menu. When either button is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
 
 | Verdict | Meaning |
 |---|---|
