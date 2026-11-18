@@ -60,7 +60,6 @@ VI = {
     'Theme': 'Theme',
     'Light': 'Sáng',
     'Dark': 'Tối',
-    'Compare display': 'Hiển thị kết quả so sánh',
     'Hide identical': 'Ẩn file Identical',
     'Hide only Identical files in the tree.': 'Chỉ ẩn các file Identical trong cây.',
     'Mute Comment differences and skip them in F7/F8 when unchecked.':
@@ -135,8 +134,8 @@ VI = {
         'có thêm RTE access trong khi một model khác giữ nguyên. Xem lại dependency và lịch sử code generation để xác định có cần regeneration hay không.',
     'Select a file in the tree to view its diff.': 'Chọn một file trong cây để xem Diff.',
     'BASELINE: {}\n\nNow drop the CURRENT folder.': 'BASELINE: {}\n\nThả thư mục CURRENT vào đây.',
-    'Drop the BASELINE and CURRENT folders (or .zip artifacts) here.\nOr use "Open folders…" — or "Git compare…" for one folder and its own history.':
-        'Thả thư mục hoặc file ZIP của BASELINE và CURRENT vào đây.\nChọn “Mở thư mục…” hoặc dùng “So sánh với Git…” để đối chiếu với một commit.',
+    'Drop the BASELINE and CURRENT folders (or .zip artifacts) here.\nOr use File → Open folders… (Ctrl+O), or File → Git compare… (Ctrl+G) for one folder and its own history.':
+        'Thả thư mục hoặc file ZIP của BASELINE và CURRENT vào đây.\nHoặc chọn File → Mở thư mục… (Ctrl+O), hay File → So sánh với Git… (Ctrl+G) để đối chiếu với một commit.',
     '{}\n\nBinary file differs.': '{}\n\nFile binary có khác biệt.',
     '{}\n\nBinary file {}.': '{}\n\nFile binary: {}.',
     '{}\n\nIdentical (binary).': '{}\n\nIdentical (file binary).',
@@ -407,4 +406,19 @@ VI = {
     'Code Check could not verify the proposed ARXML output.': 'Code Check không xác minh được kết quả ARXML đề xuất.',
     'The proposed additions do not resolve this finding.': 'Các bổ sung đề xuất chưa giải quyết được lỗi này.',
     'ARXML repair could not be verified: {}': 'Không xác minh được bản sửa ARXML: {}',
+    # application shell: menu bar and recent sources
+    'View': 'Xem',
+    'Tools': 'Công cụ',
+    'Quit': 'Thoát',
+    'Settings…': 'Cài đặt…',
+    'Code Check policy…': 'Policy Code Check…',
+    'Compare rules…': 'Quy tắc Compare…',
+    'Report options…': 'Tùy chọn report…',
+    'ARXML Handler…': 'Xử lý ARXML…',
+    'Recent sources': 'Nguồn gần đây',
+    'No recent sources': 'Chưa có nguồn gần đây',
+    'Clear recent': 'Xóa danh sách gần đây',
+    'Working tree': 'Working tree',
+    'Git · {}  ·  {} → {}': 'Git · {}  ·  {} → {}',
+    'Recent sources could not be saved.': 'Không lưu được danh sách nguồn gần đây.',
 }

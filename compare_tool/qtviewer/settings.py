@@ -140,15 +140,24 @@ def save_preferences(store, prefs):
 
 def save_compare_visibility(store, prefs):
     """Persist the Compare toolbar choices without saving launch overrides."""
-    values = {'comment': prefs.comment, 'unimportant': prefs.unimportant}
+    return save_settings_values(store, 'display',
+                                {'comment': prefs.comment, 'unimportant': prefs.unimportant})
+
+
+def save_settings_values(store, section, values):
+    """Persist ``values`` into one settings section and nothing else.
+
+    The file is read again first, so launch overrides held only in memory
+    (``--exclude``, ``--theme``...) are never written back by a quick toggle.
+    """
     if isinstance(store, YamlSettings):
         try:
             config = app_config.load(store.path) if store.path.exists() else app_config.defaults()
-            config['display'].update(values)
+            config[section].update(values)
             store.save(config)
         except (OSError, UnicodeError, ValueError):
             return False
-        store.config['display'].update(values)
+        store.config[section].update(values)
         return True
     return _save_values(store, values)
 
@@ -181,6 +190,8 @@ def save_code_check_defaults(store, defaults):
 
 
 class SettingsDialog(QDialog):
+    PAGES = ('general', 'code_check', 'compare', 'report')
+
     def __init__(self, parent, prefs, texts, *, policy_path='', config=None):
         super().__init__(parent)
         self._text = tr = texts
@@ -191,7 +202,10 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self._config = deepcopy(config or app_config.defaults())
-        self._config['display'].update(comment=prefs.comment, unimportant=prefs.unimportant)
+        # display choices are made in the window (toolbar, View menu); the
+        # dialog carries them through so Save and Export keep them intact
+        self._config['display'].update(comment=prefs.comment, unimportant=prefs.unimportant,
+                                       hide_identical=prefs.hide_identical)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
         general = QWidget()
@@ -215,14 +229,7 @@ class SettingsDialog(QDialog):
             combo.setAccessibleName(label.text())
             form.addRow(label, combo)
         general_layout.addWidget(appearance)
-
-        display = QGroupBox(tr('Compare display'))
-        options = QVBoxLayout(display)
-        self.hide_identical = QCheckBox(tr('Hide identical'))
-        self.hide_identical.setToolTip(tr('Hide only Identical files in the tree.'))
-        self.hide_identical.setChecked(prefs.hide_identical)
-        options.addWidget(self.hide_identical)
-        general_layout.addWidget(display)
+        general_layout.addStretch(1)  # keep the few General fields at the top
 
         policy = QGroupBox(tr('Code Check policy'))
         policy_layout = QVBoxLayout(policy)
@@ -301,11 +308,15 @@ class SettingsDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
 
+    def show_page(self, page):
+        """Open on one page: 'general', 'code_check', 'compare' or 'report'."""
+        self.tabs.setCurrentIndex(self.PAGES.index(page))
+
     def preferences(self):
         display = self._config['display']
         return Preferences(self.language.currentData(), self.theme.currentData(),
                            display['comment'], display['unimportant'],
-                           self.hide_identical.isChecked())
+                           display['hide_identical'])
 
     def policy_path(self):
         path = self.policy.text().strip()
@@ -328,7 +339,6 @@ class SettingsDialog(QDialog):
     def config(self):
         value = deepcopy(self._config)
         value['appearance'].update(language=self.language.currentData(), theme=self.theme.currentData())
-        value['display']['hide_identical'] = self.hide_identical.isChecked()
         value['compare'].update(exclude=[x.strip() for x in self.compare_exclude.toPlainText().splitlines() if x.strip()],
                                 arxml_only=self.arxml_only.isChecked(), skip_var_renames=self.skip_renames.isChecked(),
                                 check_consistency=self.check_consistency.isChecked(), exit_zero=self.exit_zero.isChecked(),
@@ -342,7 +352,6 @@ class SettingsDialog(QDialog):
         self._config = value
         self.language.setCurrentIndex(self.language.findData(value['appearance']['language']))
         self.theme.setCurrentIndex(self.theme.findData(value['appearance']['theme']))
-        self.hide_identical.setChecked(value['display']['hide_identical'])
         self.compare_exclude.setPlainText('\n'.join(value['compare']['exclude']))
         for key, widget in (('arxml_only', self.arxml_only), ('skip_var_renames', self.skip_renames),
                             ('check_consistency', self.check_consistency), ('exit_zero', self.exit_zero)):

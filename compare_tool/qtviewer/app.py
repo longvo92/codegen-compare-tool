@@ -11,14 +11,15 @@ import sys
 import tempfile
 import webbrowser
 from copy import deepcopy
+from functools import partial
 from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QPalette
+from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
                                QHeaderView, QLabel, QLineEdit,
-                               QMainWindow, QMenu, QMessageBox,
+                               QMenu, QMessageBox,
                                QProgressBar, QSplitter, QStyle, QToolBar,
                                QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QTreeWidgetItemIterator,
@@ -39,11 +40,12 @@ from .diffpane import DiffPane
 from .i18n import Texts
 from .settings import (SettingsDialog, load_code_check_defaults, load_preferences,
                        YamlSettings, preference_store, save_code_check_defaults,
-                       save_compare_visibility, save_preferences)
+                       save_compare_visibility, save_preferences, save_settings_values)
 from .icons import ACCENT, TINT, app_icon, icon, std_icon
-from .gitpicker import pick_commit, ref_label
+from .gitpicker import GitComparison, pick_commit, ref_label
 from .pickers import pick_folders
 from .section import NO_MAX, Section
+from .shell import AppShell, folders_entry, git_entry
 from .summary import SummaryPanel
 from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip,
                    status_color)
@@ -89,7 +91,22 @@ def _arxml_include():
     return tuple('*' + ext for ext, rs in RULES.items() if rs in ('arxml', 'a2l'))
 
 
-class MainWindow(QMainWindow):
+def _resolve_recent_git(entry):
+    """Rebuild a Git comparison from a Recent sources entry.
+
+    The commits are looked up again rather than trusted: a SHA that rewritten
+    history no longer has fails loudly here, it never compares whatever is
+    there now."""
+    folder = entry['folder']
+    root = gitsource.repo_root(folder, strict=True)
+    if root is None:
+        raise gitsource.GitError('Not a Git work tree: {}'.format(folder))
+    baseline = gitsource.resolve(root, entry['baseline'])
+    current = gitsource.resolve(root, entry['current']) if entry.get('current') else None
+    return GitComparison(folder, root, gitsource.rel_in_repo(root, folder), baseline, current)
+
+
+class MainWindow(AppShell):
     def __init__(self, old=None, new=None, exclude=None, arxml_only=None,
                  theme_name=None, user_rules=None, skip_var_renames=None, *, settings=None,
                  temporary_root=None, app_config=None):
@@ -104,6 +121,7 @@ class MainWindow(QMainWindow):
             self._settings.config = deepcopy(app_config)
         self._prefs = load_preferences(self._settings)
         self._text = Texts(self._prefs.language)
+        self._init_shell(self._text, self._settings)
         self._theme = theme.set_current(theme_name or self._prefs.theme)
         apply_theme(QApplication.instance())
         self._compare_name = None
@@ -112,6 +130,10 @@ class MainWindow(QMainWindow):
         self._config = self._settings.config if isinstance(self._settings, YamlSettings) else None
         self.old = old
         self.new = new
+        # what the reviewer opened -- a .zip, not its unpacked temp copy -- so
+        # Recent sources can open the same thing again
+        self._old_origin, self._new_origin = old, new
+        self._git_entry = None
         if self._config is not None:
             compare = self._config['compare']
             if exclude is not None:
@@ -298,6 +320,8 @@ class MainWindow(QMainWindow):
             self.banner.show()
 
         self._build_toolbar(tree_box)
+        self._build_menus()
+        self._restore_geometry()
         self._update_title()
         self.modes.currentChanged.connect(self._switch_workspace)
         self._style_widgets()
@@ -316,12 +340,17 @@ class MainWindow(QMainWindow):
 
     def _switch_workspace(self, index):
         comparing = index == 0
-        for action in self._compare_toolbar_actions:
-            action.setVisible(comparing and not self.arxml_handler.writing)
+        writing = self.arxml_handler.writing
+        # the toolbars belong to the Compare page; their actions also sit in
+        # the File menu, which must keep working from any workspace
+        self.compare_toolbar.setVisible(comparing)
+        for action in self._source_actions:
+            action.setEnabled(not writing)
         for action in (self.act_first, self.act_prev, self.act_next, self.act_last):
-            action.setEnabled(comparing and not self.arxml_handler.writing)
-        self.act_export.setEnabled(comparing and not self.arxml_handler.writing and bool(self._raw_results))
+            action.setEnabled(comparing and not writing)
+        self.act_export.setEnabled(not writing and bool(self._raw_results))
         self.statusBar().setVisible(comparing)
+        self._sync_view_actions()
         self.code_check.refresh_current()
         self._update_title()
 
@@ -365,9 +394,11 @@ class MainWindow(QMainWindow):
         self.user_rules = app_config_module.compile_rules(self._config)
         self.skip_var_renames = compare['skip_var_renames']
 
-    def _show_settings(self):
+    def _show_settings(self, page=None, *_checked):
         dialog = SettingsDialog(self, self._prefs._replace(theme=self._theme), self._text,
                                 policy_path=self.code_check.policy_path, config=self._config)
+        if page:
+            dialog.show_page(page)
         try:
             if dialog.exec() == QDialog.Accepted:
                 if self._config is not None:
@@ -440,6 +471,36 @@ class MainWindow(QMainWindow):
             self._update_compare_visibility()
         if before.hide_identical != prefs.hide_identical:
             self._refresh_tree_keep_selection()
+        self._sync_menu_checks()
+
+    # quick switches from the menu bar. Each one saves only its own key, so a
+    # launch override (--theme, --exclude, ...) is never written back.
+
+    def _toggle_hide_identical(self, checked):
+        self._apply_preferences(self._prefs._replace(theme=self._theme, hide_identical=checked))
+        self._save_settings('display', {'hide_identical': checked})
+
+    def _choose_language(self, code, *_checked):
+        self._apply_preferences(self._prefs._replace(theme=self._theme, language=code))
+        self._save_settings('appearance', {'language': code})
+
+    def _choose_theme(self, name, *_checked):
+        # an explicit choice is saved even when it matches a --theme launch
+        # override: picking it from the menu is the reviewer asking to keep it
+        self._apply_preferences(self._prefs._replace(theme=name))
+        self._save_settings('appearance', {'theme': name})
+
+    def _save_settings(self, section, values):
+        if not save_settings_values(self._settings, section, values):
+            self.statusBar().showMessage(
+                self._text('Settings could not be saved for the next launch.'), 5000)
+
+    def _sync_menu_checks(self):
+        self.act_hide_identical.setChecked(self._prefs.hide_identical)
+        for act in self.language_group.actions():
+            act.setChecked(act.data() == self._text.language)
+        for act in self.theme_group.actions():
+            act.setChecked(act.data() == self._theme)
 
     def _set_theme(self, name):
         if theme.set_current(name) == self._theme:
@@ -479,7 +540,6 @@ class MainWindow(QMainWindow):
         for act, glyph, role in self._icon_actions:
             checked_role = 'chrome-checked-fg' if act.isCheckable() else None
             act.setIcon(icon(glyph, role or TINT, checked_role=checked_role))
-        self.help_button.setIcon(icon('report'))
 
     # --- actions, toolbar, bottom action bar ---
 
@@ -493,6 +553,7 @@ class MainWindow(QMainWindow):
         self._icon_actions = []
         self.act_open = QAction(std_icon(self, QStyle.SP_DirOpenIcon), '', self)
         self._text.bind(self.act_open.setText, 'Open folders…')
+        self.act_open.setShortcut('Ctrl+O')
         self._text.bind(self.act_open.setToolTip,
                         'Choose the BASELINE and CURRENT folders — or drop them straight onto the window')
         self.act_open.triggered.connect(self._pick_folders)
@@ -502,6 +563,7 @@ class MainWindow(QMainWindow):
         # from the repository that folder already sits in
         self.act_git = QAction(icon('git-commit'), '', self)
         self._text.bind(self.act_git.setText, 'Git compare…')
+        self.act_git.setShortcut('Ctrl+G')
         self._text.bind(self.act_git.setToolTip,
                         'Compare Git commits or compare a commit with the working tree')
         self.act_git.triggered.connect(self._pick_commit)
@@ -552,8 +614,53 @@ class MainWindow(QMainWindow):
 
         self.act_settings = QAction(self)
         self.act_settings.setObjectName('openSettings')
-        self._text.bind(self.act_settings.setText, 'Settings')
-        self.act_settings.triggered.connect(self._show_settings)
+        self._text.bind(self.act_settings.setText, 'Settings…')
+        self.act_settings.setShortcut('Ctrl+,')
+        self.act_settings.triggered.connect(partial(self._show_settings, None))
+        # the dialog's pages, each one menu click away
+        self.act_settings_check = self._settings_page_action('Code Check policy…', 'code_check')
+        self.act_settings_compare = self._settings_page_action('Compare rules…', 'compare')
+        self.act_settings_report = self._settings_page_action('Report options…', 'report')
+
+        self.language_group = QActionGroup(self)
+        for code, label in (('en', 'English'), ('vi', 'Tiếng Việt')):
+            act = QAction(label, self)   # a language is named in itself
+            act.setCheckable(True)
+            act.setData(code)
+            act.triggered.connect(partial(self._choose_language, code))
+            self.language_group.addAction(act)
+        self.theme_group = QActionGroup(self)
+        for name, label in ((theme.LIGHT, 'Light'), (theme.DARK, 'Dark')):
+            act = QAction(self)
+            self._text.bind(act.setText, label)
+            act.setCheckable(True)
+            act.setData(name)
+            act.triggered.connect(partial(self._choose_theme, name))
+            self.theme_group.addAction(act)
+
+        self.act_quit = QAction(self)
+        self._text.bind(self.act_quit.setText, 'Quit')
+        self.act_quit.setShortcut('Ctrl+Q')
+        self.act_quit.triggered.connect(self.close)
+
+        # View: the workspace in front. ARXML Handler is a tool, not a view of
+        # the compare, so it lives under Tools.
+        self.view_group = QActionGroup(self)
+        self.view_group.setExclusionPolicy(QActionGroup.ExclusionPolicy.ExclusiveOptional)
+        self.act_view_compare = self._view_action('Compare', 'Ctrl+1', 0)
+        self.act_view_check = self._view_action('Code Check', 'Ctrl+2', 1)
+        # a display filter, so it sits in View; Comment and Unimportant are
+        # compare rules and stay on the toolbar under the Files tree
+        self.act_hide_identical = QAction(self)
+        self.act_hide_identical.setCheckable(True)
+        self.act_hide_identical.setChecked(self._prefs.hide_identical)
+        self._text.bind(self.act_hide_identical.setText, 'Hide identical')
+        self._text.bind(self.act_hide_identical.setToolTip, 'Hide only Identical files in the tree.')
+        self.act_hide_identical.triggered.connect(self._toggle_hide_identical)
+
+        self.act_arxml_tool = QAction(self)
+        self._text.bind(self.act_arxml_tool.setText, 'ARXML Handler…')
+        self.act_arxml_tool.triggered.connect(self._show_arxml_tool)
 
         self.act_guide = QAction(icon('report'), '', self)
         self._text.bind(self.act_guide.setText, 'User guide')
@@ -580,47 +687,64 @@ class MainWindow(QMainWindow):
                     self.act_last, self.act_export):
             self.addAction(act)
 
-    def _build_toolbar(self, tree_box):
-        self.source_toolbar = QToolBar('Compare sources', self.compare_page)
-        self.compare_toolbar = QToolBar('Compare', tree_box)
-        tb = QToolBar('Application', self.modes)
-        for toolbar in (self.source_toolbar, self.compare_toolbar, tb):
-            toolbar.setMovable(False)
-            toolbar.setIconSize(QSize(20, 20))
-            toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+    def _settings_page_action(self, text, page):
+        act = QAction(self)
+        self._text.bind(act.setText, text)
+        act.triggered.connect(partial(self._show_settings, page))
+        return act
 
-        self.compare_page.layout().insertWidget(0, self.source_toolbar)
+    def _view_action(self, text, shortcut, index):
+        act = QAction(self)
+        self._text.bind(act.setText, text)
+        act.setCheckable(True)
+        act.setShortcut(shortcut)
+        act.triggered.connect(partial(self._show_workspace, index))
+        self.view_group.addAction(act)
+        return act
+
+    def _show_workspace(self, index, *_checked):
+        self.modes.setCurrentIndex(index)
+        self._sync_view_actions()
+
+    def _show_arxml_tool(self):
+        self.modes.setCurrentWidget(self.arxml_handler)
+
+    def _sync_view_actions(self):
+        index = self.modes.currentIndex()
+        self.act_view_compare.setChecked(index == 0)
+        self.act_view_check.setChecked(index == 1)
+
+    def _build_menus(self):
+        """File, View, Tools, Settings and Help: every command and setting has
+        one home in the menu bar. The toolbars keep only what a compare needs
+        under the reviewer's hand."""
+        self._add_menu('File', (self.act_open, self.act_git, self._make_recent_menu(), None,
+                                self.act_export, None, self.act_quit))
+        self._add_menu('View', (self.act_view_compare, self.act_view_check, None,
+                                self.act_hide_identical))
+        self._add_menu('Tools', (self.act_arxml_tool,))
+        language = self._submenu('Language')
+        language.addActions(self.language_group.actions())
+        theme_menu = self._submenu('Theme')
+        theme_menu.addActions(self.theme_group.actions())
+        self._add_menu('Settings', (self.act_settings, None, self.act_settings_check,
+                                    self.act_settings_compare, self.act_settings_report, None,
+                                    language, theme_menu))
+        self._add_menu('Help', (self.act_guide, self.act_notes, None, self.act_about))
+        self._sync_view_actions()
+        self._sync_menu_checks()
+
+    def _build_toolbar(self, tree_box):
+        # Open folders, Git compare and Export live in the File menu only; the
+        # one toolbar left carries the compare rules, under the Files tree
+        self.compare_toolbar = QToolBar('Compare', tree_box)
+        self.compare_toolbar.setMovable(False)
+        self.compare_toolbar.setIconSize(QSize(20, 20))
+        self.compare_toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         tree_box.layout().addWidget(self.compare_toolbar)
-        self.source_toolbar.addAction(self.act_open)
-        self.source_toolbar.addAction(self.act_git)
-        self.source_toolbar.addAction(self.act_export)
-        report_button = self.source_toolbar.widgetForAction(self.act_export)
-        report_button.setObjectName('primary')
-        report_button.setCursor(Qt.PointingHandCursor)
         self.compare_toolbar.addAction(self.show_comment)
         self.compare_toolbar.addAction(self.show_unimportant)
-        self._compare_toolbar_actions = self.source_toolbar.actions() + self.compare_toolbar.actions()
-
-        tb.setObjectName('global')
-        self.modes.setCornerWidget(tb, Qt.TopRightCorner)
-        tb.addAction(self.act_settings)
-        # the three help pages behind one menu on the right: they are read once
-        # and then never again, so three permanent buttons were spending the
-        # top bar on the rarest thing in the window
-        self.help_button = QToolButton()
-        self._text.bind(self.help_button.setText, 'Help')
-        self.help_button.setIcon(icon('report'))
-        self.help_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.help_button.setIconSize(QSize(20, 20))
-        self.help_button.setPopupMode(QToolButton.InstantPopup)
-        self.help_button.setCursor(Qt.PointingHandCursor)
-        menu = QMenu(self.help_button)  # parented, so it outlives this call
-        menu.addAction(self.act_guide)
-        menu.addAction(self.act_notes)
-        menu.addSeparator()
-        menu.addAction(self.act_about)
-        self.help_button.setMenu(menu)
-        tb.addWidget(self.help_button)
+        self._source_actions = (self.act_open, self.act_git, self.show_comment, self.show_unimportant)
 
     def _compare_toggle(self, label, glyph, checked, tooltip):
         action = QAction(icon(glyph, checked_role='chrome-checked-fg'), label, self)
@@ -741,6 +865,7 @@ class MainWindow(QMainWindow):
             # session, so flipping between sources is instant, and go with it
             shutil.rmtree(self._src_temp, ignore_errors=True)
             self._src_temp = None
+        self._save_window_state()
         super().closeEvent(event)
 
 
@@ -757,6 +882,7 @@ class MainWindow(QMainWindow):
         if picked is None:
             return
         old, new = picked
+        self._show_workspace(0)
         # a side may be a .zip typed or browsed to: _use_source unpacks it and
         # labels the side, or clears the label for a plain folder
         if not (self._use_source('old', old) and self._use_source('new', new)):
@@ -851,11 +977,14 @@ class MainWindow(QMainWindow):
             folder, label, tip = str(path), None, None
         if side == 'old':
             self.old, self._old_label = folder, label
+            self._old_origin = str(path)
             self.diff.set_old_label(label, tip)
         else:
             self.new, self._new_label = folder, label
+            self._new_origin = str(path)
             self._git_report_dir = None
             self.diff.set_new_label(label, tip)
+        self._git_entry = None
         return True
 
     def _pick_commit(self):
@@ -865,23 +994,27 @@ class MainWindow(QMainWindow):
         picked = pick_commit(self, start)
         self._front()
         if picked is not None:
+            self._show_workspace(0)
             self._prepare_git_comparison(picked)
 
-    def _prepare_git_comparison(self, picked):
+    def _prepare_git_comparison(self, picked=None, *, recent=None):
+        """Export the Git snapshots on a worker: either the pair the picker
+        returned, or a Recent sources entry resolved again on that worker."""
         if self._src_temp is None:
             self._src_temp = tempfile.mkdtemp(prefix='codegen-compare-src-')
         scratch = self._src_temp
-        self._git_folder = picked.folder
+        self._git_folder = picked.folder if picked is not None else recent['folder']
         self._git_previous_state = self._state
         self._set_state('busy', 'Preparing Git snapshots…')
 
         def prepare():
-            old = gitsource.export(picked.root, picked.baseline.sha, picked.sub, scratch)
-            new = (gitsource.export(picked.root, picked.current.sha, picked.sub, scratch)
-                   if picked.current else Path(picked.folder))
+            chosen = picked if picked is not None else _resolve_recent_git(recent)
+            old = gitsource.export(chosen.root, chosen.baseline.sha, chosen.sub, scratch)
+            new = (gitsource.export(chosen.root, chosen.current.sha, chosen.sub, scratch)
+                   if chosen.current else Path(chosen.folder))
             if not new.is_dir():
                 raise gitsource.GitError('Working tree folder no longer exists: {}'.format(new))
-            return picked, str(old), str(new)
+            return chosen, str(old), str(new)
 
         self._git_worker = TaskWorker(prepare, self)
         self._git_worker.finished.connect(self._git_prepared)
@@ -902,6 +1035,9 @@ class MainWindow(QMainWindow):
             return
 
         picked, self.old, self.new = worker.result
+        self._old_origin = self._new_origin = None
+        self._git_entry = git_entry(picked.folder, picked.baseline.sha,
+                                    picked.current.sha if picked.current else None)
         self._git_report_dir = Path(picked.folder).parent if picked.current else None
         self._old_label, tip = self._git_label(picked.baseline)
         self.diff.set_old_label(self._old_label, tip)
@@ -945,6 +1081,7 @@ class MainWindow(QMainWindow):
             return
         if self.worker and self.worker.isRunning():
             return
+        self._remember_current_sources()
         self.banner.setVisible(False)
         self._banner_message = ''
         self.tree.clear()
@@ -974,6 +1111,30 @@ class MainWindow(QMainWindow):
         self.worker.start()
         self.arxml_handler.refresh_buttons()
 
+    def _remember_current_sources(self):
+        entry = self._git_entry
+        if entry is None:
+            old, new = self._old_origin, self._new_origin
+            # an unpacked temp copy cannot be opened again next session
+            if not (old and new) or self._temporary_source(old) or self._temporary_source(new):
+                return
+            entry = folders_entry(old, new)
+        if not self._remember_source(entry):
+            self.statusBar().showMessage(self._text('Recent sources could not be saved.'), 5000)
+
+    def _may_open_recent(self):
+        return not (self._git_worker is not None or self.arxml_handler.writing
+                    or (self.worker is not None and self.worker.isRunning()))
+
+    def _open_recent(self, entry):
+        if not self._may_open_recent():
+            return
+        self._show_workspace(0)
+        if entry['kind'] == 'git':
+            self._prepare_git_comparison(recent=entry)
+        elif self._use_source('old', entry['old']) and self._use_source('new', entry['new']):
+            self._start_scan()
+
     def _on_progress(self, done, total, rel):
         self.progress.setRange(0, max(total, 1))
         self.progress.setValue(done)
@@ -992,7 +1153,7 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.progress.setVisible(False)
-        self.act_export.setEnabled(bool(results) and self.modes.currentIndex() == 0)
+        self.act_export.setEnabled(bool(results) and not self.arxml_handler.writing)
         errs = sorted(rel for rel, r in results.items() if r['status'] == 'error')
         if errs:
             shown = ', '.join(errs[:20]) + (' …' if len(errs) > 20 else '')
@@ -1438,9 +1599,19 @@ QTabBar#workspaceModes::tab {{ padding:10px 28px; font-size:13px;
 QTabBar#workspaceModes::tab:selected {{ color:{fg-strong}; background:{panel-3};
                                       border-bottom:3px solid {accent-2}; }}
 QTabWidget#workspaces::pane {{ border:0; border-top:1px solid {border}; }}
+QMenuBar {{ background:{chrome-bg}; color:{fg}; border-bottom:1px solid {border};
+           padding:2px 4px; }}
+QMenuBar::item {{ background:transparent; padding:4px 10px; border-radius:4px; }}
+QMenuBar::item:selected {{ background:{chrome-hover}; color:{fg-strong}; }}
+QMenuBar::item:pressed {{ background:{chrome-pressed}; }}
+QMenu {{ background:{panel-3}; color:{fg}; border:1px solid {border}; padding:4px; }}
+QMenu::item {{ padding:5px 28px 5px 26px; border-radius:4px; }}
+QMenu::item:selected {{ background:{chrome-hover}; color:{fg-strong}; }}
+QMenu::item:disabled {{ color:{fg-dim}; }}
+QMenu::separator {{ height:1px; background:{border}; margin:4px 8px; }}
 QToolBar {{ background:{chrome-bg}; border:0; border-bottom:1px solid {border};
                 padding:4px 12px 4px 6px; spacing:2px; }}
-/* the Help button carries a menu: without room for it the arrow is clipped
+/* a tool button that carries a menu: without room the arrow is clipped
    against the window edge */
 QToolBar QToolButton::menu-indicator {{ subcontrol-position: right center;
                 subcontrol-origin: padding; right:-2px; }}
@@ -1467,10 +1638,6 @@ QFrame#advisorypanel {{ background:{chrome-bar-bg}; }}
 QFrame#advisorypanel QScrollArea,
 QFrame#advisorypanel QScrollArea > QWidget > QWidget {{ background:transparent; }}
 QLabel#advisoryhead {{ font-size:12px; }}
-QToolButton#primary {{ background:{chrome-checked-bg}; color:{chrome-checked-fg}; }}
-QToolButton#primary:hover {{ background:{chrome-checked-hover}; }}
-QToolButton#primary:disabled {{ background:{chrome-disabled-bg};
-            color:{chrome-disabled-fg}; }}
 QTreeWidget {{ border:1px solid {border}; border-radius:6px; }}
 QTreeWidget::item {{ padding:2px 0; }}
 QTreeWidget::item:selected {{ background:{tree-selected}; }}

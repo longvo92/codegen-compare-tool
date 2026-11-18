@@ -1011,7 +1011,7 @@ class DiffPane(QStackedWidget):
         else:
             # the git way in gets a mention: a landing screen that only talks
             # about a pair of folders hides half the tool
-            self._set_message('Drop the BASELINE and CURRENT folders (or .zip artifacts) here.\nOr use "Open folders…" — or "Git compare…" for one folder and its own history.')
+            self._set_message('Drop the BASELINE and CURRENT folders (or .zip artifacts) here.\nOr use File → Open folders… (Ctrl+O), or File → Git compare… (Ctrl+G) for one folder and its own history.')
         self._logo.setVisible(True)
         self._forget_file()
         self.setCurrentIndex(0)
