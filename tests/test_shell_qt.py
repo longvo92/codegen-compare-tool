@@ -96,6 +96,16 @@ class TestWindowState(unittest.TestCase):
         self.assertTrue(state.save())
         self.assertEqual(WindowState(path).error, '')
 
+    def test_tool_geometry_round_trips_and_bad_tools_reset_the_state(self):
+        path = self.dir / STATE_FILE
+        state = WindowState(path)
+        state.tools['arxml_handler'] = b'\x00tool'
+        self.assertTrue(state.save())
+        self.assertEqual(WindowState(path).tools, {'arxml_handler': b'\x00tool'})
+        path.write_text(json.dumps({'version': 1, 'tools': ['x']}), encoding='utf-8')
+        broken = WindowState(path)
+        self.assertEqual((broken.tools, broken.error != ''), ({}, True))
+
     def test_invalid_entries_are_dropped_valid_ones_kept(self):
         path = self.dir / STATE_FILE
         good = folders_entry(self.dir / 'a', self.dir / 'b')
@@ -181,9 +191,15 @@ class TestShellWindow(unittest.TestCase):
         win.act_view_check.trigger()
         self.assertIs(win.modes.currentWidget(), win.code_check)
         self.assertFalse(win.act_view_compare.isChecked())
+        self.assertEqual(win.modes.count(), 2)  # ARXML Handler is a tool window, not a tab
         win.act_arxml_tool.trigger()
-        self.assertIs(win.modes.currentWidget(), win.arxml_handler)
-        self.assertFalse(win.act_view_compare.isChecked() or win.act_view_check.isChecked())
+        self.assertTrue(win.arxml_window.isVisible())
+        self.assertIs(win.arxml_window.centralWidget(), win.arxml_handler)
+        self.assertEqual(win.arxml_window.windowTitle(), 'ARXML Handler — CodeGen Studio')
+        self.assertIs(win.modes.currentWidget(), win.code_check)
+        win.arxml_window.close()  # closing only hides it; paths and undo survive
+        self.assertFalse(win.arxml_window.isVisible())
+        self.assertIn('arxml_handler', win.window_state.tools)
         win.modes.setCurrentIndex(0)
         self.assertTrue(win.act_view_compare.isChecked())
 

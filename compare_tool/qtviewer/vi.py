@@ -373,7 +373,6 @@ VI = {
     'XSD validation was not run.': 'Chưa chạy kiểm tra XSD.',
     '{} ADD · {} EXISTS · {} CONFLICT · {} UNSUPPORTED · {} error(s) · {} warning(s)': '{} thêm · {} đã có · {} xung đột · {} không hỗ trợ · {} lỗi · {} cảnh báo',
     'Master changed. Rescan before reviewing or exporting.': 'Master đã thay đổi. Quét lại trước khi review hoặc xuất báo cáo.',
-    'Finish the current ARXML operation first.': 'Hãy hoàn tất thao tác ARXML hiện tại.',
     'Suggested fix': 'Đề xuất sửa',
     'Preview fix': 'Xem trước bản sửa',
     'Run Code Check again before inspecting source.': 'Chạy lại Code Check trước khi xem mã nguồn.',
@@ -421,4 +420,8 @@ VI = {
     'Working tree': 'Working tree',
     'Git · {}  ·  {} → {}': 'Git · {}  ·  {} → {}',
     'Recent sources could not be saved.': 'Không lưu được danh sách nguồn gần đây.',
+    # inline ARXML repair in Code Check
+    'Preview the fix again: its inputs changed.': 'Hãy xem trước bản sửa lại: dữ liệu đầu vào đã thay đổi.',
+    'Run Code Check again before applying a repair.': 'Chạy lại Code Check trước khi áp dụng bản sửa.',
+    'Preview the fix again: Code Check ran again.': 'Hãy xem trước bản sửa lại: Code Check vừa chạy lại.',
 }

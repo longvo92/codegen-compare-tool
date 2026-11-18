@@ -178,7 +178,7 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 ### ARXML Handler and suggested fixes
 
-**ARXML Handler** imports missing S/R datatypes and dependencies, datatype mappings,
+**Tools → ARXML Handler…** opens the handler in its own window; closing it keeps its fields and undo data for the session. It imports missing S/R datatypes and dependencies, datatype mappings,
 interfaces, R/P ports, assembly/delegation connectors, data elements, ComSpecs and
 runnable access points from generated **Source ARXML** into **Master**. Use two
 separate, non-nested folders with one coherent definition set each. Source stays
@@ -196,10 +196,13 @@ compare-tool --check-current Current --fix-master Current/Master --fix-source Ge
 Code Check displays **Suggested fix** with each supported finding. For missing
 S/R definitions, choose Master within CURRENT and a generated Source folder.
 The tool validates the complete patch and rechecks a temporary copy with the same
-policy and scope. **Preview fix** highlights the additions tied to the selected
-finding once the finding is resolved on the copy without new failures. Review
-all additions before applying. After Update or Undo through this workflow,
-the desktop rechecks CURRENT. For ZIP input, extract to a working folder and
+policy and scope. **Preview fix** shows the patch right below the finding,
+with the additions tied to it starred, once the finding is resolved on the copy
+without new failures. Review all additions, then choose **Update Master** there;
+an optional XSD validates the write. After Update or Undo the desktop rechecks
+CURRENT, and **Undo Last Update** stays below the results even when the finding
+is gone. While one repair writes or needs recovery, the other (inline or
+ARXML Handler) cannot write. For ZIP input, extract to a working folder and
 run Code Check again before creating a fix. The paired CLI fix flags only
 evaluate a patch and keep the exit code of the original check.
 

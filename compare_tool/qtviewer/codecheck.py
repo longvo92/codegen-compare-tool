@@ -24,6 +24,7 @@ from ..syntax import language_for
 from .diffpane import DiffEditor
 from .i18n import Texts
 from .highlight import CodeHighlighter
+from .repair_panel import RepairPanel
 from .settings import (YamlSettings, load_code_check_defaults, preference_store,
                        save_code_check_defaults)
 from .worker import CodeCheckWorker, TaskWorker
@@ -46,11 +47,11 @@ class CheckContext:
 class CodeCheckPage(QWidget):
     """Own inputs/results independently of Compare, including incomplete coverage."""
 
-    repair_selected = Signal(object, object, object, object)
     activity_changed = Signal()
 
     def __init__(self, current_source, parent=None, texts=None, *, settings=None,
-                 may_check=lambda: True, temporary_source=lambda _path: False):
+                 may_check=lambda: True, temporary_source=lambda _path: False,
+                 may_write=lambda: False):
         super().__init__(parent)
         self._text = Texts() if texts is None else texts
         self._settings = preference_store() if settings is None else settings
@@ -222,6 +223,8 @@ class CodeCheckPage(QWidget):
         fix_form.addRow(self._text.widget(QLabel, 'Master folder to update'), fix_row)
         fix_row, self.fix_source = path_field(self, self._text, 'Source ARXML folder')
         fix_form.addRow(self._text.widget(QLabel, 'Source ARXML folder'), fix_row)
+        fix_row, self.fix_xsd = path_field(self, self._text, 'Optional AUTOSAR XSD', schema=True)
+        fix_form.addRow(self._text.widget(QLabel, 'Optional AUTOSAR XSD'), fix_row)
         self.fix_note = QLabel()
         self.fix_note.setWordWrap(True)
         self.fix_note.setTextFormat(Qt.PlainText)
@@ -229,6 +232,14 @@ class CodeCheckPage(QWidget):
         self.preview_fix = self._text.widget(QPushButton, 'Preview fix')
         self.preview_fix.clicked.connect(self._open_fix)
         fix_form.addRow(self.preview_fix)
+        # the repair is applied right here, under the finding it fixes; the
+        # manual ARXML Handler is a separate tool window
+        self.repair_panel = RepairPanel(self._text, may_write, self._repair_paths, self,
+                                        protected_source=temporary_source, manual=False)
+        self.repair_panel.setMinimumHeight(220)
+        self.repair_panel.hide()
+        self.repair_panel.activity_changed.connect(self._repair_activity)
+        fix_form.addRow(self.repair_panel)
         self.fix_group.hide()
         body.addWidget(self.fix_group)
         self.fix_timer = QTimer(self)
@@ -296,6 +307,7 @@ class CodeCheckPage(QWidget):
     def invalidate_check(self):
         self._set_status('STALE — run again', 'state-busy')
         self.assessment = None
+        self._drop_repair_plan('Run Code Check again before applying a repair.')
         self._clear_source('Run Code Check again before inspecting source.')
         self._refresh_fix()
 
@@ -342,6 +354,7 @@ class CodeCheckPage(QWidget):
         if config is None and isinstance(self._settings, YamlSettings) and not context.policy:
             config = deepcopy(self._settings.config['code_check']['policy'])
         self.cleanup()
+        self._drop_repair_plan('Preview the fix again: Code Check ran again.')
         self.context = context
         self._recheck_baseline = baseline
         self.assessment = None
@@ -476,6 +489,7 @@ class CodeCheckPage(QWidget):
         self._set_defaults_status(self._defaults_status)
         self._set_summary(self._summary_text)
         self._set_count(self._count_text)
+        self.repair_panel.retranslate()
         if self._result_path:
             self.result_source.setText(tr('Results for: {}', self._result_path))
         if self.check:
@@ -587,11 +601,33 @@ class CodeCheckPage(QWidget):
     def _fix_inputs(self):
         return self.fix_master.text().strip(), self.fix_source.text().strip()
 
+    def _repair_paths(self):
+        return (*self._fix_inputs(), self.fix_xsd.text().strip() or None)
+
     def _fix_inputs_changed(self):
         self.assessment = None
         self.fix_pending = True
+        self._drop_repair_plan()
         self.fix_timer.start()
         self._refresh_fix()
+
+    def _drop_repair_plan(self, message='Preview the fix again: its inputs changed.'):
+        """A plan belongs to the check and folders it was verified against;
+        undo data survives, so a written repair can always be reverted."""
+        panel = self.repair_panel
+        if panel.has_plan and panel.worker is None:
+            panel.invalidate(message)
+
+    def _repair_activity(self):
+        self.activity_changed.emit()
+        self._refresh_fix()
+
+    def _repair_active(self):
+        """The panel holds something the reviewer must still be able to reach:
+        a plan to apply, a running write, an undo or a recovery."""
+        panel = self.repair_panel
+        return bool(panel.has_plan or panel.worker or panel.revert.isEnabled()
+                    or panel.recovery_required)
 
     def _repair_is_available(self):
         return (self.worker is not None and self.check is not None and self.context is not None
@@ -636,13 +672,21 @@ class CodeCheckPage(QWidget):
         item = self.findings.currentItem()
         finding = self._rows[item.data(0, Qt.UserRole)][1] if item is not None else None
         relevant = bool(finding and item.text(0) == 'FAIL' and candidate(finding))
-        self.fix_group.setVisible(relevant)
+        active = self._repair_active()
+        self.fix_group.setVisible(relevant or active)
+        self.repair_panel.setVisible(active)
+        editable = self.repair_panel.editable
+        for field in (self.fix_master, self.fix_source, self.fix_xsd):
+            field.parentWidget().setEnabled(editable and (relevant or active)
+                                            and self._repair_is_available())
         if not relevant:
             self.preview_fix.setEnabled(False)
+            self.preview_fix.setVisible(False)
+            self.fix_note.setVisible(False)
             return
-        allowed = self._repair_is_available()
-        self.fix_master.parentWidget().setEnabled(allowed)
-        self.fix_source.parentWidget().setEnabled(allowed)
+        self.preview_fix.setVisible(True)
+        self.fix_note.setVisible(True)
+        allowed = self._repair_is_available() and editable
         valid = allowed and self.assessment and finding_key(finding) in self.assessment.related
         self.preview_fix.setEnabled(bool(valid) and not self.fix_worker)
         self.fix_note.setText(self._text(
@@ -667,7 +711,8 @@ class CodeCheckPage(QWidget):
             if key not in assessment.related:
                 raise ValueError(str(assessment.status))
 
-        self.repair_selected.emit(plan, self.assessment.related[key], verify, (context, config))
+        if self.repair_panel.load_repair(plan, self.assessment.related[key], verify, (context, config)):
+            self._refresh_fix()
 
     def _clear_source(self, message=''):
         self.source_highlighter.configure(None, repaint=False)

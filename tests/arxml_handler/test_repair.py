@@ -159,14 +159,15 @@ def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
     master, source = create_case(inputs)
     window = MainWindow(settings=QSettings(str(tmp_path / "gui.ini"), QSettings.IniFormat))
     window.show()
-    page, handler = window.code_check, window.arxml_handler
+    page = window.code_check
+    panel = page.repair_panel
 
     def wait_for(predicate):
         deadline = time.monotonic() + 10
         while not predicate():
             app.processEvents()
             assert time.monotonic() < deadline, (page.summary.text(), page.fix_note.text(),
-                                                   handler.status.text())
+                                                   panel.status.text())
             time.sleep(0.01)
 
     try:
@@ -182,22 +183,28 @@ def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
         wait_for(page.preview_fix.isEnabled)
         assert page.check.exit_code == 1
         page.preview_fix.click()
-        assert window.modes.currentWidget() is handler
-        assert any("*" in handler.table.topLevelItem(i).text(0)
-                   for i in range(handler.table.topLevelItemCount()))
+        # the repair opens right under the finding, not in another workspace
+        assert window.modes.currentWidget() is page
+        assert panel.isVisible() and not panel.preview.isVisible()
+        assert not window.arxml_window.isVisible()
+        assert any("*" in panel.table.topLevelItem(i).text(0)
+                   for i in range(panel.table.topLevelItemCount()))
         window._apply_preferences(window._prefs._replace(language="vi", theme="dark"))
-        assert handler.apply.text() == "Cập nhật Master"
-        assert not handler.grab().isNull()
+        assert panel.apply.text() == "Cập nhật Master"
+        assert not page.grab().isNull()
         window._apply_preferences(window._prefs._replace(language="en", theme="light"))
-        handler.apply.click()
+        panel.apply.click()
         wait_for(lambda: page.check is not None and page.check.status == "PASS")
         assert "1 resolved" in page.summary.text()
-        wait_for(handler.revert.isEnabled)
-        handler.revert.click()
+        # the finding is gone, but its undo stays reachable
+        wait_for(panel.revert.isEnabled)
+        assert page.fix_group.isVisible() and panel.isVisible()
+        assert not window.arxml_handler.apply.isEnabled()
+        panel.revert.click()
         wait_for(lambda: page.check is not None and page.check.status == "FAIL")
         assert "1 new FAIL" in page.summary.text()
     finally:
-        wait_for(lambda: not (handler.worker or page.is_running() or page.fix_worker))
+        wait_for(lambda: not (panel.worker or page.is_running() or page.fix_worker))
         window.close()
         app.processEvents()
 
@@ -226,7 +233,8 @@ def test_qt_waits_for_write_and_retains_recovery_on_close(inputs, tmp_path, monk
     window = MainWindow(settings=QSettings(str(tmp_path / "recovery.ini"), QSettings.IniFormat))
     window.show()
     handler = window.arxml_handler
-    window.modes.setCurrentWidget(handler)
+    window.act_arxml_tool.trigger()
+    assert window.arxml_window.isVisible()
     handler.master.setText(str(master))
     handler.source.setText(str(source))
 
@@ -263,7 +271,11 @@ def test_qt_waits_for_write_and_retains_recovery_on_close(inputs, tmp_path, monk
         wait_for(lambda: handler.worker is None and window.isEnabled())
         assert handler.recovery_required
         assert window.isVisible()
+        # the inline Code Check repair may not write over a half-written Master
+        assert not window._may_write_arxml("check")
+        window.arxml_window.close()
         assert not window.close()
+        assert window.arxml_window.isVisible()  # closing shows where to recover
 
         monkeypatch.setattr(file_transaction, "_write_state", real_write)
         handler.revert.click()

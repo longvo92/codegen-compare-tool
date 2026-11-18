@@ -9,6 +9,7 @@ All notable changes to this project are documented here. Versions follow
 - **File → Recent sources** reopens the last eight folder/ZIP pairs and Git comparisons. Git entries resolve their commits again and fail loudly when one is gone.
 - **Settings → Language / Theme** switch at once; Settings menu entries open the dialog on the Code Check policy, Compare rules or Report page.
 - The window remembers its size and position. Window state lives in `window-state.json` beside `settings.yaml`, never in the exported config.
+- Code Check repairs a finding in place: **Preview fix** shows the patch below the finding with **Update Master**, **Undo Last Update** and an optional XSD. The ARXML Handler leaves the tabs and opens from **Tools → ARXML Handler…** in its own window.
 - **Hide identical** moved from the Settings dialog to **View**. Shortcuts: `Ctrl+O`, `Ctrl+G`, `Ctrl+1` / `Ctrl+2`, `Ctrl+,`, `Ctrl+Q`.
 
 ## [3.0.0] — 2026-11-16
