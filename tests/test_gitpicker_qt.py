@@ -21,6 +21,7 @@ try:
 
     from compare_tool.qtviewer.app import MainWindow
     from compare_tool.qtviewer.gitpicker import CommitPicker, GitComparison
+    from compare_tool.qtviewer.shell import git_entry
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
@@ -113,6 +114,8 @@ class TestGitPicker(unittest.TestCase):
         self.assertEqual((Path(win.new) / 'model.c').read_text(), 'int limit = 2;\n')
         self.assertIn('v1.0', win.diff._old_label[0])
         self.assertIn('v2.0', win.diff._new_label[0])
+        self.assertEqual(win.window_state.recent[0], git_entry(
+            self.folder, dlg.chosen.baseline.sha, dlg.chosen.current.sha))
         with patch('compare_tool.qtviewer.app.pick_commit', return_value=None) as picker:
             self.wait(lambda: not win.worker.isRunning())
             win._pick_commit()
@@ -129,6 +132,30 @@ class TestGitPicker(unittest.TestCase):
             report = path.read_text(encoding='utf-8')
             self.assertIn('v1.0', report)
             self.assertIn('v2.0', report)
+
+    def test_recent_git_entry_resolves_the_commits_again(self):
+        win = MainWindow(settings=Mock(value=lambda _key, default: default))
+        win.setAttribute(Qt.WA_DontShowOnScreen)
+        self.addCleanup(win.close)
+        entry = git_entry(self.folder, self.graph['base'].sha, self.graph['head'].sha)
+        win.modes.setCurrentIndex(1)
+        win._open_recent(entry)
+        self.wait(lambda: win._git_worker is None and bool(win._raw_results))
+        self.assertIs(win.modes.currentWidget(), win.compare_page)
+        self.assertEqual(win._raw_results['model.c']['status'], 'real-change')
+        self.assertEqual(win.window_state.recent[0], entry)
+
+    def test_recent_git_entry_with_a_vanished_commit_fails_loudly(self):
+        win = MainWindow(settings=Mock(value=lambda _key, default: default))
+        win.setAttribute(Qt.WA_DontShowOnScreen)
+        self.addCleanup(win.close)
+        with patch('compare_tool.qtviewer.app.QMessageBox.critical') as critical:
+            win._open_recent(git_entry(self.folder, 'f' * 40, None))
+            self.wait(lambda: win._git_worker is None)
+        critical.assert_called_once()
+        self.assertEqual(win._raw_results, {})
+        self.assertIsNone(win.old)
+        self.assertEqual(win._state[0], 'idle')
 
     def test_working_tree_action_includes_uncommitted_content(self):
         win = MainWindow(settings=Mock(value=lambda _key, default: default))

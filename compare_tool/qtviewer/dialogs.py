@@ -22,23 +22,27 @@ GUIDE = """
 
 Compare a BASELINE with CURRENT and review their differences.
 
-1. Choose **Compare**, then **Open folders…**. Set BASELINE and CURRENT to
+1. Choose **File → Open folders…** (**Ctrl+O**). Set BASELINE and CURRENT to
    folders or ZIPs and select **Compare**. You can also drop both sources
-   onto Compare, BASELINE first.
+   onto Compare, BASELINE first. **File → Recent sources** opens a recent
+   pair or Git comparison again.
 2. In **Git compare…**, choose a folder and inspect the graph from HEAD.
    Ctrl-click two commits, then right-click and choose **Compare selected**.
    The older commit is BASELINE. Use **Swap baseline/current** to reverse the
    direction, or right-click one commit to **Compare with working tree**.
 3. Select a file to read its differences. Use **F7** / **F8** for the previous
    or next change across files, and **Ctrl+F** to search the open file.
-4. Filter files by path or open **Settings** to enable **Hide identical**.
+4. Filter files by path or choose **View → Hide identical**.
    Toggle off **Comment** or **Unimportant** below the folder tree to mute
    those differences and skip them with F7/F8.
    Select a **Quick changes** entry to jump to an AUTOSAR or A2L change.
 5. Choose **Export report…** (**Ctrl+E**) to save the full offline HTML report.
 
-**Settings** changes the GUI language and theme and imports/exports YAML config.
-Import edits a draft; Save applies it and remembers it for the next launch.
+The **Settings** menu switches language and theme directly and opens the
+Settings dialog, which imports/exports YAML config. Import edits a draft; Save
+applies it and remembers it for the next launch. **View** switches between
+Compare (**Ctrl+1**) and Code Check (**Ctrl+2**); **Tools** opens the ARXML
+Handler. **Help** holds this guide, the release notes and About.
 
 **Modified**, **Added** and **Deleted** need review. **Comment** and
 **Unimportant** contain only comments or generator noise. **Not compared**
@@ -52,7 +56,7 @@ Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 1. Open **Code Check**. The CURRENT folder from Compare is prefilled when
    available. You can select or drop another folder or ZIP. Clear the source
    and return to Code Check to use Compare's CURRENT again.
-2. In **Settings → Code Check**, edit policy patterns, rule severities,
+2. In **Settings → Code Check policy…**, edit policy patterns, rule severities,
    function mappings and scoped exceptions in their fields, or import a policy
    file. Save to reuse the edited policy next time. Under
    **Scope overrides**, enter excluded file globs (one per line) or an
@@ -111,23 +115,26 @@ GUIDE_VI = """
 
 Đối chiếu BASELINE với CURRENT và review các khác biệt.
 
-1. Trong tab **So sánh**, chọn **Mở thư mục…**. Chọn thư mục hoặc file ZIP
+1. Chọn **File → Mở thư mục…** (**Ctrl+O**). Chọn thư mục hoặc file ZIP
    cho BASELINE và CURRENT rồi bấm **So sánh**. Bạn cũng có thể kéo thả
-   cả hai nguồn vào tab này, BASELINE trước.
+   cả hai nguồn vào tab **So sánh**, BASELINE trước. **File → Nguồn gần đây**
+   mở lại một cặp nguồn hoặc phép so sánh Git gần đây.
 2. Trong **So sánh với Git…**, chọn thư mục và xem graph từ HEAD. Giữ Ctrl
    để chọn hai commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**.
    Commit cũ hơn là BASELINE. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều,
    hoặc bấm chuột phải vào một commit để **So sánh với working tree**.
 3. Chọn file để xem Diff. Dùng **F7** / **F8** để đến thay đổi trước hoặc
    tiếp theo giữa các file. Dùng **Ctrl+F** để tìm trong file đang mở.
-4. Lọc theo đường dẫn hoặc bật **Ẩn file Identical** trong **Cài đặt**.
+4. Lọc theo đường dẫn hoặc chọn **Xem → Ẩn file Identical**.
    Tắt **Comment** hoặc **Unimportant** dưới cây thư mục để làm mờ
    và bỏ qua các khác biệt đó khi dùng F7/F8.
    Chọn một mục trong **Thay đổi chính** để đến thay đổi AUTOSAR hoặc A2L.
 5. Chọn **Xuất report…** (**Ctrl+E**) để lưu HTML report đầy đủ, đọc offline.
 
-Trong **Cài đặt**, bạn cũng có thể chọn ngôn ngữ và theme. Bấm **Lưu** để
-áp dụng ngay và ghi nhớ cho lần mở sau.
+Menu **Cài đặt** đổi ngôn ngữ và theme trực tiếp, và mở hộp thoại Cài đặt để
+nhập/xuất config YAML. Bấm **Lưu** để áp dụng ngay và ghi nhớ cho lần mở sau.
+**Xem** chuyển giữa So sánh (**Ctrl+1**) và Code Check (**Ctrl+2**); **Công cụ**
+mở Xử lý ARXML. **Trợ giúp** chứa hướng dẫn này, ghi chú phát hành và Giới thiệu.
 
 **Modified**, **Added** và **Deleted** cần review. **Comment** và
 **Unimportant** chỉ chứa thay đổi comment hoặc generator noise.
@@ -141,7 +148,7 @@ Trong **Cài đặt**, bạn cũng có thể chọn ngôn ngữ và theme. Bấm
 1. Mở **Code Check**. Nếu Compare đã có thư mục CURRENT, ứng dụng tự điền
    nguồn đó. Bạn có thể chọn hoặc thả thư mục hay ZIP khác. Để dùng lại CURRENT
    từ Compare, xóa ô nguồn rồi mở lại tab Code Check.
-2. Trong **Cài đặt → Code Check**, chỉnh các mẫu, rule, ánh xạ hàm và ngoại lệ
+2. Trong **Cài đặt → Policy Code Check…**, chỉnh các mẫu, rule, ánh xạ hàm và ngoại lệ
    bằng các ô tương tác, hoặc nhập file policy YAML/JSON. Bấm **Lưu** để dùng
    policy đã sửa lần sau. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ
    (mỗi dòng một mẫu) hoặc regex bổ sung để bỏ qua

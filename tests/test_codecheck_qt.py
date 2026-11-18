@@ -215,7 +215,9 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertEqual([self.win.modes.tabText(i) for i in range(2)], ['Compare', 'Code Check'])
         self.assertIsNone(self.win.worker)
         self.assertFalse(self.win.act_export.isEnabled())
-        self.assertFalse(self.win.act_open.isVisible())
+        # the Compare toolbar is hidden here, but File > Open folders still works
+        self.assertFalse(self.win.source_toolbar.isVisible())
+        self.assertTrue(self.win.act_open.isEnabled())
         self.run_check()
         self.assertEqual(self.page.status.text(), 'PASS')
         self.assertEqual(self.page.check, current_tree_check(self.root))
@@ -596,7 +598,9 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
                          [self.win.show_comment, self.win.show_unimportant])
         self.assertTrue(self.win.source_toolbar.isVisible())
         self.assertTrue(self.win.compare_toolbar.isVisible())
-        self.assertTrue(self.win.help_button.isVisible())
+        # Settings and Help live in the menu bar, not in a corner of the tabs
+        self.assertIsNone(self.win.modes.cornerWidget(Qt.TopRightCorner))
+        self.assertTrue(self.win.menuBar().isVisible())
         self.assertEqual(self.win.tree.columnCount(), 2)
         # review sign-off was removed: no Review mode and no sign-off shortcuts
         actions = self.win.findChildren(QAction)
@@ -607,7 +611,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.app.processEvents()
         self.assertFalse(self.win.source_toolbar.isVisible())
         self.assertFalse(self.win.compare_toolbar.isVisible())
-        self.assertTrue(self.win.help_button.isVisible())
+        self.assertTrue(self.win.menuBar().isVisible())
 
     def test_compare_and_export_leave_existing_review_file_untouched(self):
         # a codegen-review.json left by an older version is neither read nor

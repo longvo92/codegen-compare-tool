@@ -111,7 +111,7 @@ python -m compare_tool baseline current --no-report --check-consistency --exit-z
 
 ## Portable settings
 
-The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Code Check's scope fields are edited in its workspace; use **Save scope as default** before exporting to include current scope changes. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths and results are not included. Start from [this example](../examples/app-settings.yaml) if editing by hand.
+The viewer saves reusable settings to YAML in the user config directory (`%APPDATA%\CodeGenStudio\settings.yaml` on Windows; the XDG config directory on Linux; `~/Library/Application Support/CodeGenStudio/settings.yaml` on macOS). Open **Settings** to import/export a complete config, including Code Check policy and custom noise rules. Code Check's scope fields are edited in its workspace; use **Save scope as default** before exporting to include current scope changes. Import edits a draft; **Save** applies it and **Cancel** discards it. Source paths and results are not included. Window size and **Recent sources** are kept apart in `window-state.json` beside `settings.yaml`, so an exported config never carries local paths; deleting that file only resets the window. Start from [this example](../examples/app-settings.yaml) if editing by hand.
 
 CLI uses its existing defaults unless `--config settings.yaml` is supplied. Explicit flags override the file. `--export-config output.yaml` writes resolved settings without scanning. Use `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` or `--clear-exclude` to override enabled settings. Python installations need the `config` extra for YAML; EXE and zipapp bundle it.
 
@@ -124,7 +124,7 @@ python -m compare_tool
 python -m compare_tool --viewer baseline current
 ```
 
-Select folders or ZIPs, or open **Git compare…** and choose a folder in a repository. The picker preselects the latest change to that folder on HEAD's first-parent history. Ctrl-click a second commit, right-click and choose **Compare selected**. An ancestor becomes BASELINE. On diverging branches, Git compare orders by committer time and breaks ties by SHA. Use **Swap baseline/current** to reverse the direction.
+Use **File → Open folders…** to select folders or ZIPs, or **File → Git compare…** to choose a folder in a repository. **File → Recent sources** reopens the last eight folder/ZIP pairs and Git comparisons; an entry whose path is gone stays listed but disabled, and a Git entry whose commit no longer exists fails with an error instead of comparing something else. Sources unpacked to a temporary folder (ZIPs passed on the command line) are not remembered. The picker preselects the latest change to that folder on HEAD's first-parent history. Ctrl-click a second commit, right-click and choose **Compare selected**. An ancestor becomes BASELINE. On diverging branches, Git compare orders by committer time and breaks ties by SHA. Use **Swap baseline/current** to reverse the direction.
 
 The graph shows commits that changed the selected path, including changes on merged branches. A merge appears if it changed the folder relative to its first parent. Select the repository root to browse its full HEAD history. **Find next** searches the filtered history, including pages still to load. **Go to revision** accepts a SHA, branch, tag or a revision such as `HEAD~3`. When that commit is outside the folder filter, the picker selects the latest folder change on its first-parent history and shows the resolved SHA.
 
@@ -132,9 +132,19 @@ Right-click one commit and choose **Compare with working tree** to include local
 
 Filters and muting affect the view only; verdicts, counts and exported reports retain all results.
 
-Open **Settings** from either workspace to choose English or Tiếng Việt, Light or Dark, and which differences to emphasize in Compare. English and Light are the defaults. **Save** applies and remembers your choices. **Help** contains the offline User guide, published Release notes in English, and About. HTML exports use the Report theme in Settings.
+Every command sits in the menu bar:
 
-Use **Export report** on the top toolbar. The **Comment** and **Unimportant** buttons sit below the folder tree in **Files**. When either button is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
+| Menu | Contents |
+|---|---|
+| **File** | Open folders…, Git compare…, Recent sources, Export report…, Quit |
+| **View** | Compare / Code Check workspace, Hide identical |
+| **Tools** | ARXML Handler… |
+| **Settings** | Settings…, Code Check policy…, Compare rules…, Report options… (the dialog on that page), Language, Theme |
+| **Help** | User guide, Release notes (English), About |
+
+**Settings → Language** and **Settings → Theme** switch at once and are remembered; English and Light are the defaults. Choosing a theme here also replaces a `--theme` launch choice for later launches. In the Settings dialog, **Save** applies and remembers your choices. HTML exports use the Report theme in Settings.
+
+**Export report** is also on the Compare toolbar. The **Comment** and **Unimportant** buttons sit below the folder tree in **Files**; they are compare rules, so they are not in the View menu. When either button is off, those lines keep their normal background and syntax colours, with a grey bracket in the CURRENT gutter. The minimap and F7/F8 skip these blocks. The viewer remembers your choices.
 
 | Verdict | Meaning |
 |---|---|
@@ -150,6 +160,10 @@ Use **Export report** on the top toolbar. The **Comment** and **Unimportant** bu
 | `Ctrl+Home` / `Ctrl+End` | First / last change in the file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Find, next / previous match |
 | `Ctrl+E` | Export HTML |
+| `Ctrl+O` / `Ctrl+G` | Open folders / Git compare |
+| `Ctrl+1` / `Ctrl+2` | Compare / Code Check workspace |
+| `Ctrl+,` | Settings |
+| `Ctrl+Q` | Quit |
 | `F1` | Open the offline guide |
 
 ### Code Check workspace
@@ -157,7 +171,7 @@ Use **Export report** on the top toolbar. The **Comment** and **Unimportant** bu
 Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
 
 1. Code Check uses Compare's CURRENT folder when available. Select or drop a different folder or ZIP to override it for the session. Clear the source and return to the Code Check tab to follow Compare again.
-2. In **Settings → Code Check**, edit policy patterns, rule severities, function mappings and scoped exceptions in their fields, or choose a YAML/JSON policy file to import its contents. **Save** applies the edited policy. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
+2. In **Settings → Code Check policy…**, edit policy patterns, rule severities, function mappings and scoped exceptions in their fields, or choose a YAML/JSON policy file to import its contents. **Save** applies the edited policy. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
 3. Select **Run Code Check**. Filter by result type or text. Select a row to inspect its reason and source context.
 
 **Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.

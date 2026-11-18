@@ -110,7 +110,7 @@ python -m compare_tool baseline current --no-report --check-consistency --exit-z
 
 ## Cấu hình YAML
 
-Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Phạm vi Code Check được chỉnh trong workspace; bấm **Save scope as default** trước khi export nếu muốn mang theo phạm vi vừa sửa. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn hoặc kết quả.
+Viewer tự lưu settings vào YAML trong thư mục cấu hình người dùng. Trong **Settings**, dùng **Import Config…** và **Export Config…** để chuyển cả policy Code Check và custom noise rules. Phạm vi Code Check được chỉnh trong workspace; bấm **Save scope as default** trước khi export nếu muốn mang theo phạm vi vừa sửa. Import chỉ sửa bản nháp; **Save** mới áp dụng, **Cancel** bỏ thay đổi. Config không chứa đường dẫn nguồn hoặc kết quả. Kích thước cửa sổ và **Nguồn gần đây** được lưu riêng trong `window-state.json` cạnh `settings.yaml`, nên config export không mang đường dẫn máy local; xóa file đó chỉ reset cửa sổ.
 
 CLI chỉ đọc YAML khi truyền `--config settings.yaml`. Flag được truyền rõ ràng có ưu tiên cao hơn file. `--export-config output.yaml` ghi settings đã resolve mà không chạy scan. Các flag `--no-arxml-only`, `--no-skip-var-renames`, `--no-check-consistency`, `--no-exit-zero` và `--clear-exclude` ghi đè giá trị bật trong YAML. Với bản Python, cài extra `config`; EXE và zipapp đã bundle YAML.
 
@@ -123,7 +123,7 @@ python -m compare_tool
 python -m compare_tool --viewer baseline current
 ```
 
-Chọn thư mục hoặc ZIP, hoặc mở **So sánh với Git…** và chọn một thư mục trong repository. Tool chọn sẵn commit gần nhất thay đổi thư mục trên lịch sử first-parent từ HEAD. Giữ Ctrl để chọn thêm một commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**. Commit tổ tiên là BASELINE. Nếu hai nhánh rẽ, tool xếp theo thời gian commit và dùng SHA khi trùng thời gian. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều.
+Dùng **File → Mở thư mục…** để chọn thư mục hoặc ZIP, hoặc **File → So sánh với Git…** để chọn một thư mục trong repository. **File → Nguồn gần đây** mở lại tối đa tám cặp thư mục/ZIP và phép so sánh Git gần nhất; mục có đường dẫn không còn tồn tại vẫn hiện nhưng bị mờ, còn mục Git có commit không còn tồn tại sẽ báo lỗi thay vì so sánh nhầm. Nguồn được giải nén vào thư mục tạm (ZIP truyền qua dòng lệnh) không được ghi nhớ. Tool chọn sẵn commit gần nhất thay đổi thư mục trên lịch sử first-parent từ HEAD. Giữ Ctrl để chọn thêm một commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**. Commit tổ tiên là BASELINE. Nếu hai nhánh rẽ, tool xếp theo thời gian commit và dùng SHA khi trùng thời gian. Dùng **Đổi chỗ BASELINE và CURRENT** để đảo chiều.
 
 Graph hiển thị các commit đã thay đổi đường dẫn được chọn, kể cả thay đổi trên các nhánh đã merge. Merge xuất hiện khi thư mục thay đổi so với first parent. Chọn root của repository để xem toàn bộ lịch sử từ HEAD. **Tìm tiếp** tìm trong lịch sử đã lọc, kể cả các trang chưa hiển thị. **Đi tới revision** nhận SHA, branch, tag hoặc revision như `HEAD~3`. Khi commit nằm ngoài bộ lọc, tool chọn thay đổi gần nhất của thư mục trên lịch sử first-parent từ revision đó và báo SHA được chọn.
 
@@ -131,9 +131,19 @@ Bấm chuột phải vào một commit và chọn **So sánh với working tree*
 
 Filter và mute chỉ ảnh hưởng hiển thị; verdict, count và report export giữ đủ kết quả.
 
-Mở **Settings** (**Cài đặt**) từ một trong hai workspace để chọn English hoặc Tiếng Việt, theme sáng hoặc tối và cách hiển thị khác biệt trong Compare. Mặc định là English và theme sáng. Bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. Menu **Trợ giúp** có hướng dẫn offline, ghi chú các bản phát hành bằng English và trang giới thiệu. HTML xuất từ viewer dùng theme trong tab Report.
+Mọi lệnh nằm trên thanh menu:
 
-Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**. Khi tắt một trong hai nút, các dòng tương ứng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
+| Menu | Nội dung |
+|---|---|
+| **File** | Mở thư mục…, So sánh với Git…, Nguồn gần đây, Xuất report…, Thoát |
+| **Xem** | Workspace So sánh / Code Check, Ẩn file Identical |
+| **Công cụ** | Xử lý ARXML… |
+| **Cài đặt** | Cài đặt…, Policy Code Check…, Quy tắc Compare…, Tùy chọn report… (mở hộp thoại ở trang tương ứng), Ngôn ngữ, Theme |
+| **Trợ giúp** | Hướng dẫn sử dụng, Ghi chú phát hành (English), Giới thiệu |
+
+**Cài đặt → Ngôn ngữ** và **Cài đặt → Theme** đổi ngay và được ghi nhớ; mặc định là English và theme sáng. Chọn theme ở đây cũng thay lựa chọn `--theme` cho các lần mở sau. Trong hộp thoại Cài đặt, bấm **Lưu** để áp dụng và ghi nhớ lựa chọn. HTML xuất từ viewer dùng theme trong tab Report.
+
+**Xuất report** cũng có trên thanh công cụ So sánh. Hai nút **Comment** và **Unimportant** nằm dưới cây thư mục trong khung **Cây file**; đây là compare rule nên không nằm trong menu Xem. Khi tắt một trong hai nút, các dòng tương ứng giữ nền và màu cú pháp bình thường, với ngoặc xám ở lề **CURRENT**. Minimap và F7/F8 bỏ qua các đoạn này. Viewer lưu lựa chọn cho lần mở sau.
 
 | Verdict | Ý nghĩa |
 |---|---|
@@ -149,6 +159,10 @@ Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment**
 | `Ctrl+Home` / `Ctrl+End` | Change đầu / cuối trong file |
 | `Ctrl+F`, `F3` / `Shift+F3` | Tìm, kết quả sau / trước |
 | `Ctrl+E` | Export HTML |
+| `Ctrl+O` / `Ctrl+G` | Mở thư mục / So sánh với Git |
+| `Ctrl+1` / `Ctrl+2` | Workspace So sánh / Code Check |
+| `Ctrl+,` | Cài đặt |
+| `Ctrl+Q` | Thoát |
 | `F1` | Mở hướng dẫn offline |
 
 ### Workspace Code Check
@@ -156,7 +170,7 @@ Dùng **Xuất report** trên thanh công cụ phía trên. Hai nút **Comment**
 Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
 
 1. Code Check tự điền thư mục CURRENT từ Compare nếu có. Chọn hoặc thả thư mục hay ZIP khác để dùng nguồn riêng trong phiên làm việc. Xóa ô nguồn rồi mở lại tab Code Check để dùng lại CURRENT từ Compare.
-2. Trong **Cài đặt → Code Check**, sửa các mẫu policy, mức độ rule, ánh xạ hàm và ngoại lệ theo phạm vi bằng các ô tương tác; hoặc chọn file YAML/JSON để nhập nội dung. Bấm **Lưu** để áp dụng policy đã sửa. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
+2. Trong **Cài đặt → Policy Code Check…**, sửa các mẫu policy, mức độ rule, ánh xạ hàm và ngoại lệ theo phạm vi bằng các ô tương tác; hoặc chọn file YAML/JSON để nhập nội dung. Bấm **Lưu** để áp dụng policy đã sửa. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
 3. Chọn **Run Code Check**. Lọc theo loại kết quả hoặc nội dung. Chọn một dòng để xem lý do và vị trí nguồn.
 
 **Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.

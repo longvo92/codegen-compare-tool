@@ -60,7 +60,6 @@ VI = {
     'Theme': 'Theme',
     'Light': 'Sáng',
     'Dark': 'Tối',
-    'Compare display': 'Hiển thị kết quả so sánh',
     'Hide identical': 'Ẩn file Identical',
     'Hide only Identical files in the tree.': 'Chỉ ẩn các file Identical trong cây.',
     'Mute Comment differences and skip them in F7/F8 when unchecked.':
@@ -407,4 +406,19 @@ VI = {
     'Code Check could not verify the proposed ARXML output.': 'Code Check không xác minh được kết quả ARXML đề xuất.',
     'The proposed additions do not resolve this finding.': 'Các bổ sung đề xuất chưa giải quyết được lỗi này.',
     'ARXML repair could not be verified: {}': 'Không xác minh được bản sửa ARXML: {}',
+    # application shell: menu bar and recent sources
+    'View': 'Xem',
+    'Tools': 'Công cụ',
+    'Quit': 'Thoát',
+    'Settings…': 'Cài đặt…',
+    'Code Check policy…': 'Policy Code Check…',
+    'Compare rules…': 'Quy tắc Compare…',
+    'Report options…': 'Tùy chọn report…',
+    'ARXML Handler…': 'Xử lý ARXML…',
+    'Recent sources': 'Nguồn gần đây',
+    'No recent sources': 'Chưa có nguồn gần đây',
+    'Clear recent': 'Xóa danh sách gần đây',
+    'Working tree': 'Working tree',
+    'Git · {}  ·  {} → {}': 'Git · {}  ·  {} → {}',
+    'Recent sources could not be saved.': 'Không lưu được danh sách nguồn gần đây.',
 }

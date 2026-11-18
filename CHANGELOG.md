@@ -5,6 +5,12 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
+- Add a menu bar (File, View, Tools, Settings, Help). It replaces the Settings button and Help menu in the corner of the workspace tabs; the Compare and Files toolbars are unchanged.
+- **File → Recent sources** reopens the last eight folder/ZIP pairs and Git comparisons. Git entries resolve their commits again and fail loudly when one is gone.
+- **Settings → Language / Theme** switch at once; Settings menu entries open the dialog on the Code Check policy, Compare rules or Report page.
+- The window remembers its size and position. Window state lives in `window-state.json` beside `settings.yaml`, never in the exported config.
+- **Hide identical** moved from the Settings dialog to **View**. Shortcuts: `Ctrl+O`, `Ctrl+G`, `Ctrl+1` / `Ctrl+2`, `Ctrl+,`, `Ctrl+Q`.
+
 ## [3.0.0] — 2026-11-16
 
 - Remove review notes and sign-off: the viewer has no Review mode, HTML reports carry no notes or Reviewed badge, and the `--review` flag is gone.

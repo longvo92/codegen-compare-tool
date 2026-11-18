@@ -63,7 +63,6 @@ class TestSettings(unittest.TestCase):
             dlg = QApplication.activeModalWidget()
             dlg.language.setCurrentIndex(dlg.language.findData('vi'))
             dlg.theme.setCurrentIndex(dlg.theme.findData(theme.DARK))
-            dlg.hide_identical.setChecked(True)
             if policy is not None:
                 dlg.policy.setText(policy)
             dlg.buttons.button(button).click()
@@ -75,17 +74,17 @@ class TestSettings(unittest.TestCase):
         win = self.window()
         self.assertEqual(win._prefs, Preferences())
         self.assertEqual(win._theme, theme.LIGHT)
-        self.assertEqual(win.act_settings.text(), 'Settings')
+        self.assertEqual(win.act_settings.text(), 'Settings…')
 
         self.edit_dialog(win, QDialogButtonBox.Cancel)
         self.assertEqual(win._prefs, Preferences())
         self.assertEqual(self.store.allKeys(), [])
         self.edit_dialog(win, QDialogButtonBox.Save)
-        self.assertEqual(win.act_settings.text(), 'Cài đặt')
+        self.assertEqual(win.act_settings.text(), 'Cài đặt…')
         self.assertEqual(win.modes.tabText(0), 'So sánh')
         self.assertEqual(win.show_comment.text(), 'Comment')
         self.assertEqual(win.show_unimportant.text(), 'Unimportant')
-        self.assertEqual(win._prefs, Preferences('vi', theme.DARK, True, True, True))
+        self.assertEqual(win._prefs, Preferences('vi', theme.DARK, True, True, False))
         self.assertEqual(win._theme, theme.DARK)
         win.close()
 
@@ -161,6 +160,10 @@ class TestSettings(unittest.TestCase):
         self.assertFalse(saved['display']['unimportant'])
         self.assertEqual(saved['compare'], app_config.defaults()['compare'])
         self.assertEqual(load_preferences(YamlSettings(path)), win._prefs)
+        # View > Hide identical saves its own key; the dialog carries it through
+        win.act_hide_identical.trigger()
+        self.assertTrue(app_config.load(path)['display']['hide_identical'])
+        self.assertEqual(app_config.load(path)['compare'], app_config.defaults()['compare'])
         win._raw_results = {'kept.h': {'status': 'identical'}}
         win.act_export.setEnabled(True)
         self.edit_dialog(win, QDialogButtonBox.Save)
