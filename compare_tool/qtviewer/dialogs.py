@@ -53,9 +53,10 @@ checking related artifacts; they do not decide whether Code Check passes.
 
 Check one CURRENT snapshot against its AUTOSAR declarations, without a baseline.
 
-1. Open **Code Check**. The CURRENT folder from Compare is prefilled when
-   available. You can select or drop another folder or ZIP. Clear the source
-   and return to Code Check to use Compare's CURRENT again.
+1. Switch to the **Code Check** view (**Ctrl+2**). Its **Check setup** panel
+   prefills the CURRENT folder from Compare when available. You can select or
+   drop another folder or ZIP. Clear the source and switch back to Code Check
+   to use Compare's CURRENT again.
 2. In **Settings → Code Check policy…**, edit policy patterns, rule severities,
    function mappings and scoped exceptions in their fields, or import a policy
    file. Save to reuse the edited policy next time. Under
@@ -79,7 +80,9 @@ configured NVM/DEM interface packages, and forbidden function calls. Set package
 paths, forbidden names/globs and each rule's severity in the policy config.
 **IGNORED** lists coverage limits and regex matches. **SKIPPED** lists findings
 from rules set to `skip`. **EXCEPTION** lists matched scoped exceptions and their
-justifications. Compare and Code Check keep separate inputs and results when you switch modes.
+justifications. Compare and Code Check keep separate inputs and results when you switch views.
+Every panel can be closed, moved or shown from **View** in either view; **View →
+Reset layout** restores the current view's panels.
 
 ## ARXML Handler
 
@@ -118,7 +121,7 @@ GUIDE_VI = """
 
 1. Chọn **File → Mở thư mục…** (**Ctrl+O**). Chọn thư mục hoặc file ZIP
    cho BASELINE và CURRENT rồi bấm **So sánh**. Bạn cũng có thể kéo thả
-   cả hai nguồn vào tab **So sánh**, BASELINE trước. **File → Nguồn gần đây**
+   cả hai nguồn vào view **So sánh**, BASELINE trước. **File → Nguồn gần đây**
    mở lại một cặp nguồn hoặc phép so sánh Git gần đây.
 2. Trong **So sánh với Git…**, chọn thư mục và xem graph từ HEAD. Giữ Ctrl
    để chọn hai commit, bấm chuột phải rồi chọn **So sánh các commit đã chọn**.
@@ -146,9 +149,9 @@ mở Xử lý ARXML. **Trợ giúp** chứa hướng dẫn này, ghi chú phát 
 
 Đối chiếu một bản CURRENT với khai báo AUTOSAR tương ứng.
 
-1. Mở **Code Check**. Nếu Compare đã có thư mục CURRENT, ứng dụng tự điền
-   nguồn đó. Bạn có thể chọn hoặc thả thư mục hay ZIP khác. Để dùng lại CURRENT
-   từ Compare, xóa ô nguồn rồi mở lại tab Code Check.
+1. Chuyển sang view **Code Check** (**Ctrl+2**). Panel **Check setup** tự điền
+   thư mục CURRENT từ Compare nếu có. Bạn có thể chọn hoặc thả thư mục hay ZIP
+   khác. Để dùng lại CURRENT từ Compare, xóa ô nguồn rồi chuyển lại Code Check.
 2. Trong **Cài đặt → Policy Code Check…**, chỉnh các mẫu, rule, ánh xạ hàm và ngoại lệ
    bằng các ô tương tác, hoặc nhập file policy YAML/JSON. Bấm **Lưu** để dùng
    policy đã sửa lần sau. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ
@@ -172,7 +175,9 @@ ARXML, kiểm tra Interface Package NVM/DEM đã cấu hình và lời gọi hà
 Khai báo đường dẫn Package, tên/glob bị cấm và severity của từng rule trong
 policy config. **IGNORED** liệt kê giới hạn coverage và mục khớp regex.
 **SKIPPED** liệt kê finding của rule đặt thành `skip`. **EXCEPTION** liệt kê
-exception theo phạm vi cùng lý do áp dụng. Hai tab giữ riêng input và kết quả.
+exception theo phạm vi cùng lý do áp dụng. Hai view giữ riêng input và kết quả.
+Mỗi panel có thể đóng, di chuyển hoặc bật lại từ **Xem** ở cả hai view; **Xem →
+Khôi phục bố cục** đưa panel của view hiện tại về mặc định.
 
 ## Xử lý ARXML
 

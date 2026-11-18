@@ -136,7 +136,7 @@ Mọi lệnh nằm trên thanh menu:
 | Menu | Nội dung |
 |---|---|
 | **File** | Mở thư mục…, So sánh với Git…, Nguồn gần đây, Xuất report…, Thoát |
-| **Xem** | Workspace So sánh / Code Check, Ẩn file Identical |
+| **Xem** | View So sánh / Code Check, từng panel, Ẩn file Identical, Khôi phục bố cục |
 | **Công cụ** | Xử lý ARXML… |
 | **Cài đặt** | Cài đặt…, Policy Code Check…, Quy tắc Compare…, Tùy chọn report… (mở hộp thoại ở trang tương ứng), Ngôn ngữ, Theme |
 | **Trợ giúp** | Hướng dẫn sử dụng, Ghi chú phát hành (English), Giới thiệu |
@@ -160,20 +160,27 @@ Mở thư mục, So sánh với Git và Xuất report chỉ nằm trong menu **F
 | `Ctrl+F`, `F3` / `Shift+F3` | Tìm, kết quả sau / trước |
 | `Ctrl+E` | Export HTML |
 | `Ctrl+O` / `Ctrl+G` | Mở thư mục / So sánh với Git |
-| `Ctrl+1` / `Ctrl+2` | Workspace So sánh / Code Check |
+| `Ctrl+1` / `Ctrl+2` | View So sánh / Code Check |
 | `Ctrl+,` | Cài đặt |
 | `Ctrl+Q` | Thoát |
 | `F1` | Mở hướng dẫn offline |
 
-### Workspace Code Check
+### Một workspace: view So sánh và Code Check
 
-Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare:
+So sánh và Code Check dùng chung một cửa sổ. Thanh chuyển dưới menu (hoặc **Xem**, `Ctrl+1` / `Ctrl+2`) đưa một view lên trước:
 
-1. Code Check tự điền thư mục CURRENT từ Compare nếu có. Chọn hoặc thả thư mục hay ZIP khác để dùng nguồn riêng trong phiên làm việc. Xóa ô nguồn rồi mở lại tab Code Check để dùng lại CURRENT từ Compare.
+- **So sánh**: phần diff, cùng các panel **Cây file**, **Thay đổi chính** và **Lưu ý regeneration**.
+- **Code Check**: danh sách finding, cùng các panel **Check setup**, **Bằng chứng** và **Đề xuất sửa**.
+
+Mỗi panel có thể đóng, di chuyển, tách nổi hoặc gộp tab, và menu **Xem** bật/tắt bất kỳ panel nào ở cả hai view, ví dụ đặt **Bằng chứng** cạnh diff. Mỗi view tự nhớ bố cục của mình, kể cả cho lần mở sau; **Xem → Khôi phục bố cục** đưa view hiện tại về mặc định.
+
+Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với Compare; không cần BASELINE:
+
+1. Code Check tự điền thư mục CURRENT từ Compare nếu có. Chọn hoặc thả thư mục hay ZIP khác trong **Check setup** để dùng nguồn riêng trong phiên làm việc. Xóa ô nguồn rồi chuyển lại Code Check để dùng lại CURRENT từ Compare.
 2. Trong **Cài đặt → Policy Code Check…**, sửa các mẫu policy, mức độ rule, ánh xạ hàm và ngoại lệ theo phạm vi bằng các ô tương tác; hoặc chọn file YAML/JSON để nhập nội dung. Bấm **Lưu** để áp dụng policy đã sửa. Trong **Điều chỉnh phạm vi**, nhập glob loại trừ (mỗi dòng một mẫu) và regex bổ sung để bỏ qua Port. Bấm **Lưu phạm vi làm mặc định** để ghi nhớ hai trường này.
 3. Chọn **Run Code Check**. Lọc theo loại kết quả hoặc nội dung. Chọn một dòng để xem lý do và vị trí nguồn.
 
-**Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai mode giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
+**Findings** liệt kê rule lỗi, cảnh báo, mục chưa kiểm tra hoặc bị bỏ qua, finding bị skip và ngoại lệ theo phạm vi, kèm vị trí nguồn. **Coverage & policy** hiển thị call đã check, phạm vi và setting áp dụng. Hai view giữ input và kết quả khi chuyển qua lại. Chạy lại check sau khi đổi input. Xem [Consistency check](#consistency-check) để biết rule và giới hạn coverage dùng chung cho CLI/GUI.
 
 ### ARXML Handler và đề xuất sửa
 

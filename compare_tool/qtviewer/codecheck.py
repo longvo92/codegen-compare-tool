@@ -80,19 +80,22 @@ class CodeCheckPage(QWidget):
         self._status_role = 'state-idle'
         self._run_config = ''
 
+        # The page itself is the Code Check view's centre: verdict, findings and
+        # coverage. Its other parts -- setup, evidence and the suggested fix --
+        # are separate panels the main window docks around it.
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 10, 12, 8)
+        layout.setSpacing(8)
         self.status = QLabel(self._text(self._status_text))
         self.status.setObjectName('checkStatus')
 
-        workspace = QSplitter(Qt.Horizontal)
-        setup = QWidget()
-        setup.setMinimumWidth(280)
-        form = QVBoxLayout(setup)
-        form.setContentsMargins(0, 0, 12, 0)
+        self.setup_panel = QWidget()
+        self.setup_panel.setObjectName('checkSetup')
+        self.setup_panel.setMinimumWidth(260)
+        form = QVBoxLayout(self.setup_panel)
+        form.setContentsMargins(8, 8, 8, 8)
         form.setSpacing(12)
-        self.inputs = self._text.widget(QGroupBox, 'Check setup')
+        self.inputs = QGroupBox()   # the dock is titled 'Check setup'
         fields = QVBoxLayout(self.inputs)
         fields.addWidget(self._text.widget(QLabel, 'CURRENT folder or ZIP'))
         self.source = QLineEdit()
@@ -139,24 +142,20 @@ class CodeCheckPage(QWidget):
         self.progress.hide()
         form.addWidget(self.progress)
         form.addStretch()
-        workspace.addWidget(setup)
 
-        results = QWidget()
-        body = QVBoxLayout(results)
-        body.setContentsMargins(0, 0, 0, 0)
         self.summary = QLabel(self._text(self._summary_text))
         self.summary.setWordWrap(True)
         self.summary.setTextFormat(Qt.PlainText)
         summary_row = QHBoxLayout()
         summary_row.addWidget(self.summary, 1)
         summary_row.addWidget(self.status, 0, Qt.AlignTop)
-        body.addLayout(summary_row)
+        layout.addLayout(summary_row)
         self.result_source = QLabel()
         self.result_source.setTextFormat(Qt.PlainText)
         self.result_source.setWordWrap(True)
         self.result_source.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.result_source.hide()
-        body.addWidget(self.result_source)
+        layout.addWidget(self.result_source)
         self.tabs = QTabWidget()
         findings = QWidget()
         finding_layout = QVBoxLayout(findings)
@@ -179,7 +178,6 @@ class CodeCheckPage(QWidget):
         self.visible_count = QLabel(self._text(self._count_text))
         filters.addWidget(self.visible_count)
         finding_layout.addLayout(filters)
-        split = QSplitter(Qt.Vertical)
         self.findings = QTreeWidget()
         self._text.bind_labels(self.findings.setHeaderLabels, ['Result', 'Rule / Reason', 'File', 'Line', 'Function / Runnable', 'API / Access'])
         self.findings.setRootIsDecorated(False)
@@ -189,8 +187,17 @@ class CodeCheckPage(QWidget):
         for col, width in enumerate((90, 235, 160, 55, 150, 200)):
             self.findings.setColumnWidth(col, width)
         self.findings.itemSelectionChanged.connect(self._select_finding)
-        split.addWidget(self.findings)
-        inspect = QSplitter(Qt.Horizontal)
+        finding_layout.addWidget(self.findings, 1)
+        self.tabs.addTab(findings, '')
+        self._text.bind(self.tabs.setTabText, 'Findings', 0)
+        self.coverage = self._text_box('Coverage and effective policy appear after a check.')
+        self.tabs.addTab(self.coverage, '')
+        self._text.bind(self.tabs.setTabText, 'Coverage && policy', 1)
+        layout.addWidget(self.tabs, 1)
+
+        # evidence: the selected result's reason above its source
+        self.evidence_panel = QSplitter(Qt.Vertical)
+        self.evidence_panel.setObjectName('checkEvidence')
         self.details = self._text_box('Select a result to inspect its reason and source.')
         source_box = QWidget()
         source_layout = QVBoxLayout(source_box)
@@ -199,25 +206,29 @@ class CodeCheckPage(QWidget):
         self.source_location.setTextFormat(Qt.PlainText)
         self.source_location.setWordWrap(True)
         self.source_location.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # a deep path cannot wrap; it must not widen the docked panel (and with
+        # it the window) -- the full path is in the tooltip
+        self.source_location.setMinimumWidth(1)
         self.source_preview = DiffEditor()
         self._text.bind(self.source_preview.setPlaceholderText, 'Source context appears here.')
         self.source_preview.zoomStep.connect(self.source_preview.zoom_by)
         self.source_highlighter = CodeHighlighter(self.source_preview.document())
         source_layout.addWidget(self.source_location)
         source_layout.addWidget(self.source_preview, 1)
-        inspect.addWidget(self.details)
-        inspect.addWidget(source_box)
-        inspect.setSizes([280, 480])
-        split.addWidget(inspect)
-        split.setSizes([300, 240])
-        finding_layout.addWidget(split, 1)
-        self.tabs.addTab(findings, '')
-        self._text.bind(self.tabs.setTabText, 'Findings', 0)
-        self.coverage = self._text_box('Coverage and effective policy appear after a check.')
-        self.tabs.addTab(self.coverage, '')
-        self._text.bind(self.tabs.setTabText, 'Coverage && policy', 1)
-        body.addWidget(self.tabs, 1)
-        self.fix_group = self._text.widget(QGroupBox, 'Suggested fix')
+        self.evidence_panel.addWidget(self.details)
+        self.evidence_panel.addWidget(source_box)
+        self.evidence_panel.setSizes([220, 380])
+
+        # suggested fix: shown for a fixable FAIL, kept while a repair is
+        # loaded, writing, undoable or waiting for recovery
+        self.fix_panel = QWidget()
+        self.fix_panel.setObjectName('checkFix')
+        fix_layout = QVBoxLayout(self.fix_panel)
+        fix_layout.setContentsMargins(8, 8, 8, 8)
+        self.fix_placeholder = self._text.widget(QLabel, 'Select a failed finding with a suggested fix.')
+        self.fix_placeholder.setWordWrap(True)
+        fix_layout.addWidget(self.fix_placeholder)
+        self.fix_group = QGroupBox()   # the dock is titled 'Suggested fix'
         fix_form = QFormLayout(self.fix_group)
         fix_row, self.fix_master = path_field(self, self._text, 'Master folder to update')
         fix_form.addRow(self._text.widget(QLabel, 'Master folder to update'), fix_row)
@@ -234,25 +245,21 @@ class CodeCheckPage(QWidget):
         fix_form.addRow(self.preview_fix)
         # the repair is applied right here, under the finding it fixes; the
         # manual ARXML Handler is a separate tool window
-        self.repair_panel = RepairPanel(self._text, may_write, self._repair_paths, self,
+        self.repair_panel = RepairPanel(self._text, may_write, self._repair_paths, self.fix_group,
                                         protected_source=temporary_source, manual=False)
         self.repair_panel.setMinimumHeight(220)
         self.repair_panel.hide()
         self.repair_panel.activity_changed.connect(self._repair_activity)
         fix_form.addRow(self.repair_panel)
         self.fix_group.hide()
-        body.addWidget(self.fix_group)
+        fix_layout.addWidget(self.fix_group, 1)
+        fix_layout.addStretch()
         self.fix_timer = QTimer(self)
         self.fix_timer.setSingleShot(True)
         self.fix_timer.setInterval(300)
         self.fix_timer.timeout.connect(self._evaluate_fix)
         for field in (self.fix_master, self.fix_source):
             field.textChanged.connect(self._fix_inputs_changed)
-        workspace.addWidget(results)
-        workspace.setStretchFactor(0, 0)
-        workspace.setStretchFactor(1, 1)
-        workspace.setSizes([320, 880])
-        layout.addWidget(workspace, 1)
 
         self.source.textChanged.connect(self._source_changed)
         for edit in (self.ignore, self.excludes):
@@ -260,6 +267,15 @@ class CodeCheckPage(QWidget):
         self.refresh_current()
         self._inputs_changed()
         self.apply_theme()
+
+    def panels(self):
+        """The parts the main window docks around this page."""
+        return self.setup_panel, self.evidence_panel, self.fix_panel
+
+    def set_parts_enabled(self, enabled):
+        self.setEnabled(enabled)
+        for panel in self.panels():
+            panel.setEnabled(enabled)
 
     def _text_box(self, placeholder):
         box = QPlainTextEdit()
@@ -674,6 +690,7 @@ class CodeCheckPage(QWidget):
         relevant = bool(finding and item.text(0) == 'FAIL' and candidate(finding))
         active = self._repair_active()
         self.fix_group.setVisible(relevant or active)
+        self.fix_placeholder.setVisible(not (relevant or active))
         self.repair_panel.setVisible(active)
         editable = self.repair_panel.editable
         for field in (self.fix_master, self.fix_source, self.fix_xsd):
@@ -732,7 +749,13 @@ class CodeCheckPage(QWidget):
     def apply_theme(self):
         self.source_preview.apply_theme()
         self.source_highlighter.apply_theme()
-        self.setStyleSheet('QLabel#checkStatus {color:%s; background:%s; padding:7px 14px; '
+        # the run button lives in the docked setup panel, outside this page
+        for widget in (self, self.setup_panel):
+            widget.setStyleSheet(self._status_qss())
+        self._paint_findings()
+
+    def _status_qss(self):
+        return ('QLabel#checkStatus {color:%s; background:%s; padding:7px 14px; '
                           'border-radius:4px; font-weight:bold;} '
                           'QPushButton#runCodeCheck {background:%s; color:%s; border:1px solid %s; '
                           'border-radius:4px; padding:10px; font-weight:bold;} '
@@ -741,6 +764,8 @@ class CodeCheckPage(QWidget):
                               theme.c('chrome-checked-bg'), theme.c('chrome-checked-fg'),
                               theme.c('chrome-checked-bg'),
                               theme.c('panel-3'), theme.c('fg-muted')))
+
+    def _paint_findings(self):
         for i in range(self.findings.topLevelItemCount()):
             item = self.findings.topLevelItem(i)
             role = _RESULT_ROLES[self._rows[item.data(0, Qt.UserRole)][0]]

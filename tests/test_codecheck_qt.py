@@ -57,7 +57,7 @@ class TestCodeCheckWorkspace(unittest.TestCase):
             str(Path(self.temp.name) / 'viewer.ini'), QSettings.IniFormat))
         self.addCleanup(self.win.close)
         self.win.show()
-        self.win.modes.setCurrentIndex(1)
+        self.win.views.setCurrentIndex(1)
         self.page = self.win.code_check
         self.page.source.setText(str(self.root))
         self.app.processEvents()
@@ -109,7 +109,7 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.addCleanup(reopened.close)
         self.win, self.page = reopened, reopened.code_check
         self.win.show()
-        self.win.modes.setCurrentIndex(1)
+        self.win.views.setCurrentIndex(1)
         self.assertEqual(self.page.policy_path, str(policy))
         self.assertEqual(self.page.excludes.toPlainText(), 'Ignored.c\n*.tmp')
         self.assertEqual(self.page.ignore.text(), '^Unused_')
@@ -212,7 +212,7 @@ class TestCodeCheckWorkspace(unittest.TestCase):
         self.assertIn('REPORT INCOMPLETE', output.read_text(encoding='utf-8'))
 
     def test_standalone_pass_matches_cli_without_starting_compare(self):
-        self.assertEqual([self.win.modes.tabText(i) for i in range(2)], ['Compare', 'Code Check'])
+        self.assertEqual([self.win.view_tabs.tabText(i) for i in range(2)], ['Compare', 'Code Check'])
         self.assertIsNone(self.win.worker)
         self.assertFalse(self.win.act_export.isEnabled())
         # the Compare toolbar is hidden here, but File > Open folders still works
@@ -521,13 +521,13 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         raw = self.win._raw_results.copy()
         self.run_check()
         check = self.page.check
-        self.win.modes.setCurrentIndex(0)
+        self.win.views.setCurrentIndex(0)
         self.app.processEvents()
         self.assertTrue(self.win.act_open.isVisible())
         self.assertTrue(self.win.act_export.isEnabled())
         self.assertEqual(self.win._raw_results, raw)
         self.assertTrue(self.win.tree.isVisible())
-        self.win.modes.setCurrentIndex(1)
+        self.win.views.setCurrentIndex(1)
         self.assertIs(self.page.check, check)
         self.assertIn('Code Check', self.win.windowTitle())
         self.assertEqual(self.page.source.text(), str(self.root))
@@ -536,9 +536,9 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.page.source.clear()
 
         def select_code_check(current):
-            self.win.modes.setCurrentIndex(0)
+            self.win.views.setCurrentIndex(0)
             self.win.new = current
-            self.win.modes.setCurrentIndex(1)
+            self.win.views.setCurrentIndex(1)
 
         select_code_check(str(self.root))
         self.assertEqual(self.page.source.text(), str(self.root))
@@ -584,22 +584,23 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
     def test_compare_actions_stay_below_the_file_tree_and_inside_compare(self):
         from PySide6.QtGui import QAction
         from PySide6.QtWidgets import QToolBar
-        self.win.modes.setCurrentIndex(0)
+        self.win.views.setCurrentIndex(0)
         self.app.processEvents()
         tree_bottom = self.win.tree.mapTo(self.win, QPoint(0, self.win.tree.height())).y()
         toolbar_top = self.win.compare_toolbar.mapTo(self.win, QPoint(0, 0)).y()
         self.assertLessEqual(tree_bottom, toolbar_top)
-        self.assertTrue(self.win.sec_files.isAncestorOf(self.win.compare_toolbar))
+        self.assertTrue(self.win.files_dock.isAncestorOf(self.win.compare_toolbar))
         self.assertEqual(self.win.compare_toolbar.actions(),
                          [self.win.show_comment, self.win.show_unimportant])
         self.assertTrue(self.win.compare_toolbar.isVisible())
         # Open folders, Git compare and Export live in the File menu only
         toolbars = self.win.findChildren(QToolBar)
-        self.assertEqual(toolbars, [self.win.compare_toolbar])
+        self.assertEqual(set(toolbars), {self.win.view_bar, self.win.compare_toolbar})
+        self.assertEqual(self.win.view_bar.actions()[0].defaultWidget(), self.win.view_tabs)
         for action in (self.win.act_open, self.win.act_git, self.win.act_export):
             self.assertEqual([w for w in action.associatedObjects() if isinstance(w, QToolBar)], [])
         # Settings and Help live in the menu bar, not in a corner of the tabs
-        self.assertIsNone(self.win.modes.cornerWidget(Qt.TopRightCorner))
+        self.assertIsNone(getattr(self.win, "modes", None))  # one workspace: no tab widget
         self.assertTrue(self.win.menuBar().isVisible())
         self.assertEqual(self.win.tree.columnCount(), 2)
         # review sign-off was removed: no Review mode and no sign-off shortcuts
@@ -607,7 +608,7 @@ float32* Rte_Pim_Ctrl_Buffer(void) { return &Rte_Pim_Ctrl_Buffer_data; }
         self.assertNotIn('Review', [action.text() for action in actions])
         self.assertFalse({'Ctrl+R', 'Ctrl+Shift+R'} & {action.shortcut().toString() for action in actions})
         self.assertFalse(hasattr(self.win, 'review_panel'))
-        self.win.modes.setCurrentIndex(1)
+        self.win.views.setCurrentIndex(1)
         self.app.processEvents()
         self.assertFalse(self.win.compare_toolbar.isVisible())
         self.assertTrue(self.win.menuBar().isVisible())

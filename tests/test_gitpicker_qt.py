@@ -138,10 +138,10 @@ class TestGitPicker(unittest.TestCase):
         win.setAttribute(Qt.WA_DontShowOnScreen)
         self.addCleanup(win.close)
         entry = git_entry(self.folder, self.graph['base'].sha, self.graph['head'].sha)
-        win.modes.setCurrentIndex(1)
+        win.views.setCurrentIndex(1)
         win._open_recent(entry)
         self.wait(lambda: win._git_worker is None and bool(win._raw_results))
-        self.assertIs(win.modes.currentWidget(), win.compare_page)
+        self.assertIs(win.views.currentWidget(), win.compare_page)
         self.assertEqual(win._raw_results['model.c']['status'], 'real-change')
         self.assertEqual(win.window_state.recent[0], entry)
 

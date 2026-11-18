@@ -81,7 +81,7 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(self.store.allKeys(), [])
         self.edit_dialog(win, QDialogButtonBox.Save)
         self.assertEqual(win.act_settings.text(), 'Cài đặt…')
-        self.assertEqual(win.modes.tabText(0), 'So sánh')
+        self.assertEqual(win.view_tabs.tabText(0), 'So sánh')
         self.assertEqual(win.show_comment.text(), 'Comment')
         self.assertEqual(win.show_unimportant.text(), 'Unimportant')
         self.assertEqual(win._prefs, Preferences('vi', theme.DARK, True, True, False))
@@ -104,9 +104,9 @@ class TestSettings(unittest.TestCase):
 
     def test_settings_is_shared_by_both_workspaces(self):
         win = self.window()
-        win.modes.setCurrentIndex(1)
+        win.views.setCurrentIndex(1)
         self.edit_dialog(win, QDialogButtonBox.Save)
-        self.assertIs(win.modes.currentWidget(), win.code_check)
+        self.assertIs(win.views.currentWidget(), win.code_check)
         dialog = SettingsDialog(win, win._prefs, win._text)
         self.assertEqual(dialog.windowTitle(), 'Cài đặt')
         self.assertEqual(dialog.buttons.button(QDialogButtonBox.Save).text(), 'Lưu')

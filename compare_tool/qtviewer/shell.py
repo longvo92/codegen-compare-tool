@@ -75,6 +75,21 @@ def entry_tooltip(entry):
     return '\n'.join(filter(None, (entry['folder'], entry['baseline'], entry.get('current'))))
 
 
+def _blobs(data, key):
+    """A ``{name: base64}`` object of the state file, decoded."""
+    value = data.get(key, {})
+    if not isinstance(value, dict):
+        raise ValueError('window state {} must be an object'.format(key))
+    return {name: base64.b64decode(blob.encode('ascii'), validate=True)
+            for name, blob in value.items()
+            if isinstance(name, str) and isinstance(blob, str) and blob}
+
+
+def _encode_blobs(blobs):
+    return {name: base64.b64encode(blob).decode('ascii')
+            for name, blob in sorted(blobs.items()) if blob}
+
+
 class WindowState:
     """Geometry plus recent sources, persisted per settings store.
 
@@ -89,6 +104,7 @@ class WindowState:
         self.geometry = None
         self.recent = []
         self.tools = {}   # tool window key -> geometry
+        self.layouts = {}  # workspace view key -> dock layout (QMainWindow state)
         self.error = ''
         self._load()
 
@@ -116,14 +132,10 @@ class WindowState:
             if not isinstance(recent, list):
                 raise ValueError('window state recent sources must be a list')
             self.recent = [e for e in recent if _valid_entry(e)][:MAX_RECENT]
-            tools = data.get('tools', {})
-            if not isinstance(tools, dict):
-                raise ValueError('window state tools must be an object')
-            self.tools = {key: base64.b64decode(value.encode('ascii'), validate=True)
-                          for key, value in tools.items()
-                          if isinstance(key, str) and isinstance(value, str) and value}
+            self.tools = _blobs(data, 'tools')
+            self.layouts = _blobs(data, 'layouts')
         except (OSError, UnicodeError, ValueError) as exc:
-            self.geometry, self.recent, self.tools = None, [], {}
+            self.geometry, self.recent, self.tools, self.layouts = None, [], {}, {}
             self.error = str(exc)
 
     def _read(self):
@@ -146,10 +158,9 @@ class WindowState:
 
     def dumps(self):
         geometry = base64.b64encode(self.geometry).decode('ascii') if self.geometry else ''
-        tools = {key: base64.b64encode(value).decode('ascii')
-                 for key, value in sorted(self.tools.items()) if value}
         return json.dumps({'version': STATE_VERSION, 'geometry': geometry,
-                           'recent': self.recent, 'tools': tools}, indent=2, ensure_ascii=False)
+                           'recent': self.recent, 'tools': _encode_blobs(self.tools),
+                           'layouts': _encode_blobs(self.layouts)}, indent=2, ensure_ascii=False)
 
     def save(self):
         """True when written (or when there is nowhere to write). Never raises:
