@@ -1138,16 +1138,16 @@ class TestThemeSwitch(unittest.TestCase):
         at = diff.reading_position()
         worker = self.win.worker
         raw = self.win._raw_results
-        self.win.sec_changes.set_expanded(False)
-        self.win.modes.setCurrentIndex(1)
+        self.win.changes_dock.hide()   # a reviewer closed a panel: the view switch keeps it closed
+        self.win.views.setCurrentIndex(1)
         self.win._apply_preferences(self.win._prefs._replace(language='vi', theme=self.theme.LIGHT))
-        self.assertIs(self.win.modes.currentWidget(), self.win.code_check)
-        self.win.modes.setCurrentIndex(0)
+        self.assertIs(self.win.views.currentWidget(), self.win.code_check)
+        self.win.views.setCurrentIndex(0)
         self._settle_ui()
 
         self.assertIs(self.win.worker, worker)
         self.assertIs(self.win._raw_results, raw)
-        self.assertFalse(self.win.sec_changes.is_expanded())
+        self.assertFalse(self.win.changes_dock.isVisible())
         self.assertEqual(self.win._selected_rel(), rel)
         self.assertEqual(diff.reading_position()[:2], at[:2])
         self.assertEqual(diff._hit_idx, hit)

@@ -137,7 +137,7 @@ Every command sits in the menu bar:
 | Menu | Contents |
 |---|---|
 | **File** | Open folders…, Git compare…, Recent sources, Export report…, Quit |
-| **View** | Compare / Code Check workspace, Hide identical |
+| **View** | Compare / Code Check view, each panel, Hide identical, Reset layout |
 | **Tools** | ARXML Handler… |
 | **Settings** | Settings…, Code Check policy…, Compare rules…, Report options… (the dialog on that page), Language, Theme |
 | **Help** | User guide, Release notes (English), About |
@@ -161,20 +161,27 @@ Open folders, Git compare and Export report are in the **File** menu only. The *
 | `Ctrl+F`, `F3` / `Shift+F3` | Find, next / previous match |
 | `Ctrl+E` | Export HTML |
 | `Ctrl+O` / `Ctrl+G` | Open folders / Git compare |
-| `Ctrl+1` / `Ctrl+2` | Compare / Code Check workspace |
+| `Ctrl+1` / `Ctrl+2` | Compare / Code Check view |
 | `Ctrl+,` | Settings |
 | `Ctrl+Q` | Quit |
 | `F1` | Open the offline guide |
 
-### Code Check workspace
+### One workspace: Compare and Code Check views
 
-Choose **Code Check** to validate one CURRENT snapshot independently of Compare:
+Compare and Code Check share one window. The switch under the menu bar (or **View**, `Ctrl+1` / `Ctrl+2`) brings a view to the front:
 
-1. Code Check uses Compare's CURRENT folder when available. Select or drop a different folder or ZIP to override it for the session. Clear the source and return to the Code Check tab to follow Compare again.
+- **Compare**: the diff, with the **Files**, **Quick changes** and **Regeneration advisories** panels.
+- **Code Check**: the findings, with the **Check setup**, **Evidence** and **Suggested fix** panels.
+
+Every panel can be closed, moved, floated or tabbed, and **View** shows or hides any of them in either view, for example **Evidence** beside the diff. Each view remembers its own layout, also for the next launch; **View → Reset layout** restores the current view's default.
+
+Choose **Code Check** to validate one CURRENT snapshot independently of Compare; no BASELINE is needed:
+
+1. Code Check uses Compare's CURRENT folder when available. Select or drop a different folder or ZIP in **Check setup** to override it for the session. Clear the source and switch back to Code Check to follow Compare again.
 2. In **Settings → Code Check policy…**, edit policy patterns, rule severities, function mappings and scoped exceptions in their fields, or choose a YAML/JSON policy file to import its contents. **Save** applies the edited policy. In **Scope overrides**, enter excluded globs (one per line) and an additional ignored-port regex. Use **Save scope as default** to remember those fields.
 3. Select **Run Code Check**. Filter by result type or text. Select a row to inspect its reason and source context.
 
-**Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both modes retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
+**Findings** lists failed rules, warnings, unchecked or ignored items, skipped findings and scoped exceptions with source evidence. **Coverage & policy** shows checked calls, scope and applied settings. Both views retain their inputs and results when switching. Run the check again after changing inputs. See [Consistency check](#consistency-check) for the shared CLI/GUI rules and coverage limits.
 
 ### ARXML Handler and suggested fixes
 
@@ -270,7 +277,7 @@ Old/new consistency advisories suggest reviewing dependencies and generation rec
 
 ## Consistency check
 
-Use the viewer's **Code Check** workspace, or check one CURRENT folder or ZIP in the terminal without a baseline or HTML:
+Use the viewer's **Code Check** view, or check one CURRENT folder or ZIP in the terminal without a baseline or HTML:
 
 ```bash
 python -m compare_tool --check-current current

@@ -172,7 +172,9 @@ class TestShellWindow(unittest.TestCase):
                          [win.act_open, win.act_git, win.act_export, win.act_quit])
         self.assertIs(next(a for a in file_.actions() if a.menu()).menu(), win.recent_menu)
         self.assertEqual([a for a in view.actions() if not a.isSeparator()],
-                         [win.act_view_compare, win.act_view_check, win.act_hide_identical])
+                         [win.act_view_compare, win.act_view_check,
+                          *(dock.toggleViewAction() for dock in win.docks),
+                          win.act_hide_identical, win.act_reset_layout])
         self.assertEqual(tools.actions(), [win.act_arxml_tool])
         self.assertEqual([a.menu().title() for a in settings.actions() if a.menu()],
                          ['Language', 'Theme'])
@@ -189,18 +191,18 @@ class TestShellWindow(unittest.TestCase):
         win = self.window()
         self.assertTrue(win.act_view_compare.isChecked())
         win.act_view_check.trigger()
-        self.assertIs(win.modes.currentWidget(), win.code_check)
+        self.assertIs(win.views.currentWidget(), win.code_check)
         self.assertFalse(win.act_view_compare.isChecked())
-        self.assertEqual(win.modes.count(), 2)  # ARXML Handler is a tool window, not a tab
+        self.assertEqual(win.views.count(), 2)  # ARXML Handler is a tool window, not a tab
         win.act_arxml_tool.trigger()
         self.assertTrue(win.arxml_window.isVisible())
         self.assertIs(win.arxml_window.centralWidget(), win.arxml_handler)
         self.assertEqual(win.arxml_window.windowTitle(), 'ARXML Handler — CodeGen Studio')
-        self.assertIs(win.modes.currentWidget(), win.code_check)
+        self.assertIs(win.views.currentWidget(), win.code_check)
         win.arxml_window.close()  # closing only hides it; paths and undo survive
         self.assertFalse(win.arxml_window.isVisible())
         self.assertIn('arxml_handler', win.window_state.tools)
-        win.modes.setCurrentIndex(0)
+        win.views.setCurrentIndex(0)
         self.assertTrue(win.act_view_compare.isChecked())
 
     def test_language_from_menu_retranslates_and_saves_only_that_key(self):
@@ -266,10 +268,10 @@ class TestShellWindow(unittest.TestCase):
         self.assertEqual([a.text() for a in entries], ['old  →  gone', 'old  →  new'])
         self.assertEqual([a.isEnabled() for a in entries], [False, True])
         self.assertEqual(entries[1].toolTip(), '{}\n{}'.format(old, new))
-        second.modes.setCurrentIndex(1)
+        second.views.setCurrentIndex(1)
         entries[1].trigger()
         _settle(self.app, second)
-        self.assertIs(second.modes.currentWidget(), second.compare_page)
+        self.assertIs(second.views.currentWidget(), second.compare_page)
         self.assertEqual((second.old, second.new), (old, new))
         self.assertTrue(second._raw_results)
         second.act_clear_recent.trigger()

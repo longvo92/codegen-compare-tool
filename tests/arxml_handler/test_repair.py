@@ -172,7 +172,7 @@ def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
 
     try:
         assert window.windowTitle().startswith("CodeGen Studio")
-        window.modes.setCurrentWidget(page)
+        window.views.setCurrentWidget(page)
         page.source.setText(str(master))
         page.run_button.click()
         wait_for(lambda: page.check is not None and not page.is_running())
@@ -184,7 +184,7 @@ def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
         assert page.check.exit_code == 1
         page.preview_fix.click()
         # the repair opens right under the finding, not in another workspace
-        assert window.modes.currentWidget() is page
+        assert window.views.currentWidget() is page
         assert panel.isVisible() and not panel.preview.isVisible()
         assert not window.arxml_window.isVisible()
         assert any("*" in panel.table.topLevelItem(i).text(0)

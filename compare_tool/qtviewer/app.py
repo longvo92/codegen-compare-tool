@@ -15,13 +15,13 @@ from functools import partial
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QByteArray, QSignalBlocker, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog,
                                QHeaderView, QLabel, QLineEdit,
                                QMenu, QMessageBox,
-                               QProgressBar, QSplitter, QStyle, QToolBar,
-                               QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QDockWidget, QProgressBar, QStackedWidget, QStyle,
+                               QTabBar, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QTreeWidgetItemIterator,
                                QVBoxLayout, QWidget)
 
@@ -44,7 +44,6 @@ from .settings import (SettingsDialog, load_code_check_defaults, load_preference
 from .icons import ACCENT, TINT, app_icon, icon, std_icon
 from .gitpicker import GitComparison, pick_commit, ref_label
 from .pickers import pick_folders
-from .section import NO_MAX, Section
 from .shell import AppShell, folders_entry, git_entry
 from .summary import SummaryPanel
 from .tool_window import ToolWindow
@@ -53,6 +52,8 @@ from .tree import (STATUS, build_nodes, filter_nodes, move_tooltip,
 from .worker import ScanWorker, TaskWorker
 
 REL_ROLE = Qt.UserRole      # a FILE row's relative path (folders: None)
+LAYOUT_VERSION = 1          # QMainWindow.saveState version of a view's docks
+VIEW_KEYS = ('compare', 'check')
 STATUS_ROLE = Qt.UserRole + 2
 PATH_ROLE = Qt.UserRole + 1  # relative path of any row, file or folder
 
@@ -222,70 +223,19 @@ class MainWindow(AppShell):
         # list the report and the CLI print, read from the raw scan.
         self.advisories = AdvisoryPanel(self._text)
 
-        # all three panes are collapsible and all three are in ONE splitter, so
-        # every one of them can be dragged to the height the reviewer wants.
-        # The advisories used to sit outside it, pinned: the one pane whose
-        # length is least predictable (a folder full of stale models) was the
-        # one that could not be resized.
-        self.sec_files = Section('FILES', tree_box, texts=self._text)
-        self.sec_changes = Section('QUICK CHANGES', self.summary, texts=self._text)
-        self.sec_consistency = Section('REGENERATION ADVISORIES', self.advisories, texts=self._text)
-        self._sections = (self.sec_files, self.sec_changes,
-                          self.sec_consistency)
-
-        # remembered height per pane, so folding one and opening it again
-        # puts it back where the reviewer had it
-        self._sec_height = {}
-        left = QSplitter(Qt.Vertical)
-        for sec in self._sections:
-            left.addWidget(sec)
-            sec.toggled.connect(
-                lambda expanded, s=sec: self._on_section_toggled(s, expanded))
-        # a folded pane must not be draggable back open by the handle alone --
-        # the header is the way in, and a stray drag would leave a sliver of a
-        # pane the reviewer explicitly folded
-        for i in range(left.count()):
-            left.setCollapsible(i, False)
-        left.setStretchFactor(0, 3)
-        left.setStretchFactor(1, 1)
-        left.setStretchFactor(2, 0)
-        self.left_split = left
-        # nothing to say yet: the consistency pane starts folded, and stays out
-        # of the way until a scan gives it something
-        self.sec_consistency.set_expanded(False)
-        self.sec_consistency.setVisible(False)
-        left.setSizes([560, 240, 0])
-
-        left_col = QWidget()
-        lc = QVBoxLayout(left_col)
-        lc.setContentsMargins(0, 0, 0, 0)
-        lc.setSpacing(0)
-        lc.addWidget(left, 1)
-        self._left_layout = lc
-
         self.diff = DiffPane(self._text)
-
-        split = QSplitter(Qt.Horizontal)
-        split.addWidget(left_col)
-        split.addWidget(self.diff)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
-        split.setSizes([400, 800])
 
         self._make_actions()
 
+        # Compare view centre: the loud banner over the diff. Its side panels
+        # (Files, Quick changes, Regeneration advisories) are docks.
         central = QWidget()
         v = QVBoxLayout(central)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self.banner)
-        v.addWidget(split, 1)
-        self.modes = QTabWidget()
-        self.modes.setObjectName('workspaces')
-        self.modes.tabBar().setObjectName('workspaceModes')
+        v.addWidget(self.diff, 1)
         self.compare_page = central
-        self.modes.addTab(central, '')
-        self._text.bind(self.modes.setTabText, 'Compare', 0)
         # two hosts of one ARXML repair engine: the manual ARXML Handler in its
         # own tool window, and the inline fix under a Code Check finding. Each
         # may write only while the other is idle and has nothing to recover.
@@ -296,8 +246,6 @@ class MainWindow(AppShell):
                                         may_check=lambda: not self._arxml_writing(),
                                         temporary_source=self._temporary_source,
                                         may_write=partial(self._may_write_arxml, 'check'))
-        self.modes.addTab(self.code_check, '')
-        self._text.bind(self.modes.setTabText, 'Code Check', 1)
         self.arxml_window = ToolWindow(self, self.arxml_handler, self._text,
                                        window_state=self.window_state, key='arxml_handler')
         self.code_check.activity_changed.connect(self._refresh_repair_buttons)
@@ -305,7 +253,35 @@ class MainWindow(AppShell):
             panel.activity_changed.connect(self._arxml_activity_changed)
             panel.master_written.connect(self._master_written)
         self._refresh_repair_buttons()
-        self.setCentralWidget(self.modes)
+
+        # One workspace: Compare and Code Check share the window, the sources
+        # and the docks. The switch only changes which centre and which panels
+        # are in front; each view keeps its own dock layout.
+        self.views = QStackedWidget()
+        self.views.setObjectName('workspaces')
+        self.views.addWidget(central)
+        self.views.addWidget(self.code_check)
+        self.setCentralWidget(self.views)
+        self.view_tabs = QTabBar()
+        self.view_tabs.setObjectName('workspaceModes')
+        self.view_tabs.setExpanding(False)
+        self.view_tabs.setDrawBase(False)
+        for i, name in enumerate(('Compare', 'Code Check')):
+            self.view_tabs.addTab('')
+            self._text.bind(self.view_tabs.setTabText, name, i)
+        self.view_tabs.currentChanged.connect(self._show_workspace)
+        self.view_bar = QToolBar('Workspace', self)
+        self.view_bar.setObjectName('viewBar')
+        self.view_bar.setMovable(False)
+        self.view_bar.setFloatable(False)
+        self.view_bar.toggleViewAction().setVisible(False)
+        self.view_bar.addWidget(self.view_tabs)
+        self.addToolBar(Qt.TopToolBarArea, self.view_bar)
+        self._advisory_count = 0
+        self._view_index = None
+        self._layouts = {i: self.window_state.layouts.get(key)
+                         for i, key in enumerate(VIEW_KEYS) if self.window_state.layouts.get(key)}
+        self._build_docks(tree_box)
 
         # status bar: a state chip on the LEFT (Ready / Scanning… / Compare
         # incomplete), the verdict counts as a permanent widget on the right so
@@ -329,8 +305,8 @@ class MainWindow(AppShell):
         self._build_toolbar(tree_box)
         self._build_menus()
         self._restore_geometry()
-        self._update_title()
-        self.modes.currentChanged.connect(self._switch_workspace)
+        self.views.currentChanged.connect(self._switch_workspace)
+        self._switch_workspace(0)
         self._style_widgets()
         self.diff.set_muted_modes([self._MUTE_MODE[s] for s in self._muted_statuses()])
 
@@ -346,24 +322,102 @@ class MainWindow(AppShell):
             self._set_state('idle', 'Ready')
 
     def _switch_workspace(self, index):
+        """Bring a view to the front with its own dock layout: the one the
+        reviewer left it in this session or last session, else the default."""
+        previous = self._view_index
+        if previous is not None and previous != index:
+            self._layouts[previous] = bytes(self.saveState(LAYOUT_VERSION))
+        self._view_index = index
+        saved = self._layouts.get(index)
+        if not (saved and self.restoreState(QByteArray(saved), LAYOUT_VERSION)):
+            self._apply_default_layout(index)
+        if not self._advisory_count:
+            self.advisories_dock.hide()
+        with QSignalBlocker(self.view_tabs):
+            self.view_tabs.setCurrentIndex(index)
         comparing = index == 0
         writing = self._arxml_writing()
-        # the toolbars belong to the Compare page; their actions also sit in
-        # the File menu, which must keep working from any workspace
-        self.compare_toolbar.setVisible(comparing)
         for action in self._source_actions:
             action.setEnabled(not writing)
         for action in (self.act_first, self.act_prev, self.act_next, self.act_last):
             action.setEnabled(comparing and not writing)
         self.act_export.setEnabled(not writing and bool(self._raw_results))
-        self.statusBar().setVisible(comparing)
         self._sync_view_actions()
         self.code_check.refresh_current()
         self._update_title()
 
+    def _build_docks(self, tree_box):
+        """Six panels, three per view. Every one can be closed, moved, floated
+        or tabbed, and View lists them all, so a Code Check panel can sit beside
+        the diff (or the file tree beside the findings) when that helps."""
+        def dock(key, widget, area):
+            panel = QDockWidget(self)
+            panel.setObjectName(key)
+            panel.setWidget(widget)
+            panel.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable
+                              | QDockWidget.DockWidgetFloatable)
+            self.addDockWidget(area, panel)
+            return panel
+
+        left, right, bottom = (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea,
+                               Qt.BottomDockWidgetArea)
+        self.files_dock = dock('filesDock', tree_box, left)
+        self.changes_dock = dock('changesDock', self.summary, left)
+        self.advisories_dock = dock('advisoriesDock', self.advisories, left)
+        self.setup_dock = dock('checkSetupDock', self.code_check.setup_panel, left)
+        self.evidence_dock = dock('evidenceDock', self.code_check.evidence_panel, right)
+        self.fix_dock = dock('fixDock', self.code_check.fix_panel, bottom)
+        for panel, title in ((self.files_dock, 'Files'), (self.changes_dock, 'Quick changes'),
+                             (self.setup_dock, 'Check setup'), (self.evidence_dock, 'Evidence'),
+                             (self.fix_dock, 'Suggested fix')):
+            self._text.bind(panel.setWindowTitle, title)
+        # the advisories carry their count on the title, readable even when
+        # the dock is tabbed away
+        self._set_advisory_title()
+        self.splitDockWidget(self.files_dock, self.changes_dock, Qt.Vertical)
+        self.splitDockWidget(self.changes_dock, self.advisories_dock, Qt.Vertical)
+        self.compare_docks = (self.files_dock, self.changes_dock, self.advisories_dock)
+        self.check_docks = (self.setup_dock, self.evidence_dock, self.fix_dock)
+        self.docks = self.compare_docks + self.check_docks
+        # the arrangement as built -- areas, splits, nothing tabbed or floating.
+        # A default layout starts from it, so a reset also undoes moves and tabs.
+        self._pristine_layout = bytes(self.saveState(LAYOUT_VERSION))
+
+    def _set_advisory_title(self):
+        tr, n = self._text, self._advisory_count
+        title = tr('Regeneration advisories')
+        if n:
+            title = '{} · {}'.format(title, tr('{} heads-up' if n == 1 else '{} heads-ups', n))
+        self.advisories_dock.setWindowTitle(title)
+
+    def _apply_default_layout(self, index):
+        self.restoreState(QByteArray(self._pristine_layout), LAYOUT_VERSION)
+        for view, docks in enumerate((self.compare_docks, self.check_docks)):
+            for panel in docks:
+                panel.setFloating(False)
+                panel.setVisible(view == index)
+        if index == 0:
+            self.resizeDocks([self.files_dock], [380], Qt.Horizontal)
+            self.resizeDocks([self.files_dock, self.changes_dock, self.advisories_dock],
+                             [520, 240, 140], Qt.Vertical)
+        else:
+            self.resizeDocks([self.setup_dock, self.evidence_dock], [300, 440], Qt.Horizontal)
+            self.resizeDocks([self.fix_dock], [300], Qt.Vertical)
+
+    def _reset_layout(self):
+        self._layouts.clear()
+        self._apply_default_layout(self.views.currentIndex())
+        if not self._advisory_count:
+            self.advisories_dock.hide()
+
+    def _remember_layouts(self):
+        if self._view_index is not None:
+            self._layouts[self._view_index] = bytes(self.saveState(LAYOUT_VERSION))
+        self.window_state.layouts = {VIEW_KEYS[i]: state for i, state in self._layouts.items()}
+
     def _update_title(self):
-        title = APP_NAME + ' — ' + self._text(('Compare', 'Code Check')[self.modes.currentIndex()])
-        if not self.modes.currentIndex() and self._compare_name is not None:
+        title = APP_NAME + ' — ' + self._text(('Compare', 'Code Check')[self.views.currentIndex()])
+        if not self.views.currentIndex() and self._compare_name is not None:
             title += ' — ' + self._compare_name
             if self.skip_var_renames:
                 title += self._text(' — QUICK CHECK: variable renames skipped')
@@ -465,8 +519,7 @@ class MainWindow(AppShell):
             self._set_state(*self._state)
             self.banner.setText(self._text(self._banner_message))
             self._update_counts()
-            for section in self._sections:
-                section.retranslate()
+            self._set_advisory_title()
             self.summary.retranslate()
             self.advisories.retranslate()
             self.code_check.retranslate()
@@ -665,6 +718,12 @@ class MainWindow(AppShell):
         self._text.bind(self.act_hide_identical.setToolTip, 'Hide only Identical files in the tree.')
         self.act_hide_identical.triggered.connect(self._toggle_hide_identical)
 
+        self.act_reset_layout = QAction(self)
+        self._text.bind(self.act_reset_layout.setText, 'Reset layout')
+        self._text.bind(self.act_reset_layout.setToolTip,
+                        "Put this view's panels back where they start.")
+        self.act_reset_layout.triggered.connect(self._reset_layout)
+
         self.act_arxml_tool = QAction(self)
         self._text.bind(self.act_arxml_tool.setText, 'ARXML Handler…')
         self.act_arxml_tool.triggered.connect(self._show_arxml_tool)
@@ -710,14 +769,14 @@ class MainWindow(AppShell):
         return act
 
     def _show_workspace(self, index, *_checked):
-        self.modes.setCurrentIndex(index)
+        self.views.setCurrentIndex(index)
         self._sync_view_actions()
 
     def _show_arxml_tool(self):
         self.arxml_window.open()
 
     def _sync_view_actions(self):
-        index = self.modes.currentIndex()
+        index = self.views.currentIndex()
         self.act_view_compare.setChecked(index == 0)
         self.act_view_check.setChecked(index == 1)
 
@@ -728,7 +787,8 @@ class MainWindow(AppShell):
         self._add_menu('File', (self.act_open, self.act_git, self._make_recent_menu(), None,
                                 self.act_export, None, self.act_quit))
         self._add_menu('View', (self.act_view_compare, self.act_view_check, None,
-                                self.act_hide_identical))
+                                *(panel.toggleViewAction() for panel in self.docks), None,
+                                self.act_hide_identical, self.act_reset_layout))
         self._add_menu('Tools', (self.act_arxml_tool,))
         language = self._submenu('Language')
         language.addActions(self.language_group.actions())
@@ -842,12 +902,14 @@ class MainWindow(AppShell):
     def _arxml_activity_changed(self):
         handler_writing = self.arxml_handler.writing
         inline_writing = self.code_check.repair_panel.writing
-        self.compare_page.setEnabled(not (handler_writing or inline_writing))
-        self.code_check.setEnabled(not handler_writing)
+        for widget in (self.compare_page,
+                       *(panel.widget() for panel in self.compare_docks)):
+            widget.setEnabled(not (handler_writing or inline_writing))
+        self.code_check.set_parts_enabled(not handler_writing)
         self.arxml_handler.setEnabled(not inline_writing)
         self.code_check.refresh_run_button()
         self._refresh_repair_buttons()
-        self._switch_workspace(self.modes.currentIndex())
+        self._switch_workspace(self.views.currentIndex())
         if getattr(self, '_close_pending', False) and not self._arxml_busy():
             QTimer.singleShot(0, self.close)
 
@@ -902,6 +964,7 @@ class MainWindow(AppShell):
             shutil.rmtree(self._src_temp, ignore_errors=True)
             self._src_temp = None
         self.arxml_window.close()   # remembers its geometry
+        self._remember_layouts()
         self._save_window_state()
         super().closeEvent(event)
 
@@ -955,7 +1018,7 @@ class MainWindow(AppShell):
         if not paths:
             return
         event.acceptProposedAction()
-        if self.modes.currentWidget() is self.code_check:
+        if self.views.currentWidget() is self.code_check:
             if not self.code_check.is_running():
                 self.code_check.source.setText(paths[0])
             self._front()
@@ -1240,118 +1303,18 @@ class MainWindow(AppShell):
                 ('deleted', 'Deleted'), ('identical', 'Identical'),
                 ('error', 'Error' if counts['error'] == 1 else 'Errors'))))
 
-    # a pane never re-opens at whatever height is left over: the reviewer
-    # dragged it to a size once, and folding it away to read something else is
-    # not them changing their mind about that size
-    _SEC_MIN = 90
-
-    def _on_section_toggled(self, sec, expanded):
-        """Fold: hand that pane's height to the panes still open. Unfold: take
-        it back from them, in proportion to what each has to spare."""
-        sizes = self.left_split.sizes()
-        if len(sizes) != len(self._sections):
-            return
-        i = self._sections.index(sec)
-        bar = sec.header_height()
-        # remember the height FIRST: folding the last open pane returns early
-        # below, and skipping this there lost the size -- reopening some other
-        # pane and coming back to this one then landed on the default
-        if not expanded:
-            self._sec_height[sec] = max(sizes[i], self._SEC_MIN)
-        others = [n for n, s in enumerate(self._sections)
-                  if n != i and s.is_expanded() and s.isVisible()]
-        if not others:
-            self._park_column()      # last pane folded: stack them at the top
-            return
-        if not expanded:
-            self._spread(sizes, sizes[i] - bar, others)
-            sizes[i] = bar
-        else:
-            want = max(self._sec_height.get(sec, 200), self._SEC_MIN)
-            got = self._spread(sizes, -(want - sizes[i]), others)
-            sizes[i] += -got
-        self.left_split.setSizes(sizes)
-        self._park_column()
-
-    def _spread(self, sizes, amount, idx):
-        """Add `amount` px across `idx` (negative takes away). Returns what was
-        actually moved -- a pane is never squeezed below _SEC_MIN, so asking
-        for more than the column has spare gives back less than was asked."""
-        if amount >= 0:
-            share, rest = divmod(amount, len(idx))
-            for n, i in enumerate(idx):
-                sizes[i] += share + (rest if n == 0 else 0)
-            return amount
-        spare = [max(0, sizes[i] - self._SEC_MIN) for i in idx]
-        take = min(-amount, sum(spare))
-        left = take
-        for n, i in enumerate(idx):
-            cut = min(spare[n], left)
-            sizes[i] -= cut
-            left -= cut
-        return -(take - left)
-
-    def _park_column(self):
-        """With every pane folded the splitter is shorter than the column it
-        sits in. Left alone, Qt centres it and the bars end up adrift halfway
-        down an empty panel; capped and top-aligned they stack under the
-        toolbar, which is where a row of collapsed headers belongs."""
-        shown = [s for s in self._sections if s.isVisible()]
-        if any(s.is_expanded() for s in shown):
-            self._left_layout.setAlignment(self.left_split, Qt.Alignment(0))
-            self.left_split.setMaximumHeight(NO_MAX)
-            return
-        bars = sum(s.header_height() for s in shown)
-        handles = self.left_split.handleWidth() * max(0, len(shown) - 1)
-        self.left_split.setMaximumHeight(bars + handles)
-        self._left_layout.setAlignment(self.left_split, Qt.AlignTop)
-
-    def _resize_sections(self):
-        """Re-cap every folded pane at its bar. Used after the panes change on
-        their own -- a scan revealing the consistency pane, say."""
-        sizes = self.left_split.sizes()
-        if len(sizes) != len(self._sections):
-            return
-        freed = 0
-        for i, sec in enumerate(self._sections):
-            if not sec.is_expanded():
-                bar = sec.header_height()
-                freed += max(0, sizes[i] - bar)
-                sizes[i] = bar
-        open_idx = [i for i, s in enumerate(self._sections)
-                    if s.is_expanded() and s.isVisible()]
-        if freed and open_idx:
-            self._spread(sizes, freed, open_idx)
-        elif not open_idx:
-            self.left_split.setSizes(sizes)
-            self._park_column()
-            return
-        self.left_split.setSizes(sizes)
-        self._park_column()
-
     def _show_advisories(self, advisories):
-        """Fill the consistency pane and open it only when it has something to
-        say. A clean compare spends no height on it, and a reviewer who folded
-        it stays folded -- reopening a pane someone shut is the tool arguing
-        with them."""
+        """Fill the advisories dock and bring it up only when it has something
+        to say. A clean compare spends no room on it, and a reviewer who closed
+        it while it had advisories keeps it closed for the rest of that scan."""
         self.advisories.set_advisories(advisories)
-        # AdvisoryPanel hides itself when empty; inside a section the SECTION is
-        # what has to go, or an empty bar is left behind
-        had = self.sec_consistency.isVisible()
-        n = len(advisories)
-        self.sec_consistency.setVisible(bool(n))
-        self.sec_consistency.set_suffix(
-            Message('{} heads-up' if n == 1 else '{} heads-ups', n) if n else '')
-        if n and not had:
-            self.sec_consistency.set_expanded(True)
-            sizes = self.left_split.sizes()
-            want = min(140, max(80, 28 * n + 34))
-            if len(sizes) == 3 and sizes[2] < want:
-                take = want - sizes[2]
-                sizes[2] = want
-                sizes[0] = max(120, sizes[0] - take)
-                self.left_split.setSizes(sizes)
-        self._resize_sections()
+        had = self._advisory_count
+        self._advisory_count = n = len(advisories)
+        self._set_advisory_title()
+        if not n:
+            self.advisories_dock.hide()
+        elif not had and self.views.currentIndex() == 0:
+            self.advisories_dock.show()
 
     def _on_fail(self, msg):
         self.progress.setVisible(False)
@@ -1635,7 +1598,11 @@ QTabBar#workspaceModes::tab {{ padding:10px 28px; font-size:13px;
                              font-weight:600; color:{fg-dim}; background:{chrome-bg}; }}
 QTabBar#workspaceModes::tab:selected {{ color:{fg-strong}; background:{panel-3};
                                       border-bottom:3px solid {accent-2}; }}
-QTabWidget#workspaces::pane {{ border:0; border-top:1px solid {border}; }}
+QToolBar#viewBar {{ padding:0 6px; spacing:0; }}
+QDockWidget {{ color:{header-fg}; font-size:11px; font-weight:bold; }}
+QDockWidget::title {{ background:{chrome-bar-bg}; padding:5px 8px; text-align:left;
+                     border-top:1px solid {border}; }}
+QMainWindow::separator {{ background:{border}; width:3px; height:3px; }}
 QMenuBar {{ background:{chrome-bg}; color:{fg}; border-bottom:1px solid {border};
            padding:2px 4px; }}
 QMenuBar::item {{ background:transparent; padding:4px 10px; border-radius:4px; }}
@@ -1658,14 +1625,6 @@ QToolBar QToolButton:pressed {{ background:{chrome-pressed}; }}
 QToolBar QToolButton:checked {{ background:{chrome-checked-bg};
                 color:{chrome-checked-fg}; }}
 QToolBar QToolButton:checked:hover {{ background:{chrome-checked-hover}; }}
-/* left-column section bars. Small, flat and quiet: a bar the eye skips over
-   until it is looking for one, the way an editor sidebar names its panes. The
-   arrow lives in the label (see section.py) so no icon theme is needed. */
-QPushButton#sectionhead {{ background:{chrome-bar-bg}; color:{header-fg};
-            border:none; border-top:1px solid {border}; padding:5px 8px;
-            font-size:11px; font-weight:bold; text-align:left; }}
-QPushButton#sectionhead:hover {{ background:{chrome-hover}; color:{fg-strong}; }}
-QPushButton#sectionhead:focus {{ outline:none; }}
 /* consistency heads-up at the bottom of the left column: a band of its own,
    set off from the quick-changes rollup above it by a top border */
 QFrame#advisorypanel {{ background:{chrome-bar-bg}; }}
