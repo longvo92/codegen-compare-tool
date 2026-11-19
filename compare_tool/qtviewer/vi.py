@@ -134,7 +134,8 @@ VI = {
         'Dừng tự dò sau {} thư mục; hãy đặt Cài đặt › Code Check › Thư mục codegen.',
     'No generated ARXML (<Model>_autosar_rtw) found around CURRENT; set Settings › Code Check › Codegen output folder.':
         'Không tìm thấy ARXML đã generate (<Model>_autosar_rtw) quanh CURRENT; hãy đặt Cài đặt › Code Check › Thư mục codegen.',
-    'Auto-search stopped after {} folders.': 'Dừng tự dò sau {} thư mục.',
+    'Auto-search could not read {} ({} folder(s)); set Settings › Code Check › Codegen output folder.':
+        'Tự dò không đọc được {} ({} thư mục); hãy đặt Cài đặt › Code Check › Thư mục codegen.',
     'The codegen output {} is inside CURRENT; Code Check also read it.':
         'Thư mục codegen {} nằm trong CURRENT; Code Check cũng đã đọc nó.',
     'CURRENT ARXML could not be read; fix the scan errors first.':

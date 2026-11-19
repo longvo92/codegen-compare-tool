@@ -145,13 +145,43 @@ def test_settings_folder_wins_and_relative_paths_follow_current(codegen_layout):
 
 def test_auto_search_stops_loudly_at_its_limit(codegen_layout, monkeypatch):
     layout = codegen_layout()
-    roots, visited, capped = search_codegen_roots(layout["current"], limit=2)
-    assert capped and visited == 2 and not roots
-    monkeypatch.setattr(fix_sources, "SEARCH_LIMIT", 2)
+    roots, visited, capped, unreadable = search_codegen_roots(layout["current"], limit=2)
+    assert capped and visited == 2 and not roots and not unreadable
     monkeypatch.setattr(fix_sources, "search_codegen_roots",
                         lambda start: search_codegen_roots(start, limit=2))
     with detect_fix_sources(layout["current"], check_of(layout)) as sources:
         assert "Auto-search stopped after 2 folders" in str(sources.problem)
+
+
+def test_a_capped_search_never_chooses_even_after_a_hit(codegen_layout, monkeypatch):
+    layout = codegen_layout()
+    roots, visited, capped, _ = search_codegen_roots(layout["current"])
+    assert roots and not capped
+    # stop right after the codegen folder is found: a newer set may lie beyond
+    monkeypatch.setattr(fix_sources, "search_codegen_roots",
+                        lambda start: search_codegen_roots(start, limit=visited - 1))
+    with detect_fix_sources(layout["current"], check_of(layout)) as sources:
+        assert "Auto-search stopped" in str(sources.problem)
+        assert sources.staged is None and sources.ok_models() == []
+
+
+def test_unreadable_folders_are_reported_not_skipped(codegen_layout, monkeypatch):
+    layout = codegen_layout()
+    check = check_of(layout)
+    blocked = layout["dictionary"].resolve()
+    real = fix_sources.os.scandir
+
+    def scandir(path):
+        if Path(path).resolve() == blocked:
+            raise PermissionError(13, "Access is denied", str(path))
+        return real(path)
+
+    monkeypatch.setattr(fix_sources.os, "scandir", scandir)
+    with detect_fix_sources(layout["current"], check) as auto:
+        assert "could not read" in str(auto.problem) and str(blocked) in str(auto.problem)
+        assert auto.staged is None
+    with detect_fix_sources(layout["current"], check, codegen_root=str(layout["codegen"])) as configured:
+        assert "could not be read" in str(configured.problem) and configured.staged is None
 
 
 def test_codegen_inside_current_is_noted_and_never_the_master(codegen_layout):
@@ -176,6 +206,7 @@ def test_cli_fix_auto_previews_and_keeps_the_exit_code(codegen_layout, capsys, t
 
 
 def test_cli_fix_auto_reads_the_codegen_folder_from_config(codegen_layout, capsys, tmp_path):
+    pytest.importorskip("yaml")   # --config is YAML; the arxml-only install has no PyYAML
     from compare_tool import config as app_config
 
     layout = codegen_layout()

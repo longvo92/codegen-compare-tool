@@ -179,6 +179,16 @@ class FixSources:
 
 # --- discovery ------------------------------------------------------------------
 
+class UnreadableFolder(OSError):
+    """A folder the search had to read and could not. Never an empty folder:
+    a generated set behind it would otherwise look absent."""
+
+    def __init__(self, path, exc):
+        super().__init__('{}: {}'.format(path, exc))
+        self.path = Path(path)
+        self.reason = str(exc)
+
+
 def _is_link(path):
     try:
         if path.is_symlink():
@@ -192,15 +202,15 @@ def _is_link(path):
 def _subdirs(folder):
     try:
         entries = list(os.scandir(folder))
-    except OSError:
-        return []
+    except OSError as exc:
+        raise UnreadableFolder(folder, exc) from exc
     out = []
     for entry in sorted(entries, key=lambda e: e.name.lower()):
         try:
             if not entry.is_dir(follow_symlinks=False):
                 continue
-        except OSError:
-            continue
+        except OSError as exc:
+            raise UnreadableFolder(entry.path, exc) from exc
         name = entry.name
         if name.startswith('.') or name.lower() in _SKIP:
             continue
@@ -214,8 +224,8 @@ def _arxml_files(folder):
     try:
         return sorted((p for p in Path(folder).iterdir()
                        if p.is_file() and p.suffix.lower() == '.arxml'), key=lambda p: p.name.lower())
-    except OSError:
-        return []
+    except OSError as exc:
+        raise UnreadableFolder(folder, exc) from exc
 
 
 def _rtw_model(folder):
@@ -234,10 +244,13 @@ def _is_codegen_root(folder):
 
 def search_codegen_roots(start, parents=SEARCH_PARENTS, depth=SEARCH_DEPTH, limit=SEARCH_LIMIT):
     """Codegen output folders around ``start``: itself, then each parent, each
-    walked breadth-first ``depth`` levels down. Returns (roots, visited, hit_limit)."""
+    walked breadth-first ``depth`` levels down.
+
+    Returns (roots, visited, hit_limit, unreadable). A search that hit its limit
+    or could not read a folder is incomplete: the caller must not choose from it."""
     start = Path(start).resolve()
     anchors = [start] + list(start.parents)[:parents]
-    seen, roots, visited = set(), [], 0
+    seen, roots, visited, unreadable = set(), [], 0, []
     for anchor in anchors:
         frontier = [(anchor, 0)]
         while frontier:
@@ -248,14 +261,18 @@ def search_codegen_roots(start, parents=SEARCH_PARENTS, depth=SEARCH_DEPTH, limi
             seen.add(key)
             visited += 1
             if visited > limit:
-                return roots, visited - 1, True
-            children = _subdirs(folder)
-            if any(_rtw_model(child) for child in children):
-                roots.append(folder)
+                return roots, visited - 1, True, unreadable
+            try:
+                children = _subdirs(folder)
+                if any(_rtw_model(child) for child in children):
+                    roots.append(folder)
+            except UnreadableFolder as exc:
+                unreadable.append(exc)
+                continue
             if level < depth:
                 frontier.extend((child, level + 1) for child in children
                                 if not child.name.lower().endswith(RTW_SUFFIX))
-    return roots, visited, False
+    return roots, visited, False, unreadable
 
 
 # --- choosing the generated ARXML ----------------------------------------------
@@ -440,21 +457,31 @@ def detect_fix_sources(root, check, exclude=(), *, codegen_root='', stage=True):
         if not folder.is_dir():
             result.problem = Message('Codegen output folder not found: {}', folder)
             return result
-        if not _is_codegen_root(folder):
-            result.problem = Message('{} holds no <Model>_autosar_rtw folder with generated ARXML.', folder)
+        try:
+            if not _is_codegen_root(folder):
+                result.problem = Message('{} holds no <Model>_autosar_rtw folder with generated ARXML.', folder)
+                return result
+        except UnreadableFolder as exc:
+            result.problem = Message('{} could not be read: {}', exc.path, exc.reason)
             return result
     else:
-        roots, visited, capped = search_codegen_roots(root)
+        roots, visited, capped, unreadable = search_codegen_roots(root)
         result.codegen_roots, result.visited = tuple(roots), visited
-        if not roots:
-            result.problem = (
-                Message('Auto-search stopped after {} folders; set Settings › Code Check › Codegen output folder.',
-                        visited) if capped else
-                Message('No generated ARXML (<Model>_autosar_rtw) found around CURRENT; '
-                        'set Settings › Code Check › Codegen output folder.'))
-            return result
+        # an incomplete search can miss a newer set: it never chooses
         if capped:
-            result.notes.append(Message('Auto-search stopped after {} folders.', visited))
+            result.problem = Message(
+                'Auto-search stopped after {} folders; set Settings › Code Check › Codegen output folder.',
+                visited)
+            return result
+        if unreadable:
+            result.problem = Message(
+                'Auto-search could not read {} ({} folder(s)); set Settings › Code Check › Codegen output folder.',
+                unreadable[0].path, len(unreadable))
+            return result
+        if not roots:
+            result.problem = Message('No generated ARXML (<Model>_autosar_rtw) found around CURRENT; '
+                                     'set Settings › Code Check › Codegen output folder.')
+            return result
 
     # 3. the Master: the CURRENT folder that defines the failing runnables
     inside = [r for r in result.codegen_roots if r == root or root in r.parents]
@@ -491,17 +518,23 @@ def detect_fix_sources(root, check, exclude=(), *, codegen_root='', stage=True):
     result.master = (root / folders.pop()).resolve()
 
     # 4. per model: the generated set whose Model version matches the code
-    for source in result.models.values():
-        if source.problem is None:
-            _choose(source, result.codegen_roots)
-    chosen = result.ok_models()
-    if not chosen:
+    try:
+        for source in result.models.values():
+            if source.problem is None:
+                _choose(source, result.codegen_roots)
+        chosen = result.ok_models()
+        if not chosen:
+            return result
+        known = {child_model for r in result.codegen_roots for child in _subdirs(r)
+                 for child_model in [_rtw_model(child)] if child_model}
+        known.update(result.models)
+        dictionary, problem = _dictionary(
+            sorted({s.folder.parent for s in chosen}, key=str), known, chosen)
+    except UnreadableFolder as exc:
+        for source in result.models.values():
+            source.folder, source.files = None, ()
+        result.problem = Message('{} could not be read: {}', exc.path, exc.reason)
         return result
-    known = {child_model for r in result.codegen_roots for child in _subdirs(r)
-             for child_model in [_rtw_model(child)] if child_model}
-    known.update(result.models)
-    dictionary, problem = _dictionary(
-        sorted({s.folder.parent for s in chosen}, key=str), known, chosen)
     result.dictionary = dictionary
     if problem is not None:
         result.problem = problem
