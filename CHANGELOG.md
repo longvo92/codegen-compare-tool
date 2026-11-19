@@ -5,14 +5,18 @@ All notable changes to this project are documented here. Versions follow
 
 ## [Unreleased]
 
-- Add a menu bar (File, View, Tools, Settings, Help). It replaces the Settings button and Help menu in the corner of the workspace tabs, and the Open folders / Git compare / Export report toolbar above Compare: those commands are in **File** now. **Comment** and **Unimportant** stay below the Files tree.
-- **File → Recent sources** reopens the last eight folder/ZIP pairs and Git comparisons. Git entries resolve their commits again and fail loudly when one is gone.
-- **Settings → Language / Theme** switch at once; Settings menu entries open the dialog on the Code Check policy, Compare rules or Report page.
-- The window remembers its size and position. Window state lives in `window-state.json` beside `settings.yaml`, never in the exported config.
-- Code Check repairs a finding in place: **Preview fix** shows the patch below the finding with **Update Master** and **Undo Last Update**. The ARXML Handler leaves the tabs and opens from **Tools → ARXML Handler…** in its own window.
-- Suggested fix finds its inputs: Master is the CURRENT ARXML folder that defines the failing runnable, and Source is the generated `<Model>_autosar_rtw` ARXML whose Model version matches the C header (newest generation wins), in **Settings → Code Check → ARXML repair → Codegen output folder** or found around CURRENT. A mismatch is explained instead of fixed. The Master/Source/XSD fields are gone from Code Check; the XSD moved to the same Settings group, and the ARXML Handler fills its fields with **Fill from Code Check**. CLI: `--check-current … --fix-auto [--fix-stage DIR]`. Settings files gain a `repair` section that older versions reject.
-- Compare and Code Check share one workspace: a switch under the menu bar (`Ctrl+1` / `Ctrl+2`) changes the view, and their side panels are dock panels you can close, move, float or show from **View** in either view. Each view remembers its layout; **View → Reset layout** restores it.
-- **Hide identical** moved from the Settings dialog to **View**. Shortcuts: `Ctrl+O`, `Ctrl+G`, `Ctrl+1` / `Ctrl+2`, `Ctrl+,`, `Ctrl+Q`.
+## [4.0.0] — 2026-11-19
+
+- **One workspace with a menu bar.** File / View / Tools / Settings / Help replace the toolbar buttons: Open folders, Git compare and Export report are in **File**, with **Recent sources** (last eight folder/ZIP pairs and Git comparisons). Compare and Code Check are two views of one window (`Ctrl+1` / `Ctrl+2`); their side panels are docks you can close, move, float or show from **View**, and each view remembers its layout (**View → Reset layout**). The window remembers its size and position.
+- **Code Check finds the ARXML repair inputs by itself.** Run Code Check: Master (the CURRENT ARXML folder defining the failing runnable) and the generated Source ARXML (`<Model>_autosar_rtw` with the same Model version as the code, newest generation) are found automatically, in the codegen folder from **Settings → Code Check → ARXML repair** or around CURRENT. **Preview fix** shows the verified patch under the finding; nothing is written until you choose **Update Master**, and **Undo Last Update** reverts it. When nothing matches, the suggestion says why (for example a Model version mismatch).
+- The ARXML Handler moves to **Tools → ARXML Handler…** in its own window and fills its fields with **Fill from Code Check**. The optional AUTOSAR XSD moves to Settings.
+- Settings: **Language** and **Theme** switch from the menu at once; menu entries open the dialog on the Code Check policy, Compare rules or Report page. **Hide identical** moved to **View**.
+
+### Upgrade notes
+
+- Command-line behaviour, reports and exit codes are unchanged. New, optional: `--check-current … --fix-auto [--fix-stage DIR]` previews the automatic repair.
+- `settings.yaml` gains a `repair` section (`codegen_root`, `xsd`). Version 3 and older reject a settings file that has it.
+- Window size, recent sources and panel layouts are stored in `window-state.json` beside `settings.yaml`, never in an exported config.
 
 ## [3.0.0] — 2026-11-16
 
