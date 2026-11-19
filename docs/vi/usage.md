@@ -208,7 +208,7 @@ Code Check hiển thị **Đề xuất sửa** cho các finding được hỗ tr
 - **Source** là ARXML vừa generate của model sinh ra lời gọi lỗi. Model và **Model version** lấy từ header của file C đó. Tool tìm `<Model>_autosar_rtw/<Model>_component.arxml` trong thư mục codegen đặt ở **Cài đặt → Code Check → Sửa ARXML**, hoặc khi để trống thì tự dò quanh CURRENT (CURRENT và tối đa ba thư mục cha, sâu ba cấp, tối đa 3000 thư mục; nếu chạm giới hạn này hoặc gặp thư mục không đọc được thì dừng và yêu cầu đặt thư mục trong Cài đặt). Chỉ dùng ARXML có header ghi đúng Model version đó, bản generate mới nhất nếu có nhiều bản, cùng ARXML interface/data type dùng chung được generate bên cạnh. Bản export kiến trúc đầy đủ (thư mục chứa ARXML riêng của các model hoặc `*_composition.arxml`) không bao giờ được dùng.
 - Khi không chứng minh được bản khớp, đề xuất sẽ nói rõ lý do, ví dụ `Generated ARXML for model X is 1.76, the code is 1.77: regenerate the ARXML.`; khi đó không có bản sửa.
 
-Panel Đề xuất sửa liệt kê Master, model/version/thời điểm generate của Source và các file dùng chung đã dùng. Tool
+Chỉ cần chạy Code Check: input được tìm trong lúc chạy và không hiển thị trong viewer (`--fix-auto` in chúng ra terminal). Tool
 kiểm tra toàn bộ bản sửa rồi chạy lại checker trên bản sao tạm với cùng policy
 và phạm vi. **Xem trước bản sửa** hiển thị bản sửa ngay dưới finding, đánh dấu sao
 các bổ sung liên quan, khi finding đã hết trên bản sao mà không phát sinh lỗi mới.

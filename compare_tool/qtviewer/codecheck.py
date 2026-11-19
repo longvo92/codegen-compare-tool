@@ -237,14 +237,9 @@ class CodeCheckPage(QWidget):
         fix_layout.addWidget(self.fix_placeholder)
         self.fix_group = QGroupBox()   # the dock is titled 'Suggested fix'
         fix_form = QFormLayout(self.fix_group)
-        # Master and Source are found, not typed: the generated-code layout and
-        # the Model version stamps decide (fix_sources.py); this says what was used
-        self.fix_inputs = QLabel()
-        self.fix_inputs.setWordWrap(True)
-        self.fix_inputs.setTextFormat(Qt.PlainText)
-        self.fix_inputs.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.fix_inputs.setMinimumWidth(1)
-        fix_form.addRow(self.fix_inputs)
+        # Master and Source are found, not typed or shown: each Code Check run
+        # scans the generated-code layout and its Model version stamps
+        # (fix_sources.py); only a reason not to fix reaches the note below
         self.fix_note = QLabel()
         self.fix_note.setWordWrap(True)
         self.fix_note.setTextFormat(Qt.PlainText)
@@ -737,13 +732,6 @@ class CodeCheckPage(QWidget):
         self.fix_placeholder.setVisible(not (relevant or active))
         self.repair_panel.setVisible(active)
         editable = self.repair_panel.editable
-        sources = self.assessment.sources if self.assessment is not None else None
-        lines = [self._text(line) for line in sources.lines()] if sources is not None else []
-        self.fix_inputs.setText('\n'.join(lines))
-        self.fix_inputs.setToolTip('\n'.join(
-            [str(p) for m in (sources.ok_models() if sources else ()) for p in m.files]
-            + [str(p) for p in (sources.dictionary if sources else ())]))
-        self.fix_inputs.setVisible(bool(lines) and (relevant or active))
         if not relevant:
             self.preview_fix.setEnabled(False)
             self.preview_fix.setVisible(False)

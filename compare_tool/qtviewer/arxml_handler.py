@@ -118,7 +118,7 @@ class ArxmlHandlerPage(QWidget):
             self._show_fill([Message("Generated ARXML could not be located: {}", worker.error)])
         elif sources.problem is not None or sources.staged is None or sources.master is None:
             sources.close()
-            self._show_fill(sources.lines())
+            self._show_fill(sources.problems() or [Message("No generated ARXML matches the code.")])
         else:
             # fill both fields first: each edit releases a copy nothing points at
             previous, self._sources = self._sources, None
@@ -127,7 +127,7 @@ class ArxmlHandlerPage(QWidget):
             self._sources = sources
             if previous is not None:
                 previous.close()
-            self._show_fill(sources.lines())
+            self._show_fill([])   # the filled fields say what was found
         self._refresh_inputs()
 
     def _show_fill(self, lines):

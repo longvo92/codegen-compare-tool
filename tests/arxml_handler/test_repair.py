@@ -171,7 +171,7 @@ def test_qt_repair_preview_apply_undo_and_recheck(codegen_layout, tmp_path):
         while not predicate():
             app.processEvents()
             assert time.monotonic() < deadline, (page.summary.text(), page.fix_note.text(),
-                                                   page.fix_inputs.text(), panel.status.text())
+                                                   panel.status.text())
             time.sleep(0.01)
 
     try:
@@ -185,8 +185,11 @@ def test_qt_repair_preview_apply_undo_and_recheck(codegen_layout, tmp_path):
         page.findings.setCurrentItem(page.findings.topLevelItem(0))
         # nothing typed: Master and Source are found from the codegen layout
         wait_for(page.preview_fix.isEnabled)
-        assert "Master: " + str(layout["master"].resolve()) in page.fix_inputs.text()
-        assert "Source: model Ctrl 1.77" in page.fix_inputs.text()
+        # found on Run Code Check, not listed in the GUI
+        assert not hasattr(page, "fix_inputs")
+        assert page.assessment.sources.master == layout["master"].resolve()
+        assert page.assessment.sources.models["Ctrl"].arxml_version == "1.77"
+        assert "Master:" not in page.fix_note.text() and str(layout["codegen"]) not in page.fix_note.text()
         staged.append(page.assessment.sources.staged)
         page.preview_fix.click()
         # the repair opens right under the finding, not in another workspace
@@ -221,7 +224,7 @@ def test_qt_repair_preview_apply_undo_and_recheck(codegen_layout, tmp_path):
         wait_for(lambda: handler.fill_worker is None and handler.source.text())
         assert handler.master.text() == str(layout["master"].resolve())
         staged.append(Path(handler.source.text()))
-        assert staged[-1].is_dir() and "Source: model Ctrl" in handler.fill_note.text()
+        assert staged[-1].is_dir() and handler.fill_note.text() == ""
     finally:
         wait_for(lambda: not (panel.worker or page.is_running() or page.fix_worker
                               or handler.fill_worker))

@@ -98,6 +98,10 @@ def test_version_mismatch_is_explained_and_not_fixed(codegen_layout):
     text = str(suggestion(finding, result))
     assert "Generated ARXML for model Ctrl is 1.76, the code is 1.77" in text
     assert result.sources.staged is None
+    # what the viewer may show: the reason only, never the folders
+    problems = [str(m) for m in result.sources.problems()]
+    assert problems == ["Model Ctrl: Generated ARXML for model Ctrl is 1.76, the code is 1.77: "
+                        "regenerate the ARXML."]
 
 
 def test_missing_model_version_in_the_code_blocks_the_match(codegen_layout):

@@ -152,8 +152,16 @@ class FixSources:
     def __exit__(self, *_exc):
         self.close()
 
+    def problems(self):
+        """Only the reasons nothing could be used, for a caller that does not
+        list the inputs themselves."""
+        out = [self.problem] if self.problem is not None else []
+        out += [Message('Model {}: {}', s.model, s.problem)
+                for s in sorted(self.models.values(), key=lambda s: s.model) if s.problem is not None]
+        return out
+
     def lines(self):
-        """One description for the viewer and the CLI."""
+        """The full description, printed by the CLI."""
         out = []
         if self.problem is not None:
             out.append(self.problem)
