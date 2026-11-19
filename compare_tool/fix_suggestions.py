@@ -50,6 +50,9 @@ class FixAssessment:
     status: Message
     plan: Any = None
     related: dict[tuple, tuple[int, ...]] = field(default_factory=dict)
+    # automatic inputs (fix_sources.FixSources) and per-finding explanations
+    sources: Any = None
+    messages: dict[tuple, Message] = field(default_factory=dict)
 
 
 def suggestion(finding, assessment=None) -> Message | None:
@@ -57,9 +60,11 @@ def suggestion(finding, assessment=None) -> Message | None:
     if candidate(finding):
         if assessment and finding_key(finding) in assessment.related:
             return Message("Can fix: review the validated ARXML additions before applying.")
+        if assessment and finding_key(finding) in assessment.messages:
+            return assessment.messages[finding_key(finding)]
         if assessment:
             return assessment.status
-        return Message("Select Master and Source ARXML to check whether the missing definition can be added.")
+        return Message("Run Code Check on a working folder to locate Master and generated Source ARXML.")
     if reason in _ADDITIVE:
         if not finding.get("runnable"):
             return Message("Resolve the runnable ownership before attempting an ARXML repair.")
@@ -190,3 +195,37 @@ def assess_fix(root, master, source, original, config=None, exclude=(), ignore=N
         )
     except (OSError, ValueError, PatcherError) as exc:
         return blocked("ARXML repair could not be verified: {}", exc)
+
+
+def assess_auto_fix(root, original, config=None, exclude=(), ignore=None, *,
+                    codegen_root='', xsd=None) -> FixAssessment:
+    """``assess_fix`` with Master and Source found from the generated-code layout.
+
+    The returned ``sources`` owns a staged copy of the generated ARXML; the
+    caller closes it once no plan or write uses it any more. It is closed here
+    already when no plan came out of the assessment."""
+    targets = [finding for finding in original.findings if candidate(finding)]
+    if not targets or original.exit_code == 2:
+        return FixAssessment(Message("Resolve the Code Check blockers before attempting an ARXML repair."))
+    try:
+        from .arxml_handler import scan  # noqa: F401  -- lxml is needed to plan at all
+    except ImportError:
+        return FixAssessment(Message("ARXML repair requires lxml. Install codegen-compare-tool[arxml]."))
+    from .fix_sources import detect_fix_sources
+
+    sources = detect_fix_sources(root, original, exclude, codegen_root=codegen_root)
+    try:
+        messages = sources.messages()
+        if sources.problem is not None or sources.staged is None or sources.master is None:
+            sources.close()
+            status = sources.problem or next(iter(messages.values()), None) or Message(
+                "No generated ARXML matches the code.")
+            return FixAssessment(status, sources=sources, messages=messages)
+        result = assess_fix(root, sources.master, sources.staged, original, config, exclude, ignore, xsd=xsd)
+    except BaseException:
+        sources.close()
+        raise
+    result.sources, result.messages = sources, messages
+    if result.plan is None:
+        sources.close()
+    return result

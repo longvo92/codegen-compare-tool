@@ -17,6 +17,11 @@ compare:
 code_check:
   exclude: []
   ignore_regex: ''
+repair:
+  # folder holding <Model>_autosar_rtw output; empty: searched around CURRENT
+  codegen_root: ''
+  # optional local AUTOSAR_00047.xsd checked when Master is updated
+  xsd: ''
 report:
   theme: dark
   enabled: true

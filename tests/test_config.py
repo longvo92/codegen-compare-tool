@@ -39,6 +39,21 @@ class TestConfig(unittest.TestCase):
             config.save(self.path, value)
         self.assertEqual(self.path.read_bytes(), old)
 
+    def test_repair_section_defaults_types_and_example(self):
+        self.assertEqual(config.defaults()['repair'], {'codegen_root': '', 'xsd': ''})
+        value = config.defaults()
+        value['repair'].update(codegen_root='../work/codegen', xsd='C:/schema/AUTOSAR_00047.xsd')
+        config.save(self.path, value)
+        self.assertEqual(config.load(self.path)['repair'], value['repair'])
+        for bad in ({'codegen_root': 3}, {'xsd': None}, {'unknown': ''}):
+            with self.subTest(bad=bad):
+                candidate = config.defaults()
+                candidate['repair'] = dict(candidate['repair'], **bad)
+                with self.assertRaises(ValueError):
+                    config.validate(candidate)
+        example = Path(__file__).resolve().parents[1] / 'examples' / 'app-settings.yaml'
+        self.assertEqual(config.load(example)['repair'], config.defaults()['repair'])
+
     def test_bad_schema_duplicate_and_unknown_fields(self):
         for content in ('schema_version: 2\n', 'schema_version: 1\nschema_version: 1\n',
                         'schema_version: 1\nunknown: true\n'):

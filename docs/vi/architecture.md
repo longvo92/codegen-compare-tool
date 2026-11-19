@@ -46,6 +46,18 @@ access mode và operation liên quan. Handler xác minh lại trước khi Apply
 Code Check tự chạy lại sau Apply hoặc Undo từ luồng sửa. Các kết quả khác liên
 quan đến Master phải được quét lại.
 
+`fix_sources.py` (chỉ dùng thư viện chuẩn) tìm các input đó cho `assess_auto_fix`,
+viewer và `--fix-auto`. Model và Model version lấy từ header file C của lời gọi lỗi;
+Master là thư mục duy nhất trong CURRENT định nghĩa các runnable lỗi; Source là ARXML
+trong `<Model>_autosar_rtw` có cùng Model version (bản mới nhất) cùng ARXML dictionary
+dùng chung bên cạnh, tìm trong `repair.codegen_root` hoặc dò có giới hạn quanh CURRENT,
+không bao giờ là bản export kiến trúc. Mọi trường hợp không tìm được đều có thông báo,
+không đoán. File đã chọn được chép vào thư mục tạm riêng vì patch engine đọc lại
+Source trước khi ghi; viewer giữ thư mục này khi còn plan hoặc thao tác ghi dùng nó,
+và giữ Master gần nhất để Undo. `naming.py` chứa quy tắc model sở hữu file dùng chung
+với `report.py`. Section config `repair` (`codegen_root`, `xsd`) không làm check bị
+stale.
+
 ## Data flow
 
 1. Source adapter đưa folder, ZIP hoặc Git snapshot về directory. CLI đọc `--baseline-rev` / `--current-rev` qua cùng Git source chỉ-đọc này.

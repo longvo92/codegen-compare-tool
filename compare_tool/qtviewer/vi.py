@@ -121,6 +121,63 @@ VI = {
     'Reset layout': 'Khôi phục bố cục',
     "Put this view's panels back where they start.": 'Đưa các panel của view này về vị trí ban đầu.',
     'Select a failed finding with a suggested fix.': 'Chọn một finding lỗi có đề xuất sửa.',
+    # automatic ARXML repair inputs (fix_sources.py)
+    'Run Code Check on a working folder to locate Master and generated Source ARXML.':
+        'Chạy Code Check trên thư mục làm việc để tìm Master và Source ARXML đã generate.',
+    'Looking for the generated ARXML and checking the repair…': 'Đang tìm ARXML đã generate và kiểm tra bản sửa…',
+    'Preview the fix again: repair settings changed.': 'Hãy xem trước bản sửa lại: cài đặt sửa ARXML đã thay đổi.',
+    'No finding here can be repaired from generated ARXML.': 'Không có finding nào sửa được từ ARXML đã generate.',
+    'Codegen output folder not found: {}': 'Không tìm thấy thư mục codegen: {}',
+    '{} holds no <Model>_autosar_rtw folder with generated ARXML.':
+        '{} không chứa thư mục <Model>_autosar_rtw nào có ARXML đã generate.',
+    'Auto-search stopped after {} folders; set Settings › Code Check › Codegen output folder.':
+        'Dừng tự dò sau {} thư mục; hãy đặt Cài đặt › Code Check › Thư mục codegen.',
+    'No generated ARXML (<Model>_autosar_rtw) found around CURRENT; set Settings › Code Check › Codegen output folder.':
+        'Không tìm thấy ARXML đã generate (<Model>_autosar_rtw) quanh CURRENT; hãy đặt Cài đặt › Code Check › Thư mục codegen.',
+    'Auto-search stopped after {} folders.': 'Dừng tự dò sau {} thư mục.',
+    'The codegen output {} is inside CURRENT; Code Check also read it.':
+        'Thư mục codegen {} nằm trong CURRENT; Code Check cũng đã đọc nó.',
+    'CURRENT ARXML could not be read; fix the scan errors first.':
+        'Không đọc được ARXML của CURRENT; hãy sửa lỗi quét trước.',
+    'The failing runnables are defined in several ARXML folders ({}); use the ARXML Handler.':
+        'Các runnable lỗi được định nghĩa ở nhiều thư mục ARXML ({}); hãy dùng Xử lý ARXML.',
+    'The failing runnables have no definition in CURRENT ARXML.':
+        'Các runnable lỗi không có định nghĩa trong ARXML của CURRENT.',
+    '{} could not be read: {}': 'Không đọc được {}: {}',
+    '{} has no Model version stamp; cannot match generated ARXML for model {}.':
+        '{} không có dòng Model version; không thể đối chiếu ARXML đã generate của model {}.',
+    '{} and {} carry different Model versions ({}, {}).': '{} và {} ghi Model version khác nhau ({}, {}).',
+    '{} has no ARXML for model {}.': '{} không có ARXML của model {}.',
+    '{} carries no generation stamp for model {}.': '{} không có dấu generate của model {}.',
+    '{} mixes ARXML of model versions {}.': '{} trộn ARXML của nhiều Model version: {}.',
+    'No generated ARXML for model {} in {}.': 'Không có ARXML đã generate của model {} trong {}.',
+    'Generated ARXML for model {} is {}, the code is {}: regenerate the ARXML.':
+        'ARXML đã generate của model {} là {}, code là {}: hãy generate lại ARXML.',
+    'Several generated ARXML sets for model {} {} share one stamp: {}, {}.':
+        'Nhiều bộ ARXML đã generate của model {} {} có cùng dấu thời gian: {}, {}.',
+    'Several unstamped ARXML sets for model {} {}: {}.': 'Nhiều bộ ARXML không có dấu thời gian của model {} {}: {}.',
+    'Shared ARXML {} exists in several versions with one stamp: {}.':
+        'ARXML dùng chung {} có nhiều phiên bản cùng dấu thời gian: {}.',
+    'Shared ARXML {} could not be read: {}': 'Không đọc được ARXML dùng chung {}: {}',
+    'Generated ARXML could not be staged: {}': 'Không chuẩn bị được ARXML đã generate: {}',
+    'No generated ARXML matches the code.': 'Không có ARXML đã generate nào khớp với code.',
+    'Master: {}': 'Master: {}',
+    'Source: model {} {}, generated {}: {}': 'Source: model {} {}, generate lúc {}: {}',
+    'Model {}: {}': 'Model {}: {}',
+    'Shared ARXML: {}': 'ARXML dùng chung: {}',
+    'Codegen output: {} (Settings)': 'Thư mục codegen: {} (Cài đặt)',
+    'Codegen output: {} (searched {} folders around CURRENT)': 'Thư mục codegen: {} (đã dò {} thư mục quanh CURRENT)',
+    'Fill from Code Check': 'Lấy từ Code Check',
+    'Find Master and the generated Source ARXML from the last Code Check.':
+        'Tìm Master và Source ARXML đã generate từ lần Code Check gần nhất.',
+    'Run Code Check on a working folder first.': 'Hãy chạy Code Check trên thư mục làm việc trước.',
+    'Generated ARXML could not be located: {}': 'Không tìm được ARXML đã generate: {}',
+    'Looking for the generated ARXML…': 'Đang tìm ARXML đã generate…',
+    'ARXML repair': 'Sửa ARXML',
+    'Codegen output folder': 'Thư mục codegen',
+    'Empty: search around CURRENT': 'Để trống: tự dò quanh CURRENT',
+    'AUTOSAR XSD': 'XSD AUTOSAR',
+    'Optional AUTOSAR_00047.xsd': 'AUTOSAR_00047.xsd (tùy chọn)',
     'Filter by path…': 'Lọc theo đường dẫn…',
     'Click to fold this panel away': 'Bấm để thu gọn hoặc mở rộng vùng này',
     'Change': 'Thay đổi',
@@ -358,7 +415,6 @@ VI = {
     'ARXML Handler': 'Xử lý ARXML',
     'Master folder to update': 'Thư mục Master cần cập nhật',
     'Source ARXML folder': 'Thư mục Source ARXML',
-    'Optional AUTOSAR XSD': 'XSD AUTOSAR (tùy chọn)',
     'Preview Changes': 'Xem trước thay đổi',
     'Update Master': 'Cập nhật Master',
     'Undo Last Update': 'Hoàn tác lần cập nhật gần nhất',
@@ -381,10 +437,8 @@ VI = {
     'Preview fix': 'Xem trước bản sửa',
     'Run Code Check again before inspecting source.': 'Chạy lại Code Check trước khi xem mã nguồn.',
     'Run Code Check on a working folder to preview a repair.': 'Chạy Code Check trên thư mục làm việc để xem trước bản sửa.',
-    'Checking the proposed ARXML repair…': 'Đang kiểm tra bản sửa ARXML đề xuất…',
     '{}\nRecheck: {} resolved · {} remaining · {} new FAIL': '{}\nKiểm tra lại: {} đã hết · {} còn lại · {} FAIL mới',
     'Can fix: review the validated ARXML additions before applying.': 'Có thể sửa: xem trước các bổ sung ARXML đã kiểm chứng rồi mới áp dụng.',
-    'Select Master and Source ARXML to check whether the missing definition can be added.': 'Chọn Master và Source ARXML để kiểm tra khả năng bổ sung định nghĩa bị thiếu.',
     'Compare the missing declaration against the generated Source ARXML.': 'Đối chiếu khai báo bị thiếu với Source ARXML đã generate.',
     'Resolve the runnable ownership before attempting an ARXML repair.': 'Xác định đúng runnable trước khi sửa ARXML.',
     'Align the runnable access mode in the model and regenerate C and ARXML.': 'Chỉnh access mode của runnable trong model rồi generate lại C và ARXML.',

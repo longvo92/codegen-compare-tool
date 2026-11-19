@@ -251,6 +251,28 @@ class SettingsDialog(QDialog):
         policy_layout.addLayout(row)
         code_tab = QWidget()
         code_layout = QVBoxLayout(code_tab)
+        # where Suggested fix finds the generated ARXML, and the XSD it writes
+        # against; a section of its own, so changing it never stales a check
+        self.repair = QGroupBox(tr('ARXML repair'))
+        repair_form = QFormLayout(self.repair)
+        self.codegen_root = QLineEdit(self._config['repair']['codegen_root'])
+        self.codegen_root.setPlaceholderText(tr('Empty: search around CURRENT'))
+        self.codegen_root.setClearButtonEnabled(True)
+        self.repair_xsd = QLineEdit(self._config['repair']['xsd'])
+        self.repair_xsd.setPlaceholderText(tr('Optional AUTOSAR_00047.xsd'))
+        self.repair_xsd.setClearButtonEnabled(True)
+        for title, field, picker in (('Codegen output folder', self.codegen_root, self._pick_codegen),
+                                     ('AUTOSAR XSD', self.repair_xsd, self._pick_xsd)):
+            row = QHBoxLayout()
+            row.addWidget(field, 1)
+            button = QPushButton(tr('Browse…'))
+            button.clicked.connect(picker)
+            row.addWidget(button)
+            label = QLabel(tr(title))
+            label.setBuddy(field)
+            repair_form.addRow(label, row)
+        self.repair.setVisible(config is not None)
+        code_layout.addWidget(self.repair)
         code_layout.addWidget(policy)
         self.policy_editor = PolicyEditor(tr)
         self.policy_editor.set_policy(self._config['code_check']['policy'])
@@ -318,6 +340,18 @@ class SettingsDialog(QDialog):
                            display['comment'], display['unimportant'],
                            display['hide_identical'])
 
+    def _pick_codegen(self):
+        path = QFileDialog.getExistingDirectory(self, self._text('Codegen output folder'),
+                                                self.codegen_root.text().strip())
+        if path:
+            self.codegen_root.setText(path)
+
+    def _pick_xsd(self):
+        path, _ = QFileDialog.getOpenFileName(self, self._text('AUTOSAR XSD'),
+                                              self.repair_xsd.text().strip(), 'XSD (*.xsd)')
+        if path:
+            self.repair_xsd.setText(path)
+
     def policy_path(self):
         path = self.policy.text().strip()
         return abspath(path) if path else ''
@@ -344,6 +378,8 @@ class SettingsDialog(QDialog):
                                 check_consistency=self.check_consistency.isChecked(), exit_zero=self.exit_zero.isChecked(),
                                 custom_rules=json.loads(self.rules.toPlainText()))
         value['code_check']['policy'] = self.policy_editor.policy()
+        value['repair'].update(codegen_root=self.codegen_root.text().strip(),
+                               xsd=self.repair_xsd.text().strip())
         value['report'].update(theme=self.report_theme.currentData(), enabled=self.report_enabled.isChecked(),
                                max_diff_lines=int(self.max_lines.text()))
         return app_config.validate(value)
@@ -359,6 +395,8 @@ class SettingsDialog(QDialog):
         self.rules.setPlainText(json.dumps(value['compare']['custom_rules'], indent=2))
         self.policy.clear()
         self.policy_editor.set_policy(value['code_check']['policy'])
+        self.codegen_root.setText(value['repair']['codegen_root'])
+        self.repair_xsd.setText(value['repair']['xsd'])
         self.report_theme.setCurrentIndex(self.report_theme.findData(value['report']['theme']))
         self.report_enabled.setChecked(value['report']['enabled'])
         self.max_lines.setText(str(value['report']['max_diff_lines']))

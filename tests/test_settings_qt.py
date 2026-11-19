@@ -129,6 +129,34 @@ class TestSettings(unittest.TestCase):
             self.assertEqual(main(['--qt', '--theme', 'dark']), 0)
             self.assertEqual(launch.call_args.kwargs['theme_name'], 'dark')
 
+    def test_repair_settings_live_on_the_code_check_page_and_keep_the_check(self):
+        path = Path(self.tmp.name) / 'settings.yaml'
+        self.store = YamlSettings(path)
+        win = self.window()
+        win.code_check.check = object()          # a finished check must not go stale
+        win.code_check._set_status('PASS', 'state-ready')
+        with mock.patch.object(type(win.code_check), 'repair_settings_changed') as changed:
+            def edit(dialog):
+                self.assertTrue(dialog.repair.isVisibleTo(dialog))
+                dialog.codegen_root.setText('../work/codegen')
+                dialog.repair_xsd.setText('C:/schema/AUTOSAR_00047.xsd')
+                return 1
+            with mock.patch.object(SettingsDialog, 'exec', edit):
+                win.act_settings_check.trigger()
+        changed.assert_called_once_with()
+        self.assertEqual(win.code_check.status.text(), 'PASS')
+        self.assertEqual(app_config.load(path)['repair'],
+                         {'codegen_root': '../work/codegen', 'xsd': 'C:/schema/AUTOSAR_00047.xsd'})
+        self.assertEqual(win._repair_settings()['xsd'], 'C:/schema/AUTOSAR_00047.xsd')
+        dialog = SettingsDialog(win, win._prefs, win._text, config=win._config)
+        self.addCleanup(dialog.deleteLater)
+        self.assertEqual(dialog.codegen_root.text(), '../work/codegen')
+        dialog._restore_defaults()
+        self.assertEqual((dialog.codegen_root.text(), dialog.repair_xsd.text()), ('', ''))
+        legacy = SettingsDialog(win, win._prefs, win._text)   # QSettings store: no YAML section
+        self.addCleanup(legacy.deleteLater)
+        self.assertFalse(legacy.repair.isVisibleTo(legacy))
+
     def test_yaml_store_save_cancel_and_embedded_policy(self):
         path = Path(self.tmp.name) / 'settings.yaml'
         self.store = YamlSettings(path)

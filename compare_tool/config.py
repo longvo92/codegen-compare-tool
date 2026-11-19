@@ -20,6 +20,9 @@ def defaults():
         'code_check': {'exclude': [], 'ignore_regex': '',
                        'policy': consistency.load_checker_config(None)},
         'report': {'theme': theme.DARK, 'enabled': True, 'max_diff_lines': 0},
+        # ARXML repair inputs: where the generated ARXML is (empty: searched
+        # around CURRENT) and an optional AUTOSAR XSD for the write
+        'repair': {'codegen_root': '', 'xsd': ''},
     }
 
 
@@ -68,6 +71,9 @@ def validate(supplied):
             raise ValueError('{}.exclude must be a list of nonempty strings'.format(section))
     if not isinstance(config['code_check']['ignore_regex'], str):
         raise ValueError('code_check.ignore_regex must be a string')
+    for key in ('codegen_root', 'xsd'):
+        if not isinstance(config['repair'][key], str):
+            raise ValueError('repair.{} must be a string'.format(key))
     policy = config['code_check']['policy']
     consistency._validate_config(policy)
     consistency.validate_checker_regex(policy, config['code_check']['ignore_regex'])

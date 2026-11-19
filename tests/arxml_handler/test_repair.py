@@ -5,6 +5,7 @@ import subprocess
 import threading
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -38,7 +39,7 @@ def test_verified_repair_and_undo_preserve_source(inputs):
     original = current_tree_check(master)
     finding = original.findings[0]
     assert finding["reason"] == "NO_MATCHING_PORT_DATAELEMENT"
-    assert "Select Master and Source" in suggestion(finding)
+    assert "locate Master and generated Source" in suggestion(finding)
     before_master, before_source = snapshot(master), snapshot(source)
 
     result = assess_fix(master, master, source, original)
@@ -147,7 +148,7 @@ def test_guidance_available_without_plan(reason):
     assert suggestion({"reason": reason})
 
 
-def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
+def test_qt_repair_preview_apply_undo_and_recheck(codegen_layout, tmp_path):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     pytest.importorskip("PySide6")
     from PySide6.QtCore import QSettings
@@ -156,32 +157,37 @@ def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
     from compare_tool.qtviewer.app import MainWindow
 
     app = QApplication.instance() or QApplication([])
-    master, source = create_case(inputs)
+    layout = codegen_layout()
+    codegen_before = snapshot(layout["codegen"])
     window = MainWindow(settings=QSettings(str(tmp_path / "gui.ini"), QSettings.IniFormat))
     window.show()
     page = window.code_check
     panel = page.repair_panel
+    handler = window.arxml_handler
+    staged = []
 
     def wait_for(predicate):
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 15
         while not predicate():
             app.processEvents()
             assert time.monotonic() < deadline, (page.summary.text(), page.fix_note.text(),
-                                                   panel.status.text())
+                                                   page.fix_inputs.text(), panel.status.text())
             time.sleep(0.01)
 
     try:
         assert window.windowTitle().startswith("CodeGen Studio")
+        assert not hasattr(page, "fix_master") and not hasattr(page, "fix_xsd")
         window.views.setCurrentWidget(page)
-        page.source.setText(str(master))
+        page.source.setText(str(layout["current"]))
         page.run_button.click()
         wait_for(lambda: page.check is not None and not page.is_running())
-        assert "Suggested fix" in page.details.toPlainText()
-        assert not page.preview_fix.isEnabled()
-        page.fix_master.setText(str(master))
-        page.fix_source.setText(str(source))
-        wait_for(page.preview_fix.isEnabled)
         assert page.check.exit_code == 1
+        page.findings.setCurrentItem(page.findings.topLevelItem(0))
+        # nothing typed: Master and Source are found from the codegen layout
+        wait_for(page.preview_fix.isEnabled)
+        assert "Master: " + str(layout["master"].resolve()) in page.fix_inputs.text()
+        assert "Source: model Ctrl 1.77" in page.fix_inputs.text()
+        staged.append(page.assessment.sources.staged)
         page.preview_fix.click()
         # the repair opens right under the finding, not in another workspace
         assert window.views.currentWidget() is page
@@ -196,17 +202,34 @@ def test_qt_repair_preview_apply_undo_and_recheck(inputs, tmp_path):
         panel.apply.click()
         wait_for(lambda: page.check is not None and page.check.status == "PASS")
         assert "1 resolved" in page.summary.text()
-        # the finding is gone, but its undo stays reachable
+        # the finding is gone, but its undo stays reachable with the found Master
         wait_for(panel.revert.isEnabled)
         assert page.fix_group.isVisible() and panel.isVisible()
         assert not window.arxml_handler.apply.isEnabled()
         panel.revert.click()
         wait_for(lambda: page.check is not None and page.check.status == "FAIL")
         assert "1 new FAIL" in page.summary.text()
+        # changing the repair settings finds the inputs again; the check stands
+        wait_for(lambda: page.fix_worker is None and page.assessment is not None)
+        page.repair_settings_changed()
+        wait_for(lambda: page.fix_worker is None and page.assessment is not None
+                 and page.assessment.sources is not None)
+        assert page.status.text() == "FAIL"
+        staged.append(page.assessment.sources.staged)
+        # the manual tool fills from the same detection
+        window.act_arxml_tool.trigger()
+        wait_for(lambda: handler.fill_worker is None and handler.source.text())
+        assert handler.master.text() == str(layout["master"].resolve())
+        staged.append(Path(handler.source.text()))
+        assert staged[-1].is_dir() and "Source: model Ctrl" in handler.fill_note.text()
     finally:
-        wait_for(lambda: not (panel.worker or page.is_running() or page.fix_worker))
+        wait_for(lambda: not (panel.worker or page.is_running() or page.fix_worker
+                              or handler.fill_worker))
         window.close()
         app.processEvents()
+    assert staged and not any(path and Path(path).exists() for path in staged)
+    assert snapshot(layout["codegen"]) == codegen_before
+
 
 @pytest.mark.skipif(not os.environ.get("CODEGEN_TEST_EXE"), reason="requires a built Windows EXE")
 def test_frozen_handler_includes_lxml(inputs):
