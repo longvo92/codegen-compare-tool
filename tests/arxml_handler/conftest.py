@@ -107,3 +107,78 @@ def inputs(tmp_path):
         return master, source, tmp_path / "output"
 
     return write
+
+
+# --- a Simulink AUTOSAR delivery next to its codegen output ------------------------
+# Mirrors the real layout: <work>/Delivery/P/arxml/*.arxml is the Master,
+# <work>/Delivery/P/src/codegen/<M>_autosar_rtw/<M>.c the delivered code, and
+# <work>/codegen/ the build output -- <M>_autosar_rtw with the model's ARXML,
+# a dictionary folder (with stub/), and an architecture export to be ignored.
+
+EXPLICIT_READ = "DATA-RECEIVE-POINT-BY-ARGUMENTS"
+
+
+def stamped(xml, model, version, when="Wed Nov 04 21:59:32 2026"):
+    header = (
+        "<!--\n"
+        f"Auto generated XML Component Description for model {model}\n"
+        f"Model version                : {version}\n"
+        "Simulink Coder version       : Simulink Coder 24.1 (R2024a) 19-Nov-2023\n"
+        f"XML source code generated on : {when}\n"
+        "-->\n"
+    )
+    declaration, rest = xml.split("\n", 1)
+    return declaration + "\n" + header + rest
+
+
+def c_source(model, version, when="Tue Nov  3 22:34:33 2026", body="void Run(void) { Rte_Read_RPort_New(); }"):
+    lines = ["/*", f" * Code generated for Simulink model '{model}'.", " *"]
+    if version:
+        lines.append(f" * Model version                  : {version}")
+    lines += [f" * C/C++ source code generated on : {when}", " */", body, ""]
+    return "\n".join(lines)
+
+
+@pytest.fixture
+def codegen_layout(tmp_path):
+    """build(...) -> dict with work, current, master, codegen and model paths."""
+    def build(c_version="1.77", arxml_version="1.77", master_version="1.76", model="Ctrl",
+              arxml_when="Wed Nov 04 21:59:32 2026", architecture=True):
+        work = tmp_path / "work"
+        current = work / "Delivery" / "P"
+        master = current / "arxml"
+        code = current / "src" / "codegen" / f"{model}_autosar_rtw"
+        codegen = work / "codegen"
+        rtw = codegen / f"{model}_autosar_rtw"
+        dictionary = codegen / "Dict"
+        for folder in (master, code, rtw, dictionary / "stub", codegen / "slprj" / "_sfprj"):
+            folder.mkdir(parents=True, exist_ok=True)
+        external = document(interface(name="IfExt"), package="Ext")
+        files = {
+            master / f"{model}_component.arxml": stamped(document(component()), model, master_version),
+            master / "Dict_interface.arxml": stamped(document(interface()), model, master_version),
+            master / "Dict_datatype.arxml": stamped(document(DATATYPE), model, master_version),
+            master / "Dict_external_interface.arxml": stamped(external, model, master_version),
+            code / f"{model}.c": c_source(model, c_version),
+            rtw / f"{model}.c": c_source(model, c_version),
+            rtw / f"{model}_component.arxml": stamped(
+                document(component(accesses=access(EXPLICIT_READ))), model, arxml_version, arxml_when),
+            # dictionary files name the last exported model, not their owner
+            dictionary / "Dict_interface.arxml": stamped(
+                document(interface(element())), model, arxml_version, arxml_when),
+            dictionary / "Dict_datatype.arxml": stamped(document(DATATYPE), model, arxml_version, arxml_when),
+            dictionary / "stub" / "Dict_external_interface.arxml": stamped(
+                external, model, arxml_version, arxml_when),
+        }
+        if architecture:
+            arch = codegen / "Arch"
+            arch.mkdir(exist_ok=True)
+            files[arch / f"{model}_component.arxml"] = files[rtw / f"{model}_component.arxml"]
+            files[arch / "Dict_interface.arxml"] = files[dictionary / "Dict_interface.arxml"]
+            files[arch / "Arch_composition.arxml"] = stamped(document(""), "Arch", "1.21")
+        for path, text in files.items():
+            path.write_text(text, encoding="utf-8")
+        return {"work": work, "current": current, "master": master, "codegen": codegen,
+                "rtw": rtw, "dictionary": dictionary, "model": model}
+
+    return build

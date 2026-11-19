@@ -185,7 +185,7 @@ Choose **Code Check** to validate one CURRENT snapshot independently of Compare;
 
 ### ARXML Handler and suggested fixes
 
-**Tools → ARXML Handler…** opens the handler in its own window; closing it keeps its fields and undo data for the session. It imports missing S/R datatypes and dependencies, datatype mappings,
+**Tools → ARXML Handler…** opens the handler in its own window; closing it keeps its fields and undo data for the session. **Fill from Code Check** (also automatic when both fields are empty) fills Master and Source the same way Code Check finds them; both stay editable. It imports missing S/R datatypes and dependencies, datatype mappings,
 interfaces, R/P ports, assembly/delegation connectors, data elements, ComSpecs and
 runnable access points from generated **Source ARXML** into **Master**. Use two
 separate, non-nested folders with one coherent definition set each. Source stays
@@ -197,24 +197,30 @@ passes validation and has additions. For repeatable automation:
 compare-tool --arxml-handler --master Master --source Generated
 compare-tool --arxml-handler --master Master --source Generated --apply --xsd AUTOSAR_00047.xsd
 compare-tool --arxml-handler --master Master --source Generated --report PatchReport
+compare-tool --check-current Current --fix-auto
+compare-tool --check-current Current --fix-auto --fix-stage StagedSource
 compare-tool --check-current Current --fix-master Current/Master --fix-source Generated
 ```
 
 Code Check displays **Suggested fix** with each supported finding. For missing
-S/R definitions, choose Master within CURRENT and a generated Source folder.
-The tool validates the complete patch and rechecks a temporary copy with the same
+S/R definitions it finds both inputs itself; nothing is typed:
+
+- **Master** is the CURRENT folder whose ARXML defines the failing runnable (for a delivery, `<Project>/arxml`).
+- **Source** is the freshly generated ARXML of the model that produced the failing call. The model and its **Model version** come from the header of that C file. The tool looks for `<Model>_autosar_rtw/<Model>_component.arxml` in the codegen output folder set in **Settings → Code Check → ARXML repair**, or, when that is empty, around CURRENT (CURRENT and up to three parent folders, three levels down, at most 3000 folders; a search that reaches that limit or meets an unreadable folder stops and asks for the folder in Settings). It uses only ARXML whose header shows the same Model version, the newest generation if there are several, plus the shared interface/data type ARXML generated beside it. A full architecture export (a folder holding the models' own ARXML or a `*_composition.arxml`) is never used.
+- When nothing provably matches, the suggestion says why, for example `Generated ARXML for model X is 1.76, the code is 1.77: regenerate the ARXML.` No fix is offered then.
+
+Running Code Check is all it takes: the inputs are found during the run and are not listed in the viewer (`--fix-auto` prints them in the terminal). The tool validates the complete patch on a private copy of the Source and rechecks a temporary copy of CURRENT with the same
 policy and scope. **Preview fix** shows the patch right below the finding,
 with the additions tied to it starred, once the finding is resolved on the copy
 without new failures. Review all additions, then choose **Update Master** there;
-an optional XSD validates the write. After Update or Undo the desktop rechecks
+the optional XSD in **Settings → Code Check → ARXML repair** validates the write. After Update or Undo the desktop rechecks
 CURRENT, and **Undo Last Update** stays below the results even when the finding
 is gone. While one repair writes or needs recovery, the other (inline or
 ARXML Handler) cannot write. For ZIP input, extract to a working folder and
-run Code Check again before creating a fix. The paired CLI fix flags only
-evaluate a patch and keep the exit code of the original check.
+run Code Check again before creating a fix. In the terminal, `--fix-auto` runs the same detection (the `repair` section of `--config` sets the codegen folder and XSD); `--fix-stage DIR` keeps the detected Source in a new or empty folder outside CURRENT so the printed `--arxml-handler … --apply` command works. `--fix-master`/`--fix-source` remain as explicit inputs. These flags only evaluate a patch and keep the exit code of the original check.
 
 The handler supports AUTOSAR R4 namespace documents declaring
-`AUTOSAR_00047.xsd`. Supply a local schema and its imports to validate against
+`AUTOSAR_00047.xsd`. Set a local schema (with its imports beside it) in Settings, or `--xsd` for the handler CLI, to validate against
 the XSD during Apply. Built-in structural and reference checks also run without
 an XSD. Conflicts, unsupported dependencies and changed inputs block writes.
 Existing definitions are preserved. C/S, NV-Data, PR-Ports, and creation of

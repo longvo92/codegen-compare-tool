@@ -87,12 +87,14 @@ Reset layout** restores the current view's panels.
 ## ARXML Handler
 
 Open **Tools → ARXML Handler…**. Select separate Master and generated Source
-folders, then choose **Preview Changes**. Review all proposed S/R additions and blockers before **Update Master**.
-Choose a local AUTOSAR 00047 XSD for optional schema validation. **Undo Last Update**
+folders, or choose **Fill from Code Check**, then choose **Preview Changes**. Review all proposed S/R additions and blockers before **Update Master**.
+Set a local AUTOSAR 00047 XSD in **Settings → Code Check → ARXML repair** for optional schema validation. **Undo Last Update**
 restores the latest update during this session. **Save Report** exports text and JSON.
 
 In **Code Check**, open a failed finding to see **Suggested fix**. For missing S/R
-definitions, select Master and Source to verify a patch on a temporary copy.
+definitions the tool finds Master in CURRENT and the generated ARXML whose Model
+version matches the code (in the codegen folder from Settings, or around CURRENT),
+and verifies a patch on a temporary copy. If nothing matches, it says why.
 Open **Preview fix** when available: the patch appears below the finding, where
 **Update Master** and **Undo Last Update** apply it. Code Check reruns after
 applying or undoing that repair.
@@ -182,13 +184,15 @@ Khôi phục bố cục** đưa panel của view hiện tại về mặc định
 ## Xử lý ARXML
 
 Mở **Công cụ → Xử lý ARXML…**. Chọn thư mục Master và Source đã generate tách biệt,
-rồi bấm **Xem trước thay đổi**.
-Review toàn bộ bổ sung S/R và lỗi chặn trước khi **Cập nhật Master**. Có thể chọn
-XSD AUTOSAR 00047 cục bộ. **Hoàn tác lần cập nhật gần nhất** chỉ có hiệu lực trong
+hoặc bấm **Lấy từ Code Check**, rồi bấm **Xem trước thay đổi**.
+Review toàn bộ bổ sung S/R và lỗi chặn trước khi **Cập nhật Master**. Có thể đặt
+XSD AUTOSAR 00047 cục bộ trong **Cài đặt → Code Check → Sửa ARXML**. **Hoàn tác lần cập nhật gần nhất** chỉ có hiệu lực trong
 phiên. **Lưu báo cáo** xuất text và JSON.
 
 Trong **Code Check**, chọn finding lỗi để xem **Đề xuất sửa**. Với lỗi thiếu định
-nghĩa S/R, chọn Master và Source để kiểm chứng trên bản sao tạm. Bấm **Xem trước
+nghĩa S/R, tool tự tìm Master trong CURRENT và ARXML đã generate có Model version
+khớp với code (trong thư mục codegen ở Cài đặt, hoặc quanh CURRENT) rồi kiểm chứng
+trên bản sao tạm. Nếu không có bản khớp, tool nói rõ lý do. Bấm **Xem trước
 bản sửa** khi khả dụng: bản sửa hiện ngay dưới finding, nơi **Cập nhật Master** và
 **Hoàn tác lần cập nhật gần nhất** áp dụng nó. Code Check tự chạy lại sau khi cập
 nhật hoặc hoàn tác.

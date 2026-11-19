@@ -23,7 +23,7 @@ from . import (APP_NAME, __version__, consistency, gitsource, serialize, theme, 
                zipsource)
 from .diff_engine import RULES, ruleset_for
 from .fileio import write_text_atomic
-from .fix_suggestions import assess_fix, finding_key, suggestion
+from .fix_suggestions import assess_auto_fix, assess_fix, finding_key, suggestion
 from .report import consistency_advisories, model_overview, write_report
 from .view_model import SWC_DISPLAY, iface_kind, swc_item
 from .scanner import (scan, summarize, summarize_a2l, summarize_ifaces,
@@ -543,6 +543,13 @@ def _parser():
                     help='ARXML patch workspace CLI; use --arxml-handler --help')
     check.add_argument('--fix-master', metavar='FOLDER', help='Master for read-only --check-current repair evaluation')
     check.add_argument('--fix-source', metavar='FOLDER', help='Source ARXML for read-only --check-current repair evaluation')
+    check.add_argument('--fix-auto', action='store_true',
+                       help='with --check-current: find Master and the generated Source ARXML from the '
+                            'codegen layout (Model version must match the C) and preview the repair; '
+                            'read-only, exit code unchanged')
+    check.add_argument('--fix-stage', metavar='DIR',
+                       help='with --fix-auto: keep the detected Source ARXML in this new or empty '
+                            'folder outside CURRENT, so the printed apply command works')
     check.add_argument('--check-current', metavar='PATH', default=None,
                     help='check one CURRENT folder or ZIP without a baseline, '
                          'diff or HTML')
@@ -606,7 +613,7 @@ def viewer_requested(argv):
     try:
         args = _parser().parse_args(argv)
         if (args.check_current or args.check_consistency or args.consistency_config or
-                args.fix_master or args.fix_source or
+                args.fix_master or args.fix_source or args.fix_auto or args.fix_stage or
                 args.ignore_access_port_regex):
             return False  # CLI-only option: keep usage errors visible too
         return _wants_viewer(args)
@@ -740,6 +747,15 @@ def main(argv=None):
     if (args.fix_master or args.fix_source) and not (
             args.check_current and args.fix_master and args.fix_source):
         ap.error('--fix-master and --fix-source must be used together with --check-current')
+    if args.fix_auto and not args.check_current:
+        ap.error('--fix-auto requires --check-current')
+    if args.fix_auto and (args.fix_master or args.fix_source):
+        ap.error('--fix-auto cannot be combined with --fix-master/--fix-source')
+    if args.fix_stage and not args.fix_auto:
+        ap.error('--fix-stage requires --fix-auto')
+    if args.fix_stage and Path(args.fix_stage).exists() and (
+            not Path(args.fix_stage).is_dir() or any(Path(args.fix_stage).iterdir())):
+        ap.error('--fix-stage must be a new or empty folder: {}'.format(args.fix_stage))
     if not _wants_viewer(args):
         if args.exclude is None:
             args.exclude = []
@@ -804,6 +820,12 @@ def _run_current(ap, args, zip_temp):
     root, label = _resolve_source(ap, args.check_current, zip_temp)
     if not root.is_dir():
         ap.error('CURRENT is not a directory or readable ZIP: {}'.format(args.check_current))
+    if args.fix_stage:
+        stage = Path(args.fix_stage).resolve()
+        if stage == root.resolve() or root.resolve() in stage.parents:
+            ap.error('--fix-stage must be outside CURRENT: {}'.format(args.fix_stage))
+    from . import config as app_config
+    repair = (getattr(args, '_app_config', None) or app_config.defaults())['repair']
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(errors='replace')
@@ -812,30 +834,54 @@ def _run_current(ap, args, zip_temp):
         ignore_access_port_regex=args.ignore_access_port_regex)
     print('CURRENT: {}'.format(args.current_name or label or args.check_current))
     assessment = None
-    if args.fix_master:
+    xsd = repair['xsd'] or None
+    if args.fix_master or args.fix_auto:
         if label:
             print('Repair preview requires a working CURRENT folder on disk. Extract the ZIP and rerun.')
+        elif args.fix_auto:
+            assessment = assess_auto_fix(root, check, config, args.exclude, args.ignore_access_port_regex,
+                                         codegen_root=repair['codegen_root'], xsd=xsd)
         else:
             assessment = assess_fix(root, args.fix_master, args.fix_source, check, config,
-                                    args.exclude, args.ignore_access_port_regex)
-    for line in _current_consistency_lines(check, assessment):
-        print(line)
-    if assessment and assessment.plan:
-        related = {i for finding in check.findings
-                   for i in assessment.related.get(finding_key(finding), ())}
-        for index, operation in enumerate(assessment.plan.operations):
-            row = operation.record
-            print('  [{}] {} {} -> {}'.format(
-                'FIX' if index in related else 'ADD', row.Category, row.ObjectPath, row.TargetFile))
-        command = ['compare-tool', '--arxml-handler', '--master', args.fix_master,
-                   '--source', args.fix_source, '--apply']
-        if os.name == 'nt':
-            command_line = ' '.join("'" + value.replace("'", "''") + "'" for value in command[1:])
-            print('  To apply (PowerShell): compare-tool ' + command_line)
-        else:
-            print('  To apply: ' + ' '.join(shlex.quote(value) for value in command))
-    elif assessment:
-        print('  Repair preview: ' + assessment.status)
+                                    args.exclude, args.ignore_access_port_regex, xsd=xsd)
+    sources = assessment.sources if assessment else None
+    try:
+        if sources is not None:
+            print('  Repair inputs (auto):')
+            for line in sources.lines():
+                print('    ' + line)
+        for line in _current_consistency_lines(check, assessment):
+            print(line)
+        if assessment and assessment.plan:
+            related = {i for finding in check.findings
+                       for i in assessment.related.get(finding_key(finding), ())}
+            for index, operation in enumerate(assessment.plan.operations):
+                row = operation.record
+                print('  [{}] {} {} -> {}'.format(
+                    'FIX' if index in related else 'ADD', row.Category, row.ObjectPath, row.TargetFile))
+            master, source = args.fix_master, args.fix_source
+            if sources is not None:
+                master, source = str(sources.master), None
+                if args.fix_stage:
+                    shutil.copytree(str(sources.staged), args.fix_stage, dirs_exist_ok=True)
+                    source = str(Path(args.fix_stage).resolve())
+            if source is None:
+                print('  To apply: use Code Check in the viewer, or rerun with --fix-stage DIR.')
+            else:
+                command = ['compare-tool', '--arxml-handler', '--master', master,
+                           '--source', source, '--apply']
+                if xsd:
+                    command += ['--xsd', xsd]
+                if os.name == 'nt':
+                    command_line = ' '.join("'" + value.replace("'", "''") + "'" for value in command[1:])
+                    print('  To apply (PowerShell): compare-tool ' + command_line)
+                else:
+                    print('  To apply: ' + ' '.join(shlex.quote(value) for value in command))
+        elif assessment:
+            print('  Repair preview: ' + assessment.status)
+    finally:
+        if sources is not None:
+            sources.close()
     code = check.exit_code
     if args.json or args.sarif:
         settings = _run_settings(args, ())

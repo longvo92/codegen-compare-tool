@@ -48,6 +48,18 @@ call's owner, full references and expected mode, with a matching planned operati
 Handler revalidates that result before Apply. Code Check reruns after Apply or Undo
 from its repair flow. Other overlapping results must be rescanned.
 
+`fix_sources.py` (standard library) finds those inputs for `assess_auto_fix`, the
+viewer and `--fix-auto`. The model and Model version come from the header of the
+failing call's C file; Master is the one CURRENT folder defining the failing runnables;
+Source is `<Model>_autosar_rtw` ARXML with the same Model version (newest stamp wins)
+plus the shared dictionary ARXML beside it, found in `repair.codegen_root` or by a
+bounded search around CURRENT, never an architecture export. Every miss is a message,
+never a guess. The chosen files are copied to a private staged folder, because the
+patch engine reads Source again before writing; the viewer keeps it while a plan or
+write uses it and keeps the last Master for Undo. `naming.py` holds the model-ownership
+rule shared with `report.py`. The `repair` config section (`codegen_root`, `xsd`) never
+invalidates a check.
+
 ## Data flow
 
 1. Source adapters materialize folders, ZIPs or Git snapshots as directories. The CLI reads `--baseline-rev` / `--current-rev` through the same read-only Git source.

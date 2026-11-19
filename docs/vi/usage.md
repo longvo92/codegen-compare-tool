@@ -184,7 +184,7 @@ Chọn **Code Check** để kiểm tra một snapshot CURRENT độc lập với
 
 ### ARXML Handler và đề xuất sửa
 
-**Công cụ → Xử lý ARXML…** mở trình xử lý trong cửa sổ riêng; đóng cửa sổ vẫn giữ các ô và dữ liệu hoàn tác trong phiên. Trình này bổ sung datatype S/R và dependency, datatype mapping, interface,
+**Công cụ → Xử lý ARXML…** mở trình xử lý trong cửa sổ riêng; đóng cửa sổ vẫn giữ các ô và dữ liệu hoàn tác trong phiên. **Lấy từ Code Check** (tự chạy khi cả hai ô đang trống) điền Master và Source theo đúng cách Code Check tìm; hai ô vẫn sửa tay được. Trình này bổ sung datatype S/R và dependency, datatype mapping, interface,
 R/P port, assembly/delegation connector, data element, ComSpec và runnable access
 từ **Source ARXML** đã generate vào **Master**. Chọn hai thư mục tách biệt,
 không lồng nhau, mỗi thư mục chứa một bộ định nghĩa nhất quán. Source chỉ được đọc.
@@ -196,24 +196,32 @@ có bổ sung. Có thể dùng CLI:
 compare-tool --arxml-handler --master Master --source Generated
 compare-tool --arxml-handler --master Master --source Generated --apply --xsd AUTOSAR_00047.xsd
 compare-tool --arxml-handler --master Master --source Generated --report PatchReport
+compare-tool --check-current Current --fix-auto
+compare-tool --check-current Current --fix-auto --fix-stage StagedSource
 compare-tool --check-current Current --fix-master Current/Master --fix-source Generated
 ```
 
 Code Check hiển thị **Đề xuất sửa** cho các finding được hỗ trợ. Với lỗi thiếu
-định nghĩa S/R, chọn Master trong CURRENT và thư mục Source đã generate. Tool
+định nghĩa S/R, tool tự tìm cả hai input, không cần nhập:
+
+- **Master** là thư mục trong CURRENT có ARXML định nghĩa runnable bị lỗi (với bản giao là `<Project>/arxml`).
+- **Source** là ARXML vừa generate của model sinh ra lời gọi lỗi. Model và **Model version** lấy từ header của file C đó. Tool tìm `<Model>_autosar_rtw/<Model>_component.arxml` trong thư mục codegen đặt ở **Cài đặt → Code Check → Sửa ARXML**, hoặc khi để trống thì tự dò quanh CURRENT (CURRENT và tối đa ba thư mục cha, sâu ba cấp, tối đa 3000 thư mục; nếu chạm giới hạn này hoặc gặp thư mục không đọc được thì dừng và yêu cầu đặt thư mục trong Cài đặt). Chỉ dùng ARXML có header ghi đúng Model version đó, bản generate mới nhất nếu có nhiều bản, cùng ARXML interface/data type dùng chung được generate bên cạnh. Bản export kiến trúc đầy đủ (thư mục chứa ARXML riêng của các model hoặc `*_composition.arxml`) không bao giờ được dùng.
+- Khi không chứng minh được bản khớp, đề xuất sẽ nói rõ lý do, ví dụ `Generated ARXML for model X is 1.76, the code is 1.77: regenerate the ARXML.`; khi đó không có bản sửa.
+
+Chỉ cần chạy Code Check: input được tìm trong lúc chạy và không hiển thị trong viewer (`--fix-auto` in chúng ra terminal). Tool
 kiểm tra toàn bộ bản sửa rồi chạy lại checker trên bản sao tạm với cùng policy
 và phạm vi. **Xem trước bản sửa** hiển thị bản sửa ngay dưới finding, đánh dấu sao
 các bổ sung liên quan, khi finding đã hết trên bản sao mà không phát sinh lỗi mới.
-Review toàn bộ bổ sung rồi bấm **Cập nhật Master** tại đó; có thể chọn XSD để
-validate khi ghi. Sau Cập nhật hoặc Hoàn tác, ứng dụng tự kiểm tra lại CURRENT, và
+Review toàn bộ bổ sung rồi bấm **Cập nhật Master** tại đó; XSD tùy chọn trong
+**Cài đặt → Code Check → Sửa ARXML** được dùng để validate khi ghi. Sau Cập nhật hoặc Hoàn tác, ứng dụng tự kiểm tra lại CURRENT, và
 **Hoàn tác lần cập nhật gần nhất** vẫn nằm dưới kết quả kể cả khi finding đã hết.
 Khi một bản sửa đang ghi hoặc cần khôi phục, nơi còn lại (tại chỗ hoặc Xử lý ARXML)
 không được ghi.
 Với input ZIP, giải nén ra thư mục làm việc rồi chạy lại Code Check trước khi
-tạo bản sửa. Cặp flag fix chỉ đánh giá bản sửa và giữ exit code của lần kiểm tra gốc.
+tạo bản sửa. Trong terminal, `--fix-auto` chạy cùng cách dò (section `repair` của `--config` đặt thư mục codegen và XSD); `--fix-stage DIR` giữ Source đã tìm trong một thư mục mới hoặc rỗng ngoài CURRENT để lệnh `--arxml-handler … --apply` được in ra chạy được. `--fix-master`/`--fix-source` vẫn dùng được để chỉ định tay. Các flag này chỉ đánh giá bản sửa và giữ exit code của lần kiểm tra gốc.
 
 Handler hỗ trợ tài liệu AUTOSAR R4 khai báo `AUTOSAR_00047.xsd`. Để validate
-theo XSD lúc Apply, chọn schema cục bộ cùng các file import. Nếu không chọn XSD,
+theo XSD lúc Apply, đặt schema cục bộ (các file import để cạnh) trong Cài đặt, hoặc `--xsd` cho CLI của handler. Nếu không chọn XSD,
 tool vẫn kiểm tra cấu trúc và reference. Xung đột, dependency không được hỗ trợ
 và input đã thay đổi sẽ chặn ghi. Các định nghĩa hiện có được giữ nguyên. C/S,
 NV-Data, PR-Port và tạo component hoặc runnable nằm ngoài phạm vi import.

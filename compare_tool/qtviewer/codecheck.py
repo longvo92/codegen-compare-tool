@@ -5,7 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from pprint import pformat
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFontDatabase, QTextCursor
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout,
 
 from .. import theme
 from ..messages import Message
-from ..fix_suggestions import FixAssessment, assess_fix, candidate, fail_counts, finding_key, suggestion
+from ..fix_suggestions import (FixAssessment, assess_auto_fix, assess_fix, candidate, fail_counts,
+                               finding_key, suggestion)
 from ..zipsource import is_zip
-from .arxml_handler import path_field
 from ..consistency import CHECKER_SCOPE, ignored_explanation
 from ..scanner import read_text
 from ..syntax import language_for
@@ -51,7 +51,7 @@ class CodeCheckPage(QWidget):
 
     def __init__(self, current_source, parent=None, texts=None, *, settings=None,
                  may_check=lambda: True, temporary_source=lambda _path: False,
-                 may_write=lambda: False):
+                 may_write=lambda: False, repair_settings=lambda: {'codegen_root': '', 'xsd': ''}):
         super().__init__(parent)
         self._text = Texts() if texts is None else texts
         self._settings = preference_store() if settings is None else settings
@@ -71,6 +71,13 @@ class CodeCheckPage(QWidget):
         self.assessment = None
         self.fix_pending = False
         self.may_check = may_check
+        self.repair_settings = repair_settings
+        # the detected inputs: the current FixSources, older ones waiting until
+        # no plan or write uses their staged copy, and the last Master found --
+        # kept so Undo still reaches it after the repaired finding is gone
+        self._sources = None
+        self._retired = []
+        self.fix_master_path = None
         self.temporary_source = temporary_source
         self.context = None
         self._recheck_baseline = None
@@ -230,12 +237,9 @@ class CodeCheckPage(QWidget):
         fix_layout.addWidget(self.fix_placeholder)
         self.fix_group = QGroupBox()   # the dock is titled 'Suggested fix'
         fix_form = QFormLayout(self.fix_group)
-        fix_row, self.fix_master = path_field(self, self._text, 'Master folder to update')
-        fix_form.addRow(self._text.widget(QLabel, 'Master folder to update'), fix_row)
-        fix_row, self.fix_source = path_field(self, self._text, 'Source ARXML folder')
-        fix_form.addRow(self._text.widget(QLabel, 'Source ARXML folder'), fix_row)
-        fix_row, self.fix_xsd = path_field(self, self._text, 'Optional AUTOSAR XSD', schema=True)
-        fix_form.addRow(self._text.widget(QLabel, 'Optional AUTOSAR XSD'), fix_row)
+        # Master and Source are found, not typed or shown: each Code Check run
+        # scans the generated-code layout and its Model version stamps
+        # (fix_sources.py); only a reason not to fix reaches the note below
         self.fix_note = QLabel()
         self.fix_note.setWordWrap(True)
         self.fix_note.setTextFormat(Qt.PlainText)
@@ -254,12 +258,6 @@ class CodeCheckPage(QWidget):
         self.fix_group.hide()
         fix_layout.addWidget(self.fix_group, 1)
         fix_layout.addStretch()
-        self.fix_timer = QTimer(self)
-        self.fix_timer.setSingleShot(True)
-        self.fix_timer.setInterval(300)
-        self.fix_timer.timeout.connect(self._evaluate_fix)
-        for field in (self.fix_master, self.fix_source):
-            field.textChanged.connect(self._fix_inputs_changed)
 
         self.source.textChanged.connect(self._source_changed)
         for edit in (self.ignore, self.excludes):
@@ -324,6 +322,7 @@ class CodeCheckPage(QWidget):
         self._set_status('STALE — run again', 'state-busy')
         self.assessment = None
         self._drop_repair_plan('Run Code Check again before applying a repair.')
+        self._retire_sources()
         self._clear_source('Run Code Check again before inspecting source.')
         self._refresh_fix()
 
@@ -371,6 +370,7 @@ class CodeCheckPage(QWidget):
             config = deepcopy(self._settings.config['code_check']['policy'])
         self.cleanup()
         self._drop_repair_plan('Preview the fix again: Code Check ran again.')
+        self._release_sources()
         self.context = context
         self._recheck_baseline = baseline
         self.assessment = None
@@ -614,18 +614,45 @@ class CodeCheckPage(QWidget):
         except Exception as e:
             self._clear_source(Message('Source could not be read: {}', e))
 
-    def _fix_inputs(self):
-        return self.fix_master.text().strip(), self.fix_source.text().strip()
-
     def _repair_paths(self):
-        return (*self._fix_inputs(), self.fix_xsd.text().strip() or None)
+        staged = self._sources.staged if self._sources is not None else None
+        return (str(self.fix_master_path or ''), str(staged or ''),
+                self.repair_settings().get('xsd') or None)
 
-    def _fix_inputs_changed(self):
+    def _retire_sources(self):
+        if self._sources is not None:
+            self._retired.append(self._sources)
+            self._sources = None
+        self._release_sources()
+
+    def _release_sources(self, force=False):
+        """Remove staged Source copies nothing uses any more. A loaded plan
+        or a running write reads its Source again, so that one waits."""
+        panel = self.repair_panel
+        keep = []
+        for sources in self._retired:
+            staged = sources.staged
+            in_use = staged is not None and (panel.worker is not None or (
+                panel.plan is not None and Path(panel.plan.source.folder) == Path(staged).resolve()))
+            if in_use and not force:
+                keep.append(sources)
+            else:
+                sources.close()
+        self._retired = keep
+
+    def release_repair_sources(self):
+        """Closing the window: every staged copy goes."""
+        self._retire_sources()
+        self._release_sources(force=True)
+
+    def repair_settings_changed(self):
+        """Codegen folder or XSD changed in Settings: find the inputs again,
+        without calling the check itself stale."""
         self.assessment = None
-        self.fix_pending = True
-        self._drop_repair_plan()
-        self.fix_timer.start()
-        self._refresh_fix()
+        self._drop_repair_plan('Preview the fix again: repair settings changed.')
+        self._retire_sources()
+        self.fix_pending = self.fix_worker is not None
+        self._evaluate_fix()
 
     def _drop_repair_plan(self, message='Preview the fix again: its inputs changed.'):
         """A plan belongs to the check and folders it was verified against;
@@ -636,6 +663,7 @@ class CodeCheckPage(QWidget):
 
     def _repair_activity(self):
         self.activity_changed.emit()
+        self._release_sources()
         self._refresh_fix()
 
     def _repair_active(self):
@@ -655,15 +683,17 @@ class CodeCheckPage(QWidget):
         self._refresh_fix()
         if self.fix_worker or not self.may_check() or not self._repair_is_available():
             return
-        master, source = self._fix_inputs()
-        if not master or not source or not any(candidate(f) for f in self.check.findings):
+        if not any(candidate(f) for f in self.check.findings):
             return
         context, check, root, config = self.context, self.check, self.root, self.worker.config
-        self._fix_ticket = (check, self._fix_inputs())
+        settings = dict(self.repair_settings())
+        self._fix_ticket = (check, settings)
         self._fix_config = config
         self.fix_pending = False
         self.fix_worker = TaskWorker(
-            lambda: assess_fix(root, master, source, check, config, context.exclude, context.ignore),
+            lambda: assess_auto_fix(root, check, config, context.exclude, context.ignore,
+                                    codegen_root=settings.get('codegen_root', ''),
+                                    xsd=settings.get('xsd') or None),
             self)
         self.fix_worker.finished.connect(self._fix_finished)
         self.fix_worker.start()
@@ -672,12 +702,21 @@ class CodeCheckPage(QWidget):
 
     def _fix_finished(self):
         worker, self.fix_worker = self.fix_worker, None
-        check, inputs = self._fix_ticket
-        if self.check is check and self._fix_inputs() == inputs and self._repair_is_available():
+        check, settings = self._fix_ticket
+        result = worker.result if not worker.error else None
+        sources = getattr(result, 'sources', None)
+        if (self.check is check and dict(self.repair_settings()) == settings
+                and self._repair_is_available() and not self.fix_pending):
+            self._retire_sources()
             if worker.error:
                 self.assessment = FixAssessment(Message('ARXML repair could not be verified: {}', worker.error))
             else:
-                self.assessment = worker.result
+                self.assessment = result
+                self._sources = sources
+                if sources is not None and sources.master is not None:
+                    self.fix_master_path = sources.master
+        elif sources is not None:
+            sources.close()   # a stale result: nothing will ever use its copy
         worker.deleteLater()
         self.activity_changed.emit()
         self._refresh_fix()
@@ -693,9 +732,6 @@ class CodeCheckPage(QWidget):
         self.fix_placeholder.setVisible(not (relevant or active))
         self.repair_panel.setVisible(active)
         editable = self.repair_panel.editable
-        for field in (self.fix_master, self.fix_source, self.fix_xsd):
-            field.parentWidget().setEnabled(editable and (relevant or active)
-                                            and self._repair_is_available())
         if not relevant:
             self.preview_fix.setEnabled(False)
             self.preview_fix.setVisible(False)
@@ -708,7 +744,7 @@ class CodeCheckPage(QWidget):
         self.preview_fix.setEnabled(bool(valid) and not self.fix_worker)
         self.fix_note.setText(self._text(
             'Run Code Check on a working folder to preview a repair.' if not allowed
-            else 'Checking the proposed ARXML repair…' if self.fix_worker
+            else 'Looking for the generated ARXML and checking the repair…' if self.fix_worker
             else suggestion(finding, self.assessment) or ''))
         self._show_details('FAIL', finding)
 
@@ -719,7 +755,7 @@ class CodeCheckPage(QWidget):
         finding = self._rows[item.data(0, Qt.UserRole)][1]
         key = finding_key(finding)
         plan = self.assessment.plan
-        master, source = self._fix_inputs()
+        master, source = self.assessment.sources.master, self.assessment.sources.staged
         context, check, root, config = self.context, self.check, self.root, self._fix_config
 
         def verify(xsd):
@@ -772,8 +808,8 @@ class CodeCheckPage(QWidget):
             item.setForeground(0, QBrush(QColor(theme.c(role))))
 
     def cleanup(self):
-        self.fix_timer.stop()
         self.fix_pending = False
+        self._retire_sources()
         if self.worker and not self.worker.isRunning():
             self.worker.cleanup()
             self.worker.deleteLater()

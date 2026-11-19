@@ -241,11 +241,13 @@ class MainWindow(AppShell):
         # may write only while the other is idle and has nothing to recover.
         self.arxml_handler = ArxmlHandlerPage(
             self._text, partial(self._may_write_arxml, 'handler'), self,
-            protected_source=self._temporary_source)
+            protected_source=self._temporary_source, repair_settings=self._repair_settings,
+            check_inputs=self._check_repair_inputs)
         self.code_check = CodeCheckPage(lambda: self.new, self, self._text, settings=self._settings,
                                         may_check=lambda: not self._arxml_writing(),
                                         temporary_source=self._temporary_source,
-                                        may_write=partial(self._may_write_arxml, 'check'))
+                                        may_write=partial(self._may_write_arxml, 'check'),
+                                        repair_settings=self._repair_settings)
         self.arxml_window = ToolWindow(self, self.arxml_handler, self._text,
                                        window_state=self.window_state, key='arxml_handler')
         self.code_check.activity_changed.connect(self._refresh_repair_buttons)
@@ -489,6 +491,11 @@ class MainWindow(AppShell):
                         self.code_check.ignore.setText(updated['code_check']['ignore_regex'])
                     if previous['code_check'] != updated['code_check']:
                         self.code_check.invalidate_check()
+                    elif previous['repair'] != updated['repair']:
+                        # where the generated ARXML is, or the XSD: the check
+                        # itself still stands, only its repair is found again
+                        self.code_check.repair_settings_changed()
+                    self.arxml_handler.refresh_buttons()
                     if previous['compare'] != updated['compare'] and self._raw_results:
                         self._raw_results = {}
                         self.results = {}
@@ -774,6 +781,31 @@ class MainWindow(AppShell):
 
     def _show_arxml_tool(self):
         self.arxml_window.open()
+        handler = self.arxml_handler
+        if not (handler.master.text().strip() or handler.source.text().strip()) \
+                and self._check_repair_inputs() is not None:
+            handler.fill_from_check()
+
+    def _repair_settings(self):
+        """Settings > Code Check > ARXML repair: codegen output folder and XSD."""
+        return (self._config or app_config_module.defaults())['repair']
+
+    def _check_repair_inputs(self):
+        page = getattr(self, 'code_check', None)
+        if page is None or page.check is None or not page._repair_is_available():
+            return None
+        return page.root, page.check, page.context.exclude
+
+    def _staged_sources(self):
+        """Private copies of generated ARXML: never a Master, never compared."""
+        out = []
+        page = getattr(self, 'code_check', None)
+        if page is not None:
+            out += [s.staged for s in [page._sources, *page._retired] if s is not None and s.staged]
+        handler = getattr(self, 'arxml_handler', None)
+        if handler is not None:
+            out += handler.staged_folders()
+        return out
 
     def _sync_view_actions(self):
         index = self.views.currentIndex()
@@ -852,7 +884,7 @@ class MainWindow(AppShell):
     def _temporary_source(self, path):
         if not path:
             return False
-        roots = [self._src_temp, self._external_temp]
+        roots = [self._src_temp, self._external_temp, *self._staged_sources()]
         check = getattr(self, 'code_check', None)
         if check and check.worker and check.worker._temp:
             roots.append(check.worker._temp.name)
@@ -934,6 +966,7 @@ class MainWindow(AppShell):
 
     def closeEvent(self, event):
         running = [w for w in (self.worker, self.code_check.worker, self.code_check.fix_worker,
+                               self.arxml_handler.fill_worker,
                                *(p.worker for p in self._repair_panels())) if w and w.isRunning()]
         recovering = [p for p in self._repair_panels() if p.recovery_required]
         if recovering:
@@ -958,6 +991,8 @@ class MainWindow(AppShell):
                     worker.finished.connect(self.close)
             return
         self.code_check.cleanup()
+        self.code_check.release_repair_sources()
+        self.arxml_handler.release_sources()
         if self._src_temp:
             # checkouts and unpacked zips are scratch: they live as long as the
             # session, so flipping between sources is instant, and go with it

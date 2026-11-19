@@ -12,7 +12,7 @@ import re
 from collections import namedtuple
 from pathlib import Path
 
-from . import APP_NAME, consistency, filepair, funcname, syntax, theme
+from . import APP_NAME, consistency, filepair, funcname, naming, syntax, theme
 from .diff_engine import ruleset_for
 from .report_assets import _CSS, _THEME_BUTTON, _THEME_JS
 from .scanner import (looks_binary, read_text, summarize, summarize_a2l,
@@ -502,6 +502,9 @@ _STATUS_TITLE = {'real-change': 'Modified',
 
 # --- grouping by model / SWC (Embedded Coder AUTOSAR naming convention) ---
 
+# shared with fix_sources.py, which locates generated ARXML by the same rule
+_stem = naming.stem
+_model_of = naming.model_of
 SHARED_GROUP = 'Shared / other'
 OverviewRow = namedtuple('OverviewRow', 'model file_parts autosar_changes')
 # modular arxml export: <Model>_component.arxml, <Model>_interface.arxml, ...
@@ -525,12 +528,6 @@ _DETAIL_ORDER = {'error': -1, 'real-change': 0, 'ignorable-only': 1,
                  'added': 2, 'deleted': 3}
 
 
-def _stem(rel):
-    base = rel.rsplit('/', 1)[-1]
-    dot = base.rfind('.')
-    return base[:dot] if dot > 0 else base
-
-
 def _detect_models(paths):
     """Model-name candidates: X for any X.c, plus X for the modular arxml
     export names (X_component.arxml, X_interface.arxml, ...). X_data is then
@@ -550,15 +547,6 @@ def _detect_models(paths):
         if m and m.group(1) in cands:
             cands.discard(c)
     return cands
-
-
-def _model_of(stem, ordered_models):
-    """Owning model of a file stem: X.ext, X_*.ext or Rte_X.h belong to X.
-    ordered_models is longest-first so SubModel_ab wins over SubModel."""
-    for m in ordered_models:
-        if stem == m or stem.startswith(m + '_') or stem == 'Rte_' + m:
-            return m
-    return None
 
 
 def _model_groups(results):
